@@ -35,7 +35,7 @@ import {
   type PipelineActionRequest,
 } from '@/api/client'
 import { cn } from '@/lib/utils'
-import { findLatestForIssue } from '@/lib/pipeline'
+import { findLatestForIssue, FAILED_STAGES } from '@/lib/pipeline'
 import { paths } from '@/routes/paths'
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
@@ -210,8 +210,6 @@ const STAGE_LABEL: Record<string, string> = {
   review: 'review',
   merge: 'merge',
 }
-
-const FAILED_STAGES = new Set(['failed', 'review_failed', 'smoke_failed'])
 
 /**
  * The detail's own content column (#1547).

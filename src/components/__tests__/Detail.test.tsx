@@ -678,3 +678,49 @@ describe('Detail — misc gate actions', () => {
     })
   })
 })
+
+// ── Rework cycle: renders the latest attempt, not the first (#2) ───────────────
+
+describe('Detail — rework cycle', () => {
+  it('renders the latest attempt when the pipeline has two rows for the same issue', async () => {
+    // Mirrors #1930: a request-changes attempt (superseded), then its
+    // approve fix-1 (the current state). `findLatestForIssue` picks the
+    // LAST matching row — this is a black-box check, through the rendered
+    // Detail view, that the fix actually lands there and not just in the
+    // pure-function unit tests in pipeline.test.ts.
+    const requestChanges = makeView({
+      assignment_id: 'review-1',
+      current_stage: 'review_failed',
+      review_verdict: 'request-changes',
+      available_gates: [{ action: 'dispatch_fix', label: 'Fix', endpoint: '/api/pipeline/action' }],
+    })
+    const approveFix = makeView({
+      assignment_id: 'review-2',
+      current_stage: 'merge_ready',
+      review_verdict: 'approve',
+      available_gates: [{ action: 'merge', label: 'Merge', endpoint: '/api/pipeline/action' }],
+    })
+    vi.mocked(fetchPipeline).mockResolvedValue([requestChanges, approveFix])
+    vi.mocked(fetchDiff).mockResolvedValue(makeDiff())
+    vi.mocked(pipelineAction).mockResolvedValue({ ok: true } satisfies PipelineActionResult)
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/pipeline/myrepo/42']}>
+          <Routes>
+            <Route path="/pipeline/:repo/:issue" element={<Detail />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    // The latest row's verdict ("Approved") and its Merge gate render...
+    await waitFor(() => {
+      expect(screen.getByText('Verdict: Approved')).toBeInTheDocument()
+    })
+    expect(screen.getByRole('button', { name: 'Merge' })).toBeInTheDocument()
+    // ...not the superseded row's "Changes requested" verdict or Fix gate.
+    expect(screen.queryByText('Verdict: Changes requested')).not.toBeInTheDocument()
+    expect(screen.queryByText('Request Changes')).not.toBeInTheDocument()
+  })
+})

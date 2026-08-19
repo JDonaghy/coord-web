@@ -65,14 +65,42 @@ function isDoneIsh(view: PipelineView): boolean {
 const RUNNING_STAGES = new Set(['coding', 'review_running', 'smoke_running', 'merging'])
 
 /**
- * Split the "Active" tab's items into "in progress" (shown expanded) and
- * "done-ish" (collapsed by default, see DONE_ISH_STAGES). Within "in
- * progress", items needing human input (available_gates.length > 0) sort
- * first, then actively-running items, with the incoming order preserved as
- * the tiebreak (stable sort). "Done-ish" items are returned unsorted here —
- * the caller sorts them by finished_at descending.
+ * Recency signal for the "Active" tab's primary sort (#2 review fixup — the
+ * previous version bucketed needs-me items ahead of running work with no
+ * timestamp comparison at all, so a failure that finished minutes ago still
+ * outranked work that started seconds ago; only the 24h staleness window
+ * kept that from being the exact bug the issue reported).
+ *
+ * An actively-running item (a subprocess is currently executing) is always
+ * treated as maximally recent — "now" — because it's happening as this
+ * renders, which no past `finished_at` can outrank no matter how fresh.
+ * Everything else recedes by how long ago it finished, most recent first;
+ * an item with no `finished_at` at all (no recency signal, e.g. waiting on
+ * a gate that was never timestamped) sorts last rather than claiming top
+ * billing it hasn't earned.
+ *
+ * Takes `now` explicitly for the same reason `isStaleFailure` does — so a
+ * fixture-driven test can pin it deterministically instead of racing
+ * `Date.now()`.
  */
-function groupActiveItems(views: PipelineView[]): { inProgress: PipelineView[]; done: PipelineView[] } {
+function recencyValue(view: PipelineView, now: number): number {
+  if (RUNNING_STAGES.has(view.current_stage)) return now
+  return view.finished_at != null ? view.finished_at * 1000 : -Infinity
+}
+
+/**
+ * Split the "Active" tab's items into "in progress" (shown expanded) and
+ * "done-ish" (collapsed by default, see DONE_ISH_STAGES). "Done-ish" items
+ * are returned unsorted here — the caller sorts them by finished_at
+ * descending. "In progress" items are sorted genuinely recency-first via
+ * `recencyValue` above, with the incoming order preserved as the tiebreak
+ * (stable sort) when two items have the same recency value (e.g. two
+ * simultaneously-running items).
+ */
+function groupActiveItems(
+  views: PipelineView[],
+  now: number = Date.now(),
+): { inProgress: PipelineView[]; done: PipelineView[] } {
   const inProgress: PipelineView[] = []
   const done: PipelineView[] = []
   for (const view of views) {
@@ -83,12 +111,7 @@ function groupActiveItems(views: PipelineView[]): { inProgress: PipelineView[]; 
     }
   }
 
-  const priority = (view: PipelineView): number => {
-    if (needsMe(view)) return 0
-    if (RUNNING_STAGES.has(view.current_stage)) return 1
-    return 2
-  }
-  inProgress.sort((a, b) => priority(a) - priority(b))
+  inProgress.sort((a, b) => recencyValue(b, now) - recencyValue(a, now))
 
   // Most recently finished first; items with no finished_at yet sort last.
   done.sort((a, b) => (b.finished_at ?? -Infinity) - (a.finished_at ?? -Infinity))
@@ -328,8 +351,9 @@ export default function Home() {
 
   const filtered = grouped.filter(FILTER_FNS[filterTab])
 
-  // Active tab only: group into "in progress" (expanded, needs-me-first) and
-  // "done-ish" (collapsed "Work done" section, sorted by recency) — #1218.
+  // Active tab only: group into "in progress" (expanded, recency-first —
+  // #2) and "done-ish" (collapsed "Work done" section, sorted by recency)
+  // — #1218.
   // The "Needs me" tab stays a flat list; its semantics are unchanged.
   const { inProgress, done } =
     filterTab === 'active' ? groupActiveItems(filtered) : { inProgress: filtered, done: [] }

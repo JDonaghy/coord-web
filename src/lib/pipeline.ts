@@ -10,10 +10,14 @@
 import type { PipelineView } from '@/api/client'
 
 /**
- * `current_stage` values that are terminal failures (mirrors
- * `PipelineCard`'s `FAILED_STAGES` / `Home`'s needs-me priority bucket).
+ * `current_stage` values that are terminal failures. Exported (rather than
+ * kept as a private copy per module, as it was before #2's review pass) so
+ * `PipelineCard` and `Detail`'s "Failed" badge and this module's staleness
+ * filter share one definition — a second, independently-drifting copy would
+ * let a new terminal-failure stage silently desync the badge from the
+ * filter.
  */
-const FAILED_STAGES = new Set(['failed', 'review_failed', 'smoke_failed'])
+export const FAILED_STAGES = new Set(['failed', 'review_failed', 'smoke_failed'])
 
 /**
  * #2: how long a *failed* item stays visible in the Active tab before it's

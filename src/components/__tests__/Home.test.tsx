@@ -156,16 +156,15 @@ describe('Home — live sessions section', () => {
 // ── Active tab: in-progress/done grouping (#1218) ───────────────────────────────
 
 describe('Home — Active tab grouping', () => {
-  it('renders in-progress items expanded, needs-me first then running', async () => {
-    // Incoming (API) order deliberately scrambled: running item first, then
-    // a needs-me (failed, offers retry) item — expect needs-me to sort first.
-    const running = makeView({
-      assignment_id: 'a-running',
-      issue_number: 1,
-      issue_title: 'Running item',
-      current_stage: 'coding',
-      available_gates: [],
-    })
+  // #2 review fixup: this used to assert needs-me-first order regardless of
+  // recency (the pre-#2 behavior). That's exactly the mechanism the issue
+  // flagged as broken — a needs-me item with no timestamp advantage still
+  // outranked live work — so it now asserts the corrected, recency-first
+  // order: an item that's actively running right now outranks a needs-me
+  // item with no recency signal of its own (see `recencyValue` in Home.tsx).
+  it('renders in-progress items expanded, running ahead of a needs-me item with no recency signal', async () => {
+    // Incoming (API) order deliberately scrambled: needs-me item first, then
+    // a running item — expect the running item to sort first regardless.
     const needsMe = makeView({
       assignment_id: 'a-needs-me',
       issue_number: 2,
@@ -173,15 +172,22 @@ describe('Home — Active tab grouping', () => {
       current_stage: 'failed',
       available_gates: [{ action: 'retry', label: 'Retry', endpoint: '/api/pipeline/action' }],
     })
-    vi.mocked(fetchPipeline).mockResolvedValue([running, needsMe])
+    const running = makeView({
+      assignment_id: 'a-running',
+      issue_number: 1,
+      issue_title: 'Running item',
+      current_stage: 'coding',
+      available_gates: [],
+    })
+    vi.mocked(fetchPipeline).mockResolvedValue([needsMe, running])
     vi.mocked(fetchSessions).mockResolvedValue([])
 
     renderHome()
 
-    const needsMeCard = await screen.findByText('Failed item needing retry')
-    const runningCard = screen.getByText('Running item')
+    const runningCard = await screen.findByText('Running item')
+    const needsMeCard = screen.getByText('Failed item needing retry')
     expect(
-      needsMeCard.compareDocumentPosition(runningCard) & Node.DOCUMENT_POSITION_FOLLOWING,
+      runningCard.compareDocumentPosition(needsMeCard) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
   })
 
@@ -343,6 +349,74 @@ describe('Home — Active tab staleness/order/grouping (#2)', () => {
     const cards = within(section).getAllByRole('button')
     expect(cards).toHaveLength(1)
     expect(cards[0]).toHaveTextContent('Newest live work')
+  })
+
+  // The above test can't distinguish "sorted by recency" from "sorted by
+  // needs-me priority": the competing item is filtered out by staleness
+  // entirely, leaving one card either way. This test pins the general case
+  // with two *surviving* (non-stale) items where recency and needs-me
+  // priority disagree — a failed item with a retry gate that finished
+  // recently (inside the staleness window, so not filtered) vs. an item
+  // that's actively running right now. Per `recencyValue` (Home.tsx), a
+  // currently-running item is always most recent, so it renders first even
+  // though the needs-me item's failure is the more recently *timestamped*
+  // event of the two.
+  it('ranks a currently-running item ahead of a non-stale needs-me item, regardless of which finished more recently', async () => {
+    const recentlyFailed = makeView({
+      assignment_id: 'a-recently-failed',
+      issue_number: 772,
+      issue_title: 'Failed two hours ago',
+      current_stage: 'failed',
+      finished_at: daysAgoSec(2 / 24), // 2 hours ago — inside the 24h window
+      available_gates: [{ action: 'retry', label: 'Retry', endpoint: '/api/pipeline/action' }],
+    })
+    const runningNow = makeView({
+      assignment_id: 'a-running-now',
+      issue_number: 1960,
+      issue_title: 'Started seconds ago',
+      current_stage: 'coding',
+    })
+    // API order deliberately mirrors #2's repro: the needs-me item leads.
+    vi.mocked(fetchPipeline).mockResolvedValue([recentlyFailed, runningNow])
+    vi.mocked(fetchSessions).mockResolvedValue([])
+
+    renderHome()
+
+    const section = await screen.findByRole('region', { name: 'Active items' })
+    const cards = within(section).getAllByRole('button')
+    expect(cards).toHaveLength(2)
+    expect(cards[0]).toHaveTextContent('Started seconds ago')
+    expect(cards[1]).toHaveTextContent('Failed two hours ago')
+  })
+
+  it('orders two non-running Active items by recency when neither is currently running', async () => {
+    const olderFailure = makeView({
+      assignment_id: 'a-older-failure',
+      issue_number: 5,
+      issue_title: 'Failed six hours ago',
+      current_stage: 'failed',
+      finished_at: daysAgoSec(6 / 24),
+      available_gates: [{ action: 'retry', label: 'Retry', endpoint: '/api/pipeline/action' }],
+    })
+    const newerFailure = makeView({
+      assignment_id: 'a-newer-failure',
+      issue_number: 6,
+      issue_title: 'Failed one hour ago',
+      current_stage: 'review_failed',
+      finished_at: daysAgoSec(1 / 24),
+      available_gates: [{ action: 'dispatch_fix', label: 'Fix', endpoint: '/api/pipeline/action' }],
+    })
+    // API order deliberately puts the older one first.
+    vi.mocked(fetchPipeline).mockResolvedValue([olderFailure, newerFailure])
+    vi.mocked(fetchSessions).mockResolvedValue([])
+
+    renderHome()
+
+    const section = await screen.findByRole('region', { name: 'Active items' })
+    const cards = within(section).getAllByRole('button')
+    expect(cards).toHaveLength(2)
+    expect(cards[0]).toHaveTextContent('Failed one hour ago')
+    expect(cards[1]).toHaveTextContent('Failed six hours ago')
   })
 
   it('renders exactly one Active card for an issue with a rework cycle (two work rows)', async () => {
