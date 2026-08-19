@@ -25,9 +25,16 @@
  */
 import { test, expect } from '@playwright/test'
 import path from 'node:path'
-import { startFixtureServer, REPO_ROOT, type FixtureServerHandle } from './fixtureServer'
+import { fileURLToPath } from 'node:url'
+import { startFixtureServer, type FixtureServerHandle } from './fixtureServer'
 
-const FIXTURE_PATH = path.join(REPO_ROOT, 'tests/fixtures/board-pipeline-terminal-gates.json')
+// #2005 split: vendored alongside fixtureServer.ts's FIXTURE_PATH — see its
+// comment for why this no longer climbs to a monorepo `tests/fixtures/`.
+const FIXTURE_PATH = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  'fixtures',
+  'board-pipeline-terminal-gates.json',
+)
 
 test.describe('terminal assignments offer no gates (#2084)', () => {
   let server: FixtureServerHandle

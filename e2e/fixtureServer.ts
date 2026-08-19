@@ -31,9 +31,14 @@ import { fileURLToPath } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 export const WEBAPP_ROOT = path.resolve(here, '..')
-export const REPO_ROOT = path.resolve(here, '../../../..')
+// #2005 split: this repo IS the former `coord/dashboard/webapp/`, so its own
+// root is the repo root -- there is no monorepo above it to climb to.
+// `tests/fixtures/*.json` (outside the old subtree-split prefix) did not
+// come along in the move; the two fixtures these specs need are vendored
+// here instead, at `e2e/fixtures/` (coord-web PR, post-#2005).
+export const REPO_ROOT = WEBAPP_ROOT
 export const DIST_DIR = path.join(WEBAPP_ROOT, 'dist')
-export const FIXTURE_PATH = path.join(REPO_ROOT, 'tests/fixtures/board-pipeline-basic.json')
+export const FIXTURE_PATH = path.join(here, 'fixtures', 'board-pipeline-basic.json')
 
 export interface FixtureServerHandle {
   baseUrl: string
