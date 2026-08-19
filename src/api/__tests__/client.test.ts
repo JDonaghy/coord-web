@@ -96,7 +96,7 @@ describe('driveQueueAction', () => {
       new Response(JSON.stringify({ ok: true }), { status: 200 }),
     )
 
-    const body = { repo: 'myrepo', issue: 42, action: 'remove' as const }
+    const body = { repo_name: 'myrepo', issue_number: 42, action: 'remove' as const }
     const result = await driveQueueAction(body)
 
     expect(fetch).toHaveBeenCalledWith('/api/drive-queue/action', {
@@ -112,7 +112,7 @@ describe('driveQueueAction', () => {
       new Response(JSON.stringify({ ok: false, error: 'not implemented' }), { status: 501 }),
     )
 
-    const result = await driveQueueAction({ repo: 'myrepo', issue: 42, action: 'add' })
+    const result = await driveQueueAction({ repo_name: 'myrepo', issue_number: 42, action: 'unblock' })
 
     expect(result).toEqual({ ok: false, error: 'not implemented' })
   })
@@ -122,7 +122,7 @@ describe('driveQueueAction', () => {
       new Response(JSON.stringify({}), { status: 501 }),
     )
 
-    const result = await driveQueueAction({ repo: 'myrepo', issue: 42, action: 'move', to_position: 2 })
+    const result = await driveQueueAction({ repo_name: 'myrepo', issue_number: 42, action: 'move', to_position: 2 })
 
     expect(result).toEqual({ ok: false, error: 'HTTP 501' })
   })

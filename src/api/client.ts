@@ -11,9 +11,9 @@
  *
  * Actions marked "(forthcoming)" in `PipelineAction`'s doc comment are
  * defined ahead of their backend implementation so TypeScript callers can
- * reference them; they will return HTTP 501 until the matching server PR
- * merges. `DriveQueueAction` below follows the same convention ahead of
- * DQW-2.
+ * reference them; they will return HTTP 501 once the route exists but the
+ * action isn't implemented, or 404 if the route itself isn't registered yet.
+ * `DriveQueueAction` below follows the same convention ahead of DQW-2.
  */
 
 import type {
@@ -125,18 +125,23 @@ export interface DriveQueueData {
 /**
  * Actions supported by POST /api/drive-queue/action.
  *
- * Defined ahead of DQW-2's backend implementation — same "(forthcoming)"
- * convention as `PipelineAction` above. All three mirror `coord
- * drive-queue`'s existing CLI verbs (`coord/commands/drive_queue.py`:
- * `drive_queue_add` / `drive_queue_remove` / `drive_queue_move`), so the
- * wire contract is a guess about naming only, not about behavior. Will 501
- * until the matching server PR merges.
+ * Defined ahead of DQW-2's backend implementation landing on
+ * claude-coordinator's `main` — same "(forthcoming)" convention as
+ * `PipelineAction` above. Matches DQW-2's actual (currently in-review) server
+ * implementation, `coord/dashboard/server.py`'s `api_drive_queue_action` on
+ * branch `issue-2429-dqw-2-post-api-drive-queue-action-move-r`: this mirrors
+ * the TUI's queue-mutation actions (`queue_unblock_selected` /
+ * `queue_resume_selected` / move / remove), not `coord drive-queue`'s CLI
+ * verb set (`coord/commands/drive_queue.py`) — the two don't share a verb
+ * list, and in particular there is no `add` action here since queueing
+ * happens elsewhere. Not yet a registered route on claude-coordinator main,
+ * so calling this today 404s rather than 501s until DQW-2 merges.
  */
-export type DriveQueueAction = 'add' | 'remove' | 'move'
+export type DriveQueueAction = 'move' | 'remove' | 'unblock' | 'resume'
 
 export interface DriveQueueActionRequest {
-  repo: string
-  issue: number
+  repo_name: string
+  issue_number: number
   action: DriveQueueAction
   /** Additional payload fields for specific actions (e.g. to_position for move). */
   [key: string]: unknown
@@ -213,7 +218,7 @@ export async function pipelineAction(
   return data
 }
 
-/** Act on a drive-queue entry (forthcoming — DQW-2; see `DriveQueueAction`'s doc comment). */
+/** Act on a drive-queue entry (forthcoming — DQW-2, unmerged; see `DriveQueueAction`'s doc comment). */
 export async function driveQueueAction(
   body: DriveQueueActionRequest,
 ): Promise<DriveQueueActionResult> {
