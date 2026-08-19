@@ -22,8 +22,16 @@
  *
  * Column parity with the TUI's `QUEUE_COLUMNS`: `#`, `Issue`, `Title`,
  * `State`, `Machine`, `Tries`, `After`, `Hold`, `Reason` -- nine columns, same
- * order. No row actions (QW-4) or issue hyperlink (QW-5) live here; every
- * cell below is a plain formatted string.
+ * order. No issue hyperlink (QW-5) lives here yet; every *cell* above is a
+ * plain formatted string.
+ *
+ * Row *actions* (#8 QW-4) live at the bottom of this module: the same guards
+ * the TUI's `queue_unblock_selected` / `queue_resume_selected` enforce before
+ * mutating (`canUnblockQueueEntry` / `canReleaseQueueGate`), plus the
+ * move-up/move-down neighbour math (`queueMoveNeighbor` /
+ * `applyQueueMoveOptimistic`) `DriveQueuePanel` uses for its optimistic
+ * reorder. Mutating the queue itself -- the actual `driveQueueAction` POST --
+ * stays in the component; everything here is pure.
  */
 import type { BoardDriveQueueEntry, DriveQueueSummary, PipelineView } from '@/api/client'
 
@@ -239,4 +247,86 @@ export function queueTitleCell(
   titleByKey: Readonly<Record<string, string>>,
 ): string {
   return titleByKey[queueEntryKey(entry)] || QUEUE_EMPTY_CELL
+}
+
+// ── row actions (#8 QW-4) ────────────────────────────────────────────────────
+
+/** Mirrors `coord/drive_queue.py`'s `blocked` wire state -- the one state
+ * `queue_unblock_selected` (`tui/src/app/drive_queue.rs`) accepts; any other
+ * state is a refused no-op there. */
+const QUEUE_STATE_BLOCKED = 'blocked'
+
+/**
+ * Can this entry be unblocked? Same guard `queue_unblock_selected` enforces
+ * in the TUI: "unblock" only means something on a row the queue itself has
+ * marked `blocked`. Rendered as a *disabled* button rather than hidden when
+ * this is `false` -- the action's existence stays discoverable even when it
+ * doesn't apply to this row (per the issue's own "rich client, not hotkeys"
+ * framing).
+ */
+export function canUnblockQueueEntry(entry: BoardDriveQueueEntry): boolean {
+  return entry.state === QUEUE_STATE_BLOCKED
+}
+
+/**
+ * Can this entry's deploy gate be released? Same guard `queue_resume_selected`
+ * enforces in the TUI: only a *fired* gate (`isHolding`) can be released --
+ * an armed-but-not-yet-fired gate, or no gate at all, refuses the same way
+ * there. Deliberately reuses `isHolding` rather than re-deriving the check,
+ * so this and `queueHoldCell`'s `FIRED` rendering can never disagree about
+ * what "fired" means.
+ */
+export function canReleaseQueueGate(entry: BoardDriveQueueEntry): boolean {
+  return isHolding(entry)
+}
+
+/**
+ * The entry immediately above (`direction: 'up'`) or below (`'down'`) `entry`
+ * in `entries`' own order -- `null` when `entry` is already first/last (or
+ * isn't in `entries` at all), which doubles as "this move is illegal" for the
+ * ▲/▼ buttons' disabled guard.
+ *
+ * Deliberately walks the *displayed* order (whatever `entries` the caller
+ * passes -- typically the repo-scoped, active-filtered grid rows), not the
+ * full unfiltered queue: a "move up" click should mean "swap with the row
+ * visibly above this one", not a jump across rows the current repo scope is
+ * hiding.
+ */
+export function queueMoveNeighbor(
+  entries: readonly BoardDriveQueueEntry[],
+  entry: BoardDriveQueueEntry,
+  direction: 'up' | 'down',
+): BoardDriveQueueEntry | null {
+  const index = entries.findIndex((e) => e.id === entry.id)
+  if (index === -1) return null
+  const neighborIndex = direction === 'up' ? index - 1 : index + 1
+  return entries[neighborIndex] ?? null
+}
+
+/**
+ * The optimistic result of swapping `entry` and `neighbor`'s `position`
+ * fields (re-sorted by the new positions) -- what a `move` action is expected
+ * to converge to once the server round trip lands, per the issue's
+ * "reorder immediately, reconcile on the next poll" ask. Operates over
+ * whatever `entries` the caller passes (typically the *raw*, unscoped list
+ * backing the query cache, so the swap survives a repo-scope change) and
+ * returns a new array -- `entries` itself is left untouched.
+ *
+ * A no-op (returns `entries` unchanged, still re-sorted) if either id isn't
+ * present -- callers only reach this after `queueMoveNeighbor` already
+ * confirmed both rows exist, but this stays defensive rather than throwing on
+ * a stale reference.
+ */
+export function applyQueueMoveOptimistic(
+  entries: readonly BoardDriveQueueEntry[],
+  entry: BoardDriveQueueEntry,
+  neighbor: BoardDriveQueueEntry,
+): BoardDriveQueueEntry[] {
+  return entries
+    .map((e) => {
+      if (e.id === entry.id) return { ...e, position: neighbor.position }
+      if (e.id === neighbor.id) return { ...e, position: entry.position }
+      return e
+    })
+    .sort((a, b) => a.position - b.position)
 }

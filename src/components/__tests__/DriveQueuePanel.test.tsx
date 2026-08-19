@@ -6,19 +6,33 @@
  * `ThemeToggle`, which needs the theme context).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import DriveQueuePanel from '@/components/DriveQueuePanel'
 import { ThemeProvider } from '@/components/ui/theme-provider'
-import type { BoardDriveQueueEntry, DriveQueueData, PipelineView } from '@/api/client'
+import type {
+  BoardDriveQueueEntry,
+  DriveQueueActionResult,
+  DriveQueueData,
+  PipelineView,
+} from '@/api/client'
 
 vi.mock('@/api/client', () => ({
   fetchDriveQueue: vi.fn(),
   fetchPipeline: vi.fn(),
+  driveQueueAction: vi.fn(),
 }))
 
-import { fetchDriveQueue, fetchPipeline } from '@/api/client'
+// Mocked independently of `@/components/ui/toaster` (never rendered in these
+// tests) so an action's toast can be asserted directly, without depending on
+// `use-toast`'s module-level `memoryState` -- that store is a singleton for
+// the whole test file, and asserting through a live `<Toaster/>` would leak
+// a toast queued by one `it()` into the next.
+vi.mock('@/components/ui/use-toast', () => ({ toast: vi.fn() }))
+
+import { fetchDriveQueue, fetchPipeline, driveQueueAction } from '@/api/client'
+import { toast } from '@/components/ui/use-toast'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -226,7 +240,18 @@ describe('DriveQueuePanel — nine-column grid', () => {
     const headers = within(table)
       .getAllByRole('columnheader')
       .map((h) => h.textContent)
-    expect(headers).toEqual(['#', 'Issue', 'Title', 'State', 'Machine', 'Tries', 'After', 'Hold', 'Reason'])
+    expect(headers).toEqual([
+      '#',
+      'Issue',
+      'Title',
+      'State',
+      'Machine',
+      'Tries',
+      'After',
+      'Hold',
+      'Reason',
+      'Actions',
+    ])
   })
 
   it('renders a row with the title resolved from the pipeline roster cache and the hold/reason cells formatted', async () => {
@@ -257,10 +282,10 @@ describe('DriveQueuePanel — nine-column grid', () => {
 
     const row = (await screen.findByText('repo-a#1')).closest('tr')
     expect(row).not.toBeNull()
-    const cells = within(row as HTMLTableRowElement)
-      .getAllByRole('cell')
-      .map((c) => c.textContent)
-    expect(cells).toEqual([
+    const cells = within(row as HTMLTableRowElement).getAllByRole('cell')
+    // First nine cells are the TUI-parity columns; the tenth is the Actions
+    // cell (#8 QW-4), covered by its own describe block below.
+    expect(cells.slice(0, 9).map((c) => c.textContent)).toEqual([
       '3',
       'repo-a#1',
       'Fix the grid',
@@ -272,6 +297,7 @@ describe('DriveQueuePanel — nine-column grid', () => {
       // No `reason_at` on this fixture -> bare reason, no age suffix.
       'checks_failed',
     ])
+    expect(cells).toHaveLength(10)
   })
 })
 
@@ -333,5 +359,249 @@ describe('DriveQueuePanel — empty state', () => {
 
     expect(await screen.findByText('The drive queue is empty')).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  })
+})
+
+// ── row actions (#8 QW-4) ────────────────────────────────────────────────────
+
+describe('DriveQueuePanel — row actions: guard states', () => {
+  it('disables Unblock on a non-blocked row, with the reason discoverable via its tooltip', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({ entries: [makeEntry({ id: 1, repo_name: 'repo-a', issue_number: 1, state: 'waiting' })] }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([])
+    renderPanel()
+
+    const unblockBtn = await screen.findByRole('button', { name: 'Unblock repo-a#1' })
+    expect(unblockBtn).toBeDisabled()
+    expect(unblockBtn.title).toContain('Only a blocked row can be unblocked')
+  })
+
+  it('enables Unblock on a blocked row', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({ entries: [makeEntry({ id: 1, repo_name: 'repo-a', issue_number: 1, state: 'blocked' })] }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([])
+    renderPanel()
+
+    expect(await screen.findByRole('button', { name: 'Unblock repo-a#1' })).toBeEnabled()
+  })
+
+  it('disables Release unless hold_state is "fired" (armed-but-unfired refuses too)', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({
+        entries: [
+          makeEntry({
+            id: 1,
+            repo_name: 'repo-a',
+            issue_number: 1,
+            hold_after: 1,
+            hold_state: 'armed',
+          }),
+        ],
+      }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([])
+    renderPanel()
+
+    const releaseBtn = await screen.findByRole('button', { name: "Release repo-a#1's gate" })
+    expect(releaseBtn).toBeDisabled()
+    expect(releaseBtn.title).toContain('Only a fired gate can be released')
+  })
+
+  it('enables Release once the gate has fired', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({
+        entries: [
+          makeEntry({
+            id: 1,
+            repo_name: 'repo-a',
+            issue_number: 1,
+            hold_after: 1,
+            hold_state: 'fired',
+          }),
+        ],
+      }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([])
+    renderPanel()
+
+    expect(await screen.findByRole('button', { name: "Release repo-a#1's gate" })).toBeEnabled()
+  })
+
+  it('disables Move up on the first row and Move down on the last row only', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({
+        entries: [
+          makeEntry({ id: 1, repo_name: 'repo-a', issue_number: 1, position: 0 }),
+          makeEntry({ id: 2, repo_name: 'repo-a', issue_number: 2, position: 1 }),
+          makeEntry({ id: 3, repo_name: 'repo-a', issue_number: 3, position: 2 }),
+        ],
+      }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([])
+    renderPanel()
+
+    await screen.findByText('repo-a#1')
+    expect(screen.getByRole('button', { name: 'Move repo-a#1 up' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Move repo-a#1 down' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Move repo-a#2 up' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Move repo-a#2 down' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Move repo-a#3 up' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Move repo-a#3 down' })).toBeDisabled()
+  })
+})
+
+describe('DriveQueuePanel — row actions: request payload, busy state, toast', () => {
+  it('clicking Unblock on a blocked row shows an immediate busy state, sends the unblock payload, and toasts success', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({ entries: [makeEntry({ id: 1, repo_name: 'repo-a', issue_number: 1, state: 'blocked' })] }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([])
+    let resolveAction!: (v: DriveQueueActionResult) => void
+    vi.mocked(driveQueueAction).mockReturnValue(
+      new Promise<DriveQueueActionResult>((resolve) => {
+        resolveAction = resolve
+      }),
+    )
+    renderPanel()
+
+    const unblockBtn = await screen.findByRole('button', { name: 'Unblock repo-a#1' })
+    await userEvent.click(unblockBtn)
+
+    // Immediate pending/busy state -- a fire-and-forget POST with no visible
+    // change is exactly the "reads as hung" failure the issue calls out.
+    expect(unblockBtn).toBeDisabled()
+    expect(unblockBtn).toHaveAttribute('aria-busy', 'true')
+
+    expect(driveQueueAction).toHaveBeenCalledWith({
+      repo_name: 'repo-a',
+      issue_number: 1,
+      action: 'unblock',
+    })
+
+    resolveAction({ ok: true })
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith(
+        expect.objectContaining({ variant: 'success', title: 'Unblocked' }),
+      ),
+    )
+    await waitFor(() => expect(unblockBtn).not.toHaveAttribute('aria-busy', 'true'))
+  })
+
+  it('clicking Release sends the resume payload', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({
+        entries: [
+          makeEntry({ id: 1, repo_name: 'repo-a', issue_number: 1, hold_after: 1, hold_state: 'fired' }),
+        ],
+      }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([])
+    vi.mocked(driveQueueAction).mockResolvedValue({ ok: true })
+    renderPanel()
+
+    const releaseBtn = await screen.findByRole('button', { name: "Release repo-a#1's gate" })
+    await userEvent.click(releaseBtn)
+
+    await waitFor(() =>
+      expect(driveQueueAction).toHaveBeenCalledWith({
+        repo_name: 'repo-a',
+        issue_number: 1,
+        action: 'resume',
+      }),
+    )
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith(
+        expect.objectContaining({ variant: 'success', title: 'Gate released' }),
+      ),
+    )
+  })
+
+  it('toasts destructive on a server-reported failure (result.ok === false)', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({ entries: [makeEntry({ id: 1, repo_name: 'repo-a', issue_number: 1, state: 'blocked' })] }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([])
+    vi.mocked(driveQueueAction).mockResolvedValue({ ok: false, error: 'queue busy' })
+    renderPanel()
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Unblock repo-a#1' }))
+
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          variant: 'destructive',
+          title: 'Action failed',
+          description: 'queue busy',
+        }),
+      ),
+    )
+  })
+
+  it('toasts destructive when the request itself rejects', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({ entries: [makeEntry({ id: 1, repo_name: 'repo-a', issue_number: 1, state: 'blocked' })] }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([])
+    vi.mocked(driveQueueAction).mockRejectedValue(new Error('network down'))
+    renderPanel()
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Unblock repo-a#1' }))
+
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          variant: 'destructive',
+          title: 'Action failed',
+          description: 'network down',
+        }),
+      ),
+    )
+  })
+})
+
+describe('DriveQueuePanel — row actions: optimistic reorder', () => {
+  it('clicking Move up swaps the row with its displayed neighbour immediately, before the request resolves', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({
+        entries: [
+          makeEntry({ id: 1, repo_name: 'repo-a', issue_number: 1, position: 0 }),
+          makeEntry({ id: 2, repo_name: 'repo-a', issue_number: 2, position: 1 }),
+        ],
+      }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([])
+    let resolveAction!: (v: DriveQueueActionResult) => void
+    vi.mocked(driveQueueAction).mockReturnValue(
+      new Promise<DriveQueueActionResult>((resolve) => {
+        resolveAction = resolve
+      }),
+    )
+    renderPanel()
+
+    await screen.findByText('repo-a#1')
+    const rowsBefore = within(screen.getByRole('table')).getAllByRole('row')
+    expect(within(rowsBefore[1]).getByText('repo-a#1')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Move repo-a#2 up' }))
+
+    // Optimistic: the swap is visible before the request settles at all.
+    await waitFor(() => {
+      const rowsAfter = within(screen.getByRole('table')).getAllByRole('row')
+      expect(within(rowsAfter[1]).getByText('repo-a#2')).toBeInTheDocument()
+    })
+
+    expect(driveQueueAction).toHaveBeenCalledWith({
+      repo_name: 'repo-a',
+      issue_number: 2,
+      action: 'move',
+      to_position: 0,
+    })
+
+    resolveAction({ ok: true })
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'success', title: 'Moved up' })),
+    )
   })
 })
