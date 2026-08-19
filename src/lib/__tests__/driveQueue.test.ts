@@ -18,6 +18,7 @@ import {
   buildQueueTitleLookup,
   driveQueueRepoOptions,
   driveQueueSummaryStats,
+  filterActiveQueueEntries,
   filterQueueEntriesByRepo,
   formatQueueAge,
   QUEUE_EMPTY_CELL,
@@ -100,6 +101,40 @@ function makeView(overrides: Partial<PipelineView> = {}): PipelineView {
   }
 }
 
+// ── active-entry filter ──────────────────────────────────────────────────────
+
+describe('filterActiveQueueEntries', () => {
+  it('drops a done entry whose gate is not fired', () => {
+    const entries = [
+      makeEntry({ id: 1, state: 'done', hold_state: '' }),
+      makeEntry({ id: 2, state: 'waiting' }),
+    ]
+    expect(filterActiveQueueEntries(entries).map((e) => e.id)).toEqual([2])
+  })
+
+  it('keeps a done entry whose deploy gate is still fired', () => {
+    const entries = [
+      makeEntry({ id: 1, state: 'done', hold_after: 1, hold_state: 'fired' }),
+      makeEntry({ id: 2, state: 'waiting' }),
+    ]
+    expect(filterActiveQueueEntries(entries).map((e) => e.id)).toEqual([1, 2])
+  })
+
+  it('keeps every non-done state regardless of hold_state', () => {
+    const entries = [
+      makeEntry({ id: 1, state: 'pending' }),
+      makeEntry({ id: 2, state: 'running' }),
+      makeEntry({ id: 3, state: 'waiting' }),
+      makeEntry({ id: 4, state: 'blocked' }),
+    ]
+    expect(filterActiveQueueEntries(entries).map((e) => e.id)).toEqual([1, 2, 3, 4])
+  })
+
+  it('is empty for an empty queue', () => {
+    expect(filterActiveQueueEntries([])).toEqual([])
+  })
+})
+
 // ── repo-scope dropdown / filter logic ──────────────────────────────────────
 
 describe('driveQueueRepoOptions', () => {
@@ -115,6 +150,14 @@ describe('driveQueueRepoOptions', () => {
 
   it('is empty for an empty queue', () => {
     expect(driveQueueRepoOptions([])).toEqual([])
+  })
+
+  it('composed with filterActiveQueueEntries, excludes a repo whose only entries are done and unheld', () => {
+    const entries = [
+      makeEntry({ repo_name: 'repo-a', state: 'waiting' }),
+      makeEntry({ repo_name: 'repo-done-only', state: 'done', hold_state: '' }),
+    ]
+    expect(driveQueueRepoOptions(filterActiveQueueEntries(entries))).toEqual(['repo-a'])
   })
 })
 

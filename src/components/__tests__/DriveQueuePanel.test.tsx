@@ -275,6 +275,55 @@ describe('DriveQueuePanel — nine-column grid', () => {
   })
 })
 
+describe('DriveQueuePanel — active-entry filter', () => {
+  it('drops a done entry from the grid but keeps a done entry with a fired gate', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({
+        entries: [
+          makeEntry({ id: 1, repo_name: 'repo-a', issue_number: 1, state: 'done', hold_state: '' }),
+          makeEntry({
+            id: 2,
+            repo_name: 'repo-a',
+            issue_number: 2,
+            state: 'done',
+            hold_after: 1,
+            hold_state: 'fired',
+          }),
+          makeEntry({ id: 3, repo_name: 'repo-a', issue_number: 3, state: 'waiting' }),
+        ],
+      }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([])
+
+    renderPanel()
+
+    expect(await screen.findByText('repo-a#3')).toBeInTheDocument()
+    expect(screen.getByText('repo-a#2')).toBeInTheDocument()
+    expect(screen.queryByText('repo-a#1')).not.toBeInTheDocument()
+
+    const table = screen.getByRole('table')
+    expect(within(table).getAllByRole('row')).toHaveLength(3) // header + 2 active rows
+  })
+
+  it('excludes a repo from the dropdown when its only entries are done and unheld', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({
+        entries: [
+          makeEntry({ id: 1, repo_name: 'repo-a', issue_number: 1, state: 'waiting' }),
+          makeEntry({ id: 2, repo_name: 'repo-done-only', issue_number: 2, state: 'done', hold_state: '' }),
+        ],
+      }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([])
+
+    renderPanel()
+
+    const select = await screen.findByLabelText('Repo')
+    const options = within(select).getAllByRole('option')
+    expect(options.map((o) => o.textContent)).toEqual(['All repos', 'repo-a'])
+  })
+})
+
 describe('DriveQueuePanel — empty state', () => {
   it('shows an empty-queue message rather than a bare table when there are no entries', async () => {
     vi.mocked(fetchDriveQueue).mockResolvedValue(makeData({ entries: [] }))
