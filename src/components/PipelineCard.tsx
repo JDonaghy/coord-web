@@ -6,6 +6,7 @@
  */
 import { cn } from '@/lib/utils'
 import { type PipelineView, type PipelineStage } from '@/api/client'
+import { FAILED_STAGES } from '@/lib/pipeline'
 
 // ── Stage display helpers ─────────────────────────────────────────────────────
 
@@ -29,16 +30,6 @@ const RUNNING_STAGES = new Set([
   'review_running',
   'smoke_running',
   'merging',
-])
-
-/**
- * Fine-grained `current_stage` values that are terminal failures or need
- * human attention before the pipeline can advance.
- */
-const FAILED_STAGES = new Set([
-  'failed',
-  'review_failed',
-  'smoke_failed',
 ])
 
 /** Return Tailwind classes for a single stage chip. */
