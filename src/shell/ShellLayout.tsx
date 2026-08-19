@@ -28,7 +28,7 @@ import { useQuery } from '@tanstack/react-query'
 import Home from '@/components/Home'
 import SessionsList from '@/components/SessionsList'
 import { fetchPipeline, fetchSessions } from '@/api/client'
-import { isActive, needsMe } from '@/lib/pipeline'
+import { isActive, needsMe, latestPerIssue } from '@/lib/pipeline'
 import { RAIL_VIEW_PATH, shellViewFromPath } from '@/routes/paths'
 import { AppShell } from './AppShell'
 import { ActivityRail } from './ActivityRail'
@@ -69,8 +69,11 @@ export function ShellLayout() {
   const { data: pipeline } = useQuery({ queryKey: ['pipeline'], queryFn: fetchPipeline })
   const { data: sessions } = useQuery({ queryKey: ['sessions'], queryFn: fetchSessions })
 
-  const inFlight = pipeline?.filter(isActive).length
-  const attention = pipeline?.some(needsMe) ?? false
+  // #2: same one-card-per-issue collapse Home.tsx's header count uses, so
+  // the rail badge and the panel's own count never disagree.
+  const groupedPipeline = pipeline ? latestPerIssue(pipeline) : undefined
+  const inFlight = groupedPipeline?.filter(isActive).length
+  const attention = groupedPipeline?.some(needsMe) ?? false
   // `machine` is nullable on SessionInfo (a session on a host the roster
   // hasn't resolved yet) — a `null` in the status bar would render as an empty
   // segment between two separators.

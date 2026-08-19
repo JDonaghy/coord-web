@@ -180,9 +180,13 @@ describe('shell — wide (>= 1024px)', () => {
 
   it('badges the Pipeline entry with the in-flight count', async () => {
     vi.mocked(fetchPipeline).mockResolvedValue([
-      makeView({ assignment_id: 'a' }),
-      makeView({ assignment_id: 'b' }),
-      makeView({ assignment_id: 'c', current_stage: 'merged' }),
+      // Distinct issue_number per row (#2): the rail badge collapses rows to
+      // one per (repo, issue) the same way Home's header count does, so
+      // same-issue rows here would under-count this assertion for the wrong
+      // reason.
+      makeView({ assignment_id: 'a', issue_number: 1 }),
+      makeView({ assignment_id: 'b', issue_number: 2 }),
+      makeView({ assignment_id: 'c', issue_number: 3, current_stage: 'merged' }),
     ])
     renderShell()
 

@@ -7,7 +7,7 @@
  * Detail.test.tsx's pattern.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
@@ -161,12 +161,14 @@ describe('Home — Active tab grouping', () => {
     // a needs-me (failed, offers retry) item — expect needs-me to sort first.
     const running = makeView({
       assignment_id: 'a-running',
+      issue_number: 1,
       issue_title: 'Running item',
       current_stage: 'coding',
       available_gates: [],
     })
     const needsMe = makeView({
       assignment_id: 'a-needs-me',
+      issue_number: 2,
       issue_title: 'Failed item needing retry',
       current_stage: 'failed',
       available_gates: [{ action: 'retry', label: 'Retry', endpoint: '/api/pipeline/action' }],
@@ -186,11 +188,13 @@ describe('Home — Active tab grouping', () => {
   it('collapses done-ish items into a "Work done (N)" section by default', async () => {
     const running = makeView({
       assignment_id: 'a-running',
+      issue_number: 1,
       issue_title: 'Running item',
       current_stage: 'coding',
     })
     const done1 = makeView({
       assignment_id: 'a-done-1',
+      issue_number: 2,
       issue_title: 'Finished thing one',
       current_stage: 'done',
       available_gates: [{ action: 'enqueue', label: 'Queue', endpoint: '/api/pipeline/action' }],
@@ -198,6 +202,7 @@ describe('Home — Active tab grouping', () => {
     })
     const done2 = makeView({
       assignment_id: 'a-done-2',
+      issue_number: 3,
       issue_title: 'Finished thing two',
       current_stage: 'review_done',
       available_gates: [{ action: 'enqueue', label: 'Queue', endpoint: '/api/pipeline/action' }],
@@ -221,6 +226,7 @@ describe('Home — Active tab grouping', () => {
   it('expands the Work done section on tap, sorted by recency descending', async () => {
     const older = makeView({
       assignment_id: 'a-done-older',
+      issue_number: 1,
       issue_title: 'Older done item',
       current_stage: 'done',
       available_gates: [{ action: 'enqueue', label: 'Queue', endpoint: '/api/pipeline/action' }],
@@ -228,6 +234,7 @@ describe('Home — Active tab grouping', () => {
     })
     const newer = makeView({
       assignment_id: 'a-done-newer',
+      issue_number: 2,
       issue_title: 'Newer done item',
       current_stage: 'smoke_passed',
       available_gates: [{ action: 'enqueue', label: 'Queue', endpoint: '/api/pipeline/action' }],
@@ -267,5 +274,139 @@ describe('Home — Active tab grouping', () => {
     // Rendered directly — no collapsed "Work done" wrapper on this tab.
     expect(await screen.findByText('Finished needing merge')).toBeInTheDocument()
     expect(screen.queryByText(/Work done \(/)).not.toBeInTheDocument()
+  })
+})
+
+// ── Active tab: staleness filter, API-order preservation, per-issue grouping (#2) ──
+
+describe('Home — Active tab staleness/order/grouping (#2)', () => {
+  // Real, relative-to-now timestamps rather than `vi.useFakeTimers` +
+  // `vi.setSystemTime`: `isActive` (src/lib/pipeline.ts) defaults to the
+  // real `Date.now()`, and Terminal.test.tsx's reconnect-resilience suite
+  // already documents that this repo's `waitFor`/`findBy*` polling relies on
+  // real timers and stalls under a faked clock — not worth fighting here.
+  const nowSec = Date.now() / 1000
+  const daysAgoSec = (days: number) => nowSec - days * 24 * 60 * 60
+
+  it('excludes a card whose failed run finished more than the staleness window ago', async () => {
+    // Mirrors #2's screenshot repro: current_stage "failed", finished_at 34
+    // days ago — must not appear in Active at all, not just be reprioritized.
+    const staleFailed = makeView({
+      assignment_id: 'a-stale-failed',
+      issue_number: 772,
+      issue_title: 'Milestone workflow — Phase 4',
+      current_stage: 'failed',
+      finished_at: daysAgoSec(34),
+      available_gates: [{ action: 'retry', label: 'Retry', endpoint: '/api/pipeline/action' }],
+    })
+    const live = makeView({
+      assignment_id: 'a-live',
+      issue_number: 1960,
+      issue_title: 'That night’s actively-driving work',
+      current_stage: 'coding',
+    })
+    vi.mocked(fetchPipeline).mockResolvedValue([staleFailed, live])
+    vi.mocked(fetchSessions).mockResolvedValue([])
+
+    renderHome()
+
+    await waitFor(() => {
+      expect(screen.getByText('That night’s actively-driving work')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Milestone workflow — Phase 4')).not.toBeInTheDocument()
+  })
+
+  it('renders the most recently active item first even when a stale item leads the API order', async () => {
+    // API order deliberately mirrors #2: the stale failure is first in the
+    // response, live work is second — the rendered order must not put the
+    // stale item on top.
+    const staleFailed = makeView({
+      assignment_id: 'a-stale-failed',
+      issue_number: 772,
+      issue_title: 'Old failure',
+      current_stage: 'failed',
+      finished_at: daysAgoSec(34),
+      available_gates: [{ action: 'retry', label: 'Retry', endpoint: '/api/pipeline/action' }],
+    })
+    const live = makeView({
+      assignment_id: 'a-live',
+      issue_number: 1960,
+      issue_title: 'Newest live work',
+      current_stage: 'coding',
+    })
+    vi.mocked(fetchPipeline).mockResolvedValue([staleFailed, live])
+    vi.mocked(fetchSessions).mockResolvedValue([])
+
+    renderHome()
+
+    const section = await screen.findByRole('region', { name: 'Active items' })
+    const cards = within(section).getAllByRole('button')
+    expect(cards).toHaveLength(1)
+    expect(cards[0]).toHaveTextContent('Newest live work')
+  })
+
+  it('renders exactly one Active card for an issue with a rework cycle (two work rows)', async () => {
+    // Mirrors #1930: a request-changes attempt followed by its approve fix-1.
+    const requestChanges = makeView({
+      assignment_id: 'review-1',
+      issue_number: 1930,
+      issue_title: 'Rework cycle issue',
+      current_stage: 'review_failed',
+      available_gates: [{ action: 'dispatch_fix', label: 'Fix', endpoint: '/api/pipeline/action' }],
+    })
+    const approveFix = makeView({
+      assignment_id: 'review-2',
+      issue_number: 1930,
+      issue_title: 'Rework cycle issue',
+      current_stage: 'coding',
+    })
+    vi.mocked(fetchPipeline).mockResolvedValue([requestChanges, approveFix])
+    vi.mocked(fetchSessions).mockResolvedValue([])
+
+    renderHome()
+
+    const cards = await screen.findAllByText('Rework cycle issue')
+    expect(cards).toHaveLength(1)
+  })
+
+  it('header count equals the number of rendered Active cards', async () => {
+    const running = makeView({
+      assignment_id: 'a-running',
+      issue_number: 1,
+      issue_title: 'Running item',
+      current_stage: 'coding',
+    })
+    // Two rows, same issue — collapses to one card.
+    const reworkOld = makeView({
+      assignment_id: 'a-rework-old',
+      issue_number: 2,
+      issue_title: 'Reworked item',
+      current_stage: 'review_failed',
+    })
+    const reworkNew = makeView({
+      assignment_id: 'a-rework-new',
+      issue_number: 2,
+      issue_title: 'Reworked item',
+      current_stage: 'coding',
+    })
+    // A stale failure — excluded entirely.
+    const staleFailed = makeView({
+      assignment_id: 'a-stale',
+      issue_number: 3,
+      issue_title: 'Stale failure',
+      current_stage: 'failed',
+      finished_at: daysAgoSec(34),
+    })
+    vi.mocked(fetchPipeline).mockResolvedValue([running, reworkOld, reworkNew, staleFailed])
+    vi.mocked(fetchSessions).mockResolvedValue([])
+
+    renderHome()
+
+    // Two distinct issues survive (issue 1, issue 2); issue 3 is stale.
+    await waitFor(() => {
+      expect(screen.getByText('2 tracked')).toBeInTheDocument()
+    })
+    const section = screen.getByRole('region', { name: 'Active items' })
+    expect(within(section).getAllByRole('button')).toHaveLength(2)
   })
 })

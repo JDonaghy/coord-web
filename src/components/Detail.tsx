@@ -35,6 +35,7 @@ import {
   type PipelineActionRequest,
 } from '@/api/client'
 import { cn } from '@/lib/utils'
+import { findLatestForIssue } from '@/lib/pipeline'
 import { paths } from '@/routes/paths'
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
@@ -262,8 +263,12 @@ export default function Detail() {
   // `issue_number` is a number, so the comparison converts rather than the
   // reverse (a leading-zero or malformed URL segment must fail the match,
   // not silently coerce to some other issue's number).
-  const view: PipelineView | null =
-    pipeline?.find((v) => v.repo_name === repo && String(v.issue_number) === issue) ?? null
+  //
+  // #2: `findLatestForIssue` picks the LAST matching assignment row, not the
+  // first — a rework cycle files several rows for the same issue, and this
+  // screen must show the most recent attempt's state, not a superseded one
+  // (Home's card for this issue is the same latest row, via `latestPerIssue`).
+  const view: PipelineView | null = repo && issue ? findLatestForIssue(pipeline ?? [], repo, issue) : null
 
   // `navigate(-1)` is a silent no-op when there is no in-app history entry to
   // pop -- exactly what happens on a cold deep-link load (#1551): a user

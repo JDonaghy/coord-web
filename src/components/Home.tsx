@@ -31,7 +31,7 @@ import { fetchPipeline, fetchSessions, type PipelineView, type SessionInfo } fro
 import { PipelineCard } from '@/components/PipelineCard'
 import { SessionCard } from '@/components/SessionCard'
 import { PanelHeader } from '@/components/PanelHeader'
-import { isActive, needsMe } from '@/lib/pipeline'
+import { isActive, needsMe, latestPerIssue } from '@/lib/pipeline'
 import { paths } from '@/routes/paths'
 
 // ── Filter logic ──────────────────────────────────────────────────────────────
@@ -319,7 +319,14 @@ export default function Home() {
 
   const { onTouchStart, onTouchEnd } = usePullToRefresh({ onRefresh: handleRefresh })
 
-  const filtered = data ? data.filter(FILTER_FNS[filterTab]) : []
+  // #2: one card per (repo, issue), not one per assignment row — a rework
+  // cycle or a multi-stage pipeline (work/review/merge) otherwise renders as
+  // several sibling cards for the same issue. Applied before every
+  // downstream filter/count so the "N tracked" header, both tab counts, and
+  // the rendered list all agree on what "N" means.
+  const grouped = data ? latestPerIssue(data) : []
+
+  const filtered = grouped.filter(FILTER_FNS[filterTab])
 
   // Active tab only: group into "in progress" (expanded, needs-me-first) and
   // "done-ish" (collapsed "Work done" section, sorted by recency) — #1218.
@@ -328,8 +335,8 @@ export default function Home() {
     filterTab === 'active' ? groupActiveItems(filtered) : { inProgress: filtered, done: [] }
 
   const counts: Record<FilterTab, number> = {
-    'active': data ? data.filter(isActive).length : 0,
-    'needs-me': data ? data.filter(needsMe).length : 0,
+    'active': grouped.filter(isActive).length,
+    'needs-me': grouped.filter(needsMe).length,
   }
 
   const updatedLabel = dataUpdatedAt
