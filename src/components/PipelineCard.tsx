@@ -64,6 +64,38 @@ function stageChipClass(stage: PipelineStage, currentStage: string): string {
   }
 }
 
+// ── Relative-time label ───────────────────────────────────────────────────────
+
+/**
+ * "3h ago" / "2d ago" style label for a `finished_at` epoch-seconds
+ * timestamp (follow-up to #1218: the "Work done" section sorted by recency
+ * but never showed a timestamp, so the ordering wasn't user-perceivable).
+ *
+ * `now` is injectable so tests don't depend on the real clock. Not exported:
+ * eslint's react-refresh rule flags non-component exports from a component
+ * file, so this stays module-private and is exercised through the rendered
+ * `PipelineCard` output in tests instead.
+ */
+const formatRelativeTime = (epochSeconds: number, now: number = Date.now()): string => {
+  const diffSec = Math.round((now - epochSeconds * 1000) / 1000)
+
+  if (diffSec < 60) return 'just now'
+
+  const diffMin = Math.round(diffSec / 60)
+  if (diffMin < 60) return `${diffMin}m ago`
+
+  const diffHour = Math.round(diffMin / 60)
+  if (diffHour < 24) return `${diffHour}h ago`
+
+  const diffDay = Math.round(diffHour / 24)
+  if (diffDay < 7) return `${diffDay}d ago`
+
+  return new Date(epochSeconds * 1000).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
 // ── Overall status badge ──────────────────────────────────────────────────────
 
 interface StatusInfo {
@@ -110,9 +142,19 @@ export interface PipelineCardProps {
    * means "work is happening here" and a selected row hasn't earned it.
    */
   selected?: boolean
+  /**
+   * Render a "3h ago" relative-time label next to the repo/machine line —
+   * opt-in (rather than always reading `view.finished_at`) so it only shows
+   * up where the caller has actually sorted by recency and wants that made
+   * legible: the "Work done" section (#1218's follow-up). Elsewhere
+   * `finished_at` can be a stale carryover from a prior stage on an
+   * item that's now active again, so showing it unconditionally would be
+   * misleading.
+   */
+  finishedAt?: number | null
 }
 
-export function PipelineCard({ view, onClick, selected }: PipelineCardProps) {
+export function PipelineCard({ view, onClick, selected, finishedAt }: PipelineCardProps) {
   const { label: statusLabel, className: statusClass } = stageStatusInfo(view.current_stage)
 
   return (
@@ -140,11 +182,17 @@ export function PipelineCard({ view, onClick, selected }: PipelineCardProps) {
         </span>
       </div>
 
-      {/* Second row: repo#N + machine */}
+      {/* Second row: repo#N + machine + (optionally) relative finish time */}
       <p className="mt-1 text-xs text-muted-foreground">
         {view.repo_name} <span className="font-mono">#{view.issue_number}</span>
         {' · '}
         {view.machine_name}
+        {typeof finishedAt === 'number' && (
+          <>
+            {' · '}
+            <span>{formatRelativeTime(finishedAt)}</span>
+          </>
+        )}
       </p>
 
       {/* Stage chips */}

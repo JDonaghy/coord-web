@@ -264,6 +264,7 @@ function DoneSection({ items, onSelect, isSelected }: DoneSectionProps) {
               view={view}
               selected={isSelected(view)}
               onClick={() => onSelect(view)}
+              finishedAt={view.finished_at}
             />
           ))}
         </div>
