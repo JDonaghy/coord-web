@@ -4,7 +4,7 @@
  * These use vitest + @testing-library/react.  Run with `npm test` (or
  * `npx vitest run`) after `npm install`.
  */
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { PipelineCard } from '@/components/PipelineCard'
@@ -115,6 +115,68 @@ describe('PipelineCard', () => {
     render(<PipelineCard view={makeView()} onClick={onClick} />)
     await userEvent.click(screen.getByRole('button'))
     expect(onClick).toHaveBeenCalledOnce()
+  })
+
+  it('does not render a relative-time label when finishedAt is omitted (#1218 follow-up)', () => {
+    render(<PipelineCard view={makeView({ finished_at: 100 })} onClick={() => undefined} />)
+    expect(screen.queryByText(/ago$/)).not.toBeInTheDocument()
+  })
+})
+
+// ── Relative-time label buckets (rendered via PipelineCard's `finishedAt`) ────
+//
+// formatRelativeTime itself is module-private (a named export here would trip
+// eslint's react-refresh/only-export-components rule, since this file's Fast
+// Refresh boundary is meant to hold one component), so each bucket is
+// exercised through the rendered card instead.
+
+describe('relative-time label', () => {
+  const now = 1_800_000_000_000 // fixed reference instant, in ms
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  function renderWithFinishedAt(secondsAgo: number) {
+    vi.setSystemTime(now)
+    const finishedAt = now / 1000 - secondsAgo
+    render(
+      <PipelineCard
+        view={makeView({ finished_at: finishedAt })}
+        onClick={() => undefined}
+        finishedAt={finishedAt}
+      />,
+    )
+  }
+
+  it('renders "just now" for timestamps under a minute old', () => {
+    renderWithFinishedAt(30)
+    expect(screen.getByText('just now')).toBeInTheDocument()
+  })
+
+  it('renders minutes for timestamps under an hour old', () => {
+    renderWithFinishedAt(5 * 60)
+    expect(screen.getByText('5m ago')).toBeInTheDocument()
+  })
+
+  it('renders hours for timestamps under a day old', () => {
+    renderWithFinishedAt(3 * 60 * 60)
+    expect(screen.getByText('3h ago')).toBeInTheDocument()
+  })
+
+  it('renders days for timestamps under a week old', () => {
+    renderWithFinishedAt(2 * 24 * 60 * 60)
+    expect(screen.getByText('2d ago')).toBeInTheDocument()
+  })
+
+  it('renders a month/day date for timestamps a week or older', () => {
+    const eightDaysAgoSeconds = 8 * 24 * 60 * 60
+    renderWithFinishedAt(eightDaysAgoSeconds)
+    const expected = new Date((now / 1000 - eightDaysAgoSeconds) * 1000).toLocaleDateString(
+      undefined,
+      { month: 'short', day: 'numeric' },
+    )
+    expect(screen.getByText(expected)).toBeInTheDocument()
   })
 })
 

@@ -261,6 +261,39 @@ describe('Home — Active tab grouping', () => {
     ).toBeTruthy()
   })
 
+  it('shows a relative-time label per card in the expanded Work done section (#1218 follow-up)', async () => {
+    // Fixed "now" so labels are deterministic regardless of wall-clock time.
+    const now = 1_800_000_000_000
+    vi.setSystemTime(now)
+
+    const threeHoursAgo = makeView({
+      assignment_id: 'a-done-3h',
+      issue_title: 'Finished three hours ago',
+      current_stage: 'done',
+      available_gates: [{ action: 'enqueue', label: 'Queue', endpoint: '/api/pipeline/action' }],
+      finished_at: now / 1000 - 3 * 60 * 60,
+    })
+    const twoDaysAgo = makeView({
+      assignment_id: 'a-done-2d',
+      issue_title: 'Finished two days ago',
+      current_stage: 'review_done',
+      available_gates: [{ action: 'enqueue', label: 'Queue', endpoint: '/api/pipeline/action' }],
+      finished_at: now / 1000 - 2 * 24 * 60 * 60,
+    })
+    vi.mocked(fetchPipeline).mockResolvedValue([threeHoursAgo, twoDaysAgo])
+    vi.mocked(fetchSessions).mockResolvedValue([])
+
+    renderHome()
+
+    const toggle = await screen.findByText('Work done (2)')
+    await userEvent.click(toggle)
+
+    expect(await screen.findByText('3h ago')).toBeInTheDocument()
+    expect(screen.getByText('2d ago')).toBeInTheDocument()
+
+    vi.useRealTimers()
+  })
+
   it('keeps the "Needs me" tab as a flat, ungrouped list', async () => {
     const done = makeView({
       assignment_id: 'a-done',
