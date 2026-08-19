@@ -9,13 +9,22 @@
  *  1. A **summary block** of five stats (pending / running / waiting+eligible
  *     / blocked / held), read verbatim off `GET /api/drive-queue`'s
  *     server-computed aggregate -- never recomputed from `entries` here, see
- *     `src/lib/driveQueue.ts`'s doc comment for why that matters.
+ *     `src/lib/driveQueue.ts`'s doc comment for why that matters. Computed
+ *     over the *raw* entry list, deliberately -- the aggregate is a
+ *     server-side count over the whole table, not something the active-entry
+ *     filter below should touch.
  *  2. A **repo-scope dropdown** ("All repos" | one repo at a time), filtering
  *     the grid client-side over a single unscoped fetch (again, see
  *     `src/lib/driveQueue.ts`).
  *  3. The **nine-column grid** itself, column-for-column parity with the
  *     TUI's `QUEUE_COLUMNS` (`tui/src/app/drive_queue.rs`): `#`, `Issue`,
  *     `Title`, `State`, `Machine`, `Tries`, `After`, `Hold`, `Reason`.
+ *
+ * Both the dropdown and the grid are fed `entries` only after
+ * `filterActiveQueueEntries` has dropped terminal (`done`) rows -- see that
+ * function's doc comment in `src/lib/driveQueue.ts`. `drive_queue` rows are
+ * marked `done` in place rather than deleted, so without this filter the
+ * grid would accumulate every completed queue entry ever recorded.
  *
  * No row actions yet (QW-4, mutation) and no issue hyperlink yet (QW-5,
  * navigation) -- every cell below is plain text, deliberately, per the
@@ -32,6 +41,7 @@ import {
   buildQueueTitleLookup,
   driveQueueRepoOptions,
   driveQueueSummaryStats,
+  filterActiveQueueEntries,
   filterQueueEntriesByRepo,
   queueAfterCell,
   queueEntryKey,
@@ -99,10 +109,15 @@ export default function DriveQueuePanel() {
   const { data: pipeline } = useQuery({ queryKey: ['pipeline'], queryFn: fetchPipeline })
 
   const entries = useMemo<BoardDriveQueueEntry[]>(() => data?.entries ?? [], [data])
-  const repoOptions = useMemo(() => driveQueueRepoOptions(entries), [entries])
+  // `entries` is the raw, unfiltered `drive_queue` table dump -- terminal
+  // `done` rows accumulate there forever (see `filterActiveQueueEntries`'s
+  // doc comment). Drop them before they can reach either the repo-scope
+  // dropdown's option list or the grid.
+  const activeEntries = useMemo(() => filterActiveQueueEntries(entries), [entries])
+  const repoOptions = useMemo(() => driveQueueRepoOptions(activeEntries), [activeEntries])
   const scopedEntries = useMemo(
-    () => filterQueueEntriesByRepo(entries, repoScope || null),
-    [entries, repoScope],
+    () => filterQueueEntriesByRepo(activeEntries, repoScope || null),
+    [activeEntries, repoScope],
   )
   const titleByKey = useMemo(() => buildQueueTitleLookup(pipeline ?? []), [pipeline])
   const summaryStats = data ? driveQueueSummaryStats(data.summary) : []

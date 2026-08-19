@@ -12,10 +12,13 @@
  *   `queue_sidebar` takes (`tui/src/app/drive_queue.rs`), which reads that
  *   same result one count per row instead of recomputing client-side.
  * - The **grid**'s per-cell formatting (`queueHoldCell`, `queueReasonCell`,
- *   ...) mirrors the TUI's row projection (`Self::queue_row` /
+ *   ...) mirrors the TUI's per-entry cell formatter (`Self::queue_row` /
  *   `queue_hold_cell` / `queue_reason_cell` / `format_age`, same file) and
  *   `coord/drive_queue.py`'s wire constants (`HOLD_FIRED`, `HOLD_SCOPE_FLEET`)
  *   cell-for-cell, so the two surfaces never disagree about what a cell says.
+ *   Row *selection* -- which entries even reach that formatter -- is a
+ *   separate concern, handled by `filterActiveQueueEntries` below, which
+ *   mirrors the TUI's `queue_rows()` instead.
  *
  * Column parity with the TUI's `QUEUE_COLUMNS`: `#`, `Issue`, `Title`,
  * `State`, `Machine`, `Tries`, `After`, `Hold`, `Reason` -- nine columns, same
@@ -24,12 +27,47 @@
  */
 import type { BoardDriveQueueEntry, DriveQueueSummary, PipelineView } from '@/api/client'
 
+/** Mirrors `coord/drive_queue.py`'s terminal `state` wire value. `done` rows
+ * are set in place rather than deleted -- `coord/dao.py` applies no
+ * retention cap to the `drive_queue` table, unlike `assignments` /
+ * `notifications` -- so a raw `entries` list keeps every completed row
+ * forever unless something filters them back out. */
+const QUEUE_STATE_DONE = 'done'
+
+// ── active-entry filter ─────────────────────────────────────────────────────
+
+/**
+ * Drop rows that are no longer "in the queue" for display purposes: `GET
+ * /api/drive-queue`'s `entries` field is the raw, unfiltered table dump
+ * (`coord/dashboard/server.py`'s `api_drive_queue` docstring / `_read_drive_queue`),
+ * not pre-scoped to active work.
+ *
+ * Mirrors `queue_rows()` in `tui/src/app/drive_queue.rs` (`is_pending(e) ||
+ * is_holding(e)`): a `done` entry is excluded unless its deploy gate is
+ * still fired, since a fired gate is itself live state worth surfacing even
+ * after the row's own work finished. Non-`done` states (`waiting`,
+ * `running`, `blocked`, ...) always pass through untouched.
+ *
+ * Callers must apply this *before* `driveQueueRepoOptions` and
+ * `filterQueueEntriesByRepo` -- otherwise both the dropdown's option list
+ * and the grid can be inflated by history that will never leave the table.
+ */
+export function filterActiveQueueEntries(
+  entries: readonly BoardDriveQueueEntry[],
+): BoardDriveQueueEntry[] {
+  return entries.filter((e) => e.state !== QUEUE_STATE_DONE || isHolding(e))
+}
+
 // ── repo scope ───────────────────────────────────────────────────────────────
 
 /**
  * Distinct repo names present in `entries`, alphabetical -- the repo-scope
  * dropdown's "single repo" options (the other option is the fixed "All
  * repos" choice, which isn't one of these).
+ *
+ * Callers should pass entries already narrowed by `filterActiveQueueEntries`
+ * so a repo whose only rows are terminal `done` (non-held) history doesn't
+ * appear as a selectable scope that immediately renders an empty grid.
  */
 export function driveQueueRepoOptions(entries: readonly BoardDriveQueueEntry[]): string[] {
   return Array.from(new Set(entries.map((e) => e.repo_name))).sort()
