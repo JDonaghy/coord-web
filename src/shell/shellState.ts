@@ -33,6 +33,7 @@ export type ShellView =
   | 'machines'
   | 'merge-queue'
   | 'milestones'
+  | 'queue'
   | 'audit'
   | 'spend'
   | 'settings'

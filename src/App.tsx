@@ -46,6 +46,11 @@ const Gallery = lazy(() => import('@/components/Gallery'))
  *                                        the M-W2+ panels, addressable today
  *                                        so a link to one isn't a 404 while
  *                                        it's being built
+ *   /queue                           -> ComingSoon(view) today too (QW-2);
+ *                                        unlike the row above, this entry is
+ *                                        'ready' in the rail (railItems.ts)
+ *                                        -- the route and nav are done, only
+ *                                        the grid content (QW-3) is pending
  *   *  (inside the shell)            -> RouteNotFound -- a real not-found
  *                                        state for a genuinely unknown path,
  *                                        rendered inside the shell (rail,
@@ -102,6 +107,13 @@ export default function App() {
             <Route path="/audit" element={null} />
             <Route path="/spend" element={null} />
             <Route path="/settings" element={null} />
+
+            {/* Rail entry + route only (QW-2); the queue grid itself is
+                QW-3. Declared explicitly rather than left to fall through to
+                the wildcard below, same as every other placeholder above --
+                this one just happens to be 'ready' (clickable) in the rail
+                already, see railItems.ts. */}
+            <Route path="/queue" element={null} />
 
             {/* Genuinely unknown path under the shell -- a typo'd URL, or a
                 link to a feature that no longer exists. `ShellLayout` puts

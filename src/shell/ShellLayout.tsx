@@ -111,6 +111,12 @@ export function ShellLayout() {
     list = <Home />
   } else if (currentView === 'sessions') {
     list = <SessionsList />
+  } else if (currentView === 'queue') {
+    // QW-2 is the rail entry + route; the grid itself is QW-3. `ComingSoon`
+    // is the placeholder in the meantime — this branch exists (rather than
+    // falling through to the generic `else` below) so QW-3 has a one-line
+    // swap to make when the real panel lands.
+    list = <ComingSoon view={currentView} />
   } else if (currentView === null) {
     list = <RouteNotFound />
   } else {

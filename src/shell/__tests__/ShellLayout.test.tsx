@@ -398,6 +398,25 @@ describe('shell — activity rail view selection', () => {
     expect(locationPath()).toBe(paths.sessions())
   })
 
+  it('navigates to /queue and highlights the Queue rail entry (#6)', async () => {
+    const user = userEvent.setup()
+    renderShell()
+    await screen.findByRole('heading', { name: 'Pipeline' })
+
+    // Unlike the 'soon' entries (Board, Milestones, ...), Queue's rail entry
+    // is 'ready' (railItems.ts) -- the route + nav are this story's whole
+    // scope, even though the grid behind it (QW-3) isn't built yet.
+    const queueButton = screen.getByRole('button', { name: /^Queue/ })
+    expect(queueButton).not.toHaveAttribute('aria-disabled')
+
+    await user.click(queueButton)
+
+    expect(locationPath()).toBe(paths.queue())
+    expect(queueButton).toHaveAttribute('aria-current', 'page')
+    expect(within(listRegion()!).getByText('Queue')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Pipeline' })).not.toBeInTheDocument()
+  })
+
   it('ignores a click on an unbuilt view', async () => {
     const user = userEvent.setup()
     renderShell()

@@ -16,6 +16,7 @@ import {
   BarChart3,
   GitMerge,
   LayoutDashboard,
+  ListOrdered,
   Milestone,
   ScrollText,
   Server,
@@ -68,6 +69,18 @@ export const RAIL_ITEMS: readonly RailItem[] = [
     status: 'soon',
     group: 'Flow',
     hint: 'Milestone DAG — M-W3',
+  },
+  {
+    id: 'queue',
+    label: 'Queue',
+    icon: ListOrdered,
+    // Route + rail entry ship in this story (QW-2); the grid that fills it
+    // is QW-3. Unlike the other 'soon' entries above, this one is already
+    // navigable — landing on `ComingSoon` today is a placeholder for its
+    // *content*, not a sign the route itself is unbuilt.
+    status: 'ready',
+    group: 'Flow',
+    hint: 'Queue grid — QW-3',
   },
 
   {
