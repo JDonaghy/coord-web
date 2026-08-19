@@ -59,6 +59,7 @@ describe('shellViewFromPath', () => {
     expect(shellViewFromPath(paths.machines())).toBe('machines')
     expect(shellViewFromPath(paths.mergeQueue())).toBe('merge-queue')
     expect(shellViewFromPath(paths.milestones())).toBe('milestones')
+    expect(shellViewFromPath(paths.queue())).toBe('queue')
     expect(shellViewFromPath(paths.audit())).toBe('audit')
     expect(shellViewFromPath(paths.spend())).toBe('spend')
     expect(shellViewFromPath(paths.settings())).toBe('settings')
