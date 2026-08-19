@@ -16,9 +16,10 @@
  *  2. A **repo-scope dropdown** ("All repos" | one repo at a time), filtering
  *     the grid client-side over a single unscoped fetch (again, see
  *     `src/lib/driveQueue.ts`).
- *  3. The **nine-column grid** itself, column-for-column parity with the
- *     TUI's `QUEUE_COLUMNS` (`tui/src/app/drive_queue.rs`): `#`, `Issue`,
- *     `Title`, `State`, `Machine`, `Tries`, `After`, `Hold`, `Reason`.
+ *  3. The **grid** itself: nine columns in column-for-column parity with the
+ *     TUI's `QUEUE_COLUMNS` (`tui/src/app/drive_queue.rs`) -- `#`, `Issue`,
+ *     `Title`, `State`, `Machine`, `Tries`, `After`, `Hold`, `Reason` -- plus
+ *     a tenth, web-only `Actions` column (see below).
  *
  * Both the dropdown and the grid are fed `entries` only after
  * `filterActiveQueueEntries` has dropped terminal (`done`) rows -- see that
@@ -26,27 +27,44 @@
  * marked `done` in place rather than deleted, so without this filter the
  * grid would accumulate every completed queue entry ever recorded.
  *
- * No row actions yet (QW-4, mutation) and no issue hyperlink yet (QW-5,
- * navigation) -- every cell below is plain text, deliberately, per the
- * issue's own scoping: those are genuinely different concerns sharing one
- * grid, kept as separate follow-ups rather than bundled in here.
+ * A tenth **Actions** column (#8 QW-4) rounds out the grid: per-row ▲/▼
+ * reorder, unblock and release-gate mini buttons. Every guard mirrors what
+ * the TUI itself enforces before mutating (`canUnblockQueueEntry` /
+ * `canReleaseQueueGate` / `queueMoveNeighbor` in `src/lib/driveQueue.ts`) --
+ * a button that doesn't apply to a row renders *disabled with a tooltip*,
+ * never hidden, so the action's existence stays discoverable (the standing
+ * "rich client, not hotkeys" feedback this codebase has had before). No issue
+ * hyperlink yet (QW-5, navigation) -- that's still a plain cell.
  */
-import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { fetchDriveQueue, fetchPipeline, type BoardDriveQueueEntry } from '@/api/client'
+import { useMemo, useState, type ReactNode } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  driveQueueAction,
+  fetchDriveQueue,
+  fetchPipeline,
+  type BoardDriveQueueEntry,
+  type DriveQueueAction,
+  type DriveQueueData,
+} from '@/api/client'
 import { PanelHeader } from '@/components/PanelHeader'
 import { Badge, type BadgeProps } from '@/components/ui/badge'
+import { toast } from '@/components/ui/use-toast'
 import { cn } from '@/lib/utils'
 import {
+  applyQueueMoveOptimistic,
   buildQueueTitleLookup,
+  canReleaseQueueGate,
+  canUnblockQueueEntry,
   driveQueueRepoOptions,
   driveQueueSummaryStats,
   filterActiveQueueEntries,
   filterQueueEntriesByRepo,
+  QUEUE_EMPTY_CELL,
   queueAfterCell,
   queueEntryKey,
   queueHoldCell,
   queueMachineCell,
+  queueMoveNeighbor,
   queueReasonCell,
   queueStateCell,
   queueTitleCell,
@@ -63,7 +81,9 @@ interface GridColumn {
 }
 
 /** Column parity with `Self::QUEUE_COLUMNS` in `tui/src/app/drive_queue.rs`
- * -- same nine columns, same order. */
+ * for the first nine -- `Actions` (#8 QW-4) is a web-only tenth column, the
+ * TUI's own reorder/unblock/release affordances are key bindings rather than
+ * a rendered column. */
 const GRID_COLUMNS: readonly GridColumn[] = [
   { key: 'position', label: '#', align: 'right' },
   { key: 'issue', label: 'Issue' },
@@ -74,6 +94,7 @@ const GRID_COLUMNS: readonly GridColumn[] = [
   { key: 'after', label: 'After' },
   { key: 'hold', label: 'Hold' },
   { key: 'reason', label: 'Reason' },
+  { key: 'actions', label: 'Actions' },
 ]
 
 /** State -> `Badge` variant. An unrecognised state renders `outline`
@@ -91,6 +112,54 @@ function stateBadgeVariant(state: string): BadgeProps['variant'] {
     default:
       return 'outline'
   }
+}
+
+// ── row actions (#8 QW-4) ───────────────────────────────────────────────────
+
+interface QueueActionButtonProps {
+  /** Visible glyph/label. */
+  children: ReactNode
+  /** Screen-reader name and native-tooltip text while enabled. */
+  label: string
+  /** Native-tooltip text while `disabled` -- explains *why*, not just *that*,
+   * per the issue's "disabled + tooltip, not hidden" ask. */
+  disabledReason?: string
+  onClick: () => void
+  disabled: boolean
+  busy: boolean
+}
+
+/**
+ * One mini icon/text button in the Actions cell. `title` (not a Radix
+ * tooltip) carries the discoverability -- a native attribute keeps working
+ * on a `disabled` button without extra plumbing, same convention
+ * `ThemeToggle` already uses for its own icon button.
+ *
+ * `busy` overrides the label with an ellipsis and forces `disabled` --
+ * showing the pending state immediately on click is the issue's explicit
+ * bar: "a queued action with no UI change reads as hung".
+ */
+function QueueActionButton({
+  children,
+  label,
+  disabledReason,
+  onClick,
+  disabled,
+  busy,
+}: QueueActionButtonProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled || busy}
+      aria-label={label}
+      aria-busy={busy}
+      title={busy ? 'Working…' : disabled ? (disabledReason ?? label) : label}
+      className="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded border border-border px-1 text-[.7rem] leading-none text-foreground enabled:hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      {busy ? '…' : children}
+    </button>
+  )
 }
 
 export default function DriveQueuePanel() {
@@ -121,6 +190,95 @@ export default function DriveQueuePanel() {
   )
   const titleByKey = useMemo(() => buildQueueTitleLookup(pipeline ?? []), [pipeline])
   const summaryStats = data ? driveQueueSummaryStats(data.summary) : []
+
+  // ── row actions (#8 QW-4) ─────────────────────────────────────────────────
+
+  const queryClient = useQueryClient()
+  // Keyed `${repo}#${issue}:${variant}` -- a Set rather than a single
+  // "one action at a time" flag (Detail.tsx's `inFlight`) so clicking Unblock
+  // on one row doesn't grey out the Release button three rows down; only the
+  // button that's actually in flight shows busy. `variant` is a *display*
+  // key, not the wire `DriveQueueAction` -- move-up and move-down both send
+  // `action: 'move'`, but need to busy independently since they're two
+  // different buttons on the same row.
+  type QueueActionVariant = 'move-up' | 'move-down' | 'unblock' | 'resume'
+  const [busyKeys, setBusyKeys] = useState<Set<string>>(new Set())
+
+  const busyKey = (entry: BoardDriveQueueEntry, variant: QueueActionVariant) =>
+    `${queueEntryKey(entry)}:${variant}`
+
+  const runQueueAction = async (
+    entry: BoardDriveQueueEntry,
+    variant: QueueActionVariant,
+    action: DriveQueueAction,
+    extra: Record<string, unknown> | undefined,
+    successMessage: string,
+  ) => {
+    const key = busyKey(entry, variant)
+    if (busyKeys.has(key)) return
+    setBusyKeys((prev) => new Set(prev).add(key))
+    try {
+      const result = await driveQueueAction({
+        repo_name: entry.repo_name,
+        issue_number: entry.issue_number,
+        action,
+        ...extra,
+      })
+      if (result.ok) {
+        toast({ variant: 'success', title: successMessage, description: queueEntryKey(entry) })
+      } else {
+        toast({
+          variant: 'destructive',
+          title: 'Action failed',
+          description: result.error ?? queueEntryKey(entry),
+        })
+      }
+    } catch (e) {
+      toast({
+        variant: 'destructive',
+        title: 'Action failed',
+        description: e instanceof Error ? e.message : queueEntryKey(entry),
+      })
+    } finally {
+      setBusyKeys((prev) => {
+        const next = new Set(prev)
+        next.delete(key)
+        return next
+      })
+      // Refetch regardless of outcome: a successful mutation needs the real
+      // post-action row (state/hold_state drive the very guards these
+      // buttons render from); a failure needs it too, to drop the `move`
+      // optimistic reorder below back to whatever the server actually has --
+      // "reconcile on the next poll", just pulled forward to "as soon as we
+      // know" rather than waiting on SSE/window-focus.
+      void queryClient.invalidateQueries({ queryKey: ['drive-queue'] })
+    }
+  }
+
+  const handleUnblock = (entry: BoardDriveQueueEntry) =>
+    void runQueueAction(entry, 'unblock', 'unblock', undefined, 'Unblocked')
+
+  const handleReleaseGate = (entry: BoardDriveQueueEntry) =>
+    void runQueueAction(entry, 'resume', 'resume', undefined, 'Gate released')
+
+  const handleMove = (entry: BoardDriveQueueEntry, direction: 'up' | 'down') => {
+    const neighbor = queueMoveNeighbor(scopedEntries, entry, direction)
+    if (!neighbor) return
+    // Optimistic reorder (issue's explicit allowance for `move`, not required
+    // for the other actions): swap the two positions in the query cache's
+    // *raw* entry list right away, so the row visibly moves before the
+    // request even resolves, rather than sitting still until the next poll.
+    queryClient.setQueryData<DriveQueueData>(['drive-queue'], (old) =>
+      old ? { ...old, entries: applyQueueMoveOptimistic(old.entries, entry, neighbor) } : old,
+    )
+    void runQueueAction(
+      entry,
+      direction === 'up' ? 'move-up' : 'move-down',
+      'move',
+      { to_position: neighbor.position },
+      direction === 'up' ? 'Moved up' : 'Moved down',
+    )
+  }
 
   return (
     <div className="mx-auto w-full px-4 py-4">
@@ -200,23 +358,69 @@ export default function DriveQueuePanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {scopedEntries.map((entry) => (
-                    <tr key={queueEntryKey(entry)} className="border-b border-border/60 last:border-0">
-                      <td className="px-3 py-2 text-right font-mono">{entry.position}</td>
-                      <td className="px-3 py-2 font-mono">{queueEntryKey(entry)}</td>
-                      <td className="max-w-[220px] truncate px-3 py-2">
-                        {queueTitleCell(entry, titleByKey)}
-                      </td>
-                      <td className="px-3 py-2">
-                        <Badge variant={stateBadgeVariant(entry.state)}>{queueStateCell(entry)}</Badge>
-                      </td>
-                      <td className="px-3 py-2">{queueMachineCell(entry)}</td>
-                      <td className="px-3 py-2 text-right font-mono">{entry.attempts}</td>
-                      <td className="px-3 py-2">{queueAfterCell(entry)}</td>
-                      <td className="px-3 py-2">{queueHoldCell(entry)}</td>
-                      <td className="max-w-[320px] px-3 py-2">{queueReasonCell(entry)}</td>
-                    </tr>
-                  ))}
+                  {scopedEntries.map((entry) => {
+                    const canMoveUp = queueMoveNeighbor(scopedEntries, entry, 'up') !== null
+                    const canMoveDown = queueMoveNeighbor(scopedEntries, entry, 'down') !== null
+                    const canUnblock = canUnblockQueueEntry(entry)
+                    const canRelease = canReleaseQueueGate(entry)
+                    return (
+                      <tr key={queueEntryKey(entry)} className="border-b border-border/60 last:border-0">
+                        <td className="px-3 py-2 text-right font-mono">{entry.position}</td>
+                        <td className="px-3 py-2 font-mono">{queueEntryKey(entry)}</td>
+                        <td className="max-w-[220px] truncate px-3 py-2">
+                          {queueTitleCell(entry, titleByKey)}
+                        </td>
+                        <td className="px-3 py-2">
+                          <Badge variant={stateBadgeVariant(entry.state)}>{queueStateCell(entry)}</Badge>
+                        </td>
+                        <td className="px-3 py-2">{queueMachineCell(entry)}</td>
+                        <td className="px-3 py-2 text-right font-mono">{entry.attempts}</td>
+                        <td className="px-3 py-2">{queueAfterCell(entry)}</td>
+                        <td className="px-3 py-2">{queueHoldCell(entry)}</td>
+                        <td className="max-w-[320px] px-3 py-2">{queueReasonCell(entry)}</td>
+                        <td className="px-3 py-2">
+                          <div className="flex items-center gap-1">
+                            <QueueActionButton
+                              label={`Move ${queueEntryKey(entry)} up`}
+                              disabledReason="Already first in view"
+                              onClick={() => handleMove(entry, 'up')}
+                              disabled={!canMoveUp}
+                              busy={busyKeys.has(busyKey(entry, 'move-up'))}
+                            >
+                              ▲
+                            </QueueActionButton>
+                            <QueueActionButton
+                              label={`Move ${queueEntryKey(entry)} down`}
+                              disabledReason="Already last in view"
+                              onClick={() => handleMove(entry, 'down')}
+                              disabled={!canMoveDown}
+                              busy={busyKeys.has(busyKey(entry, 'move-down'))}
+                            >
+                              ▼
+                            </QueueActionButton>
+                            <QueueActionButton
+                              label={`Unblock ${queueEntryKey(entry)}`}
+                              disabledReason={`Only a blocked row can be unblocked (state: ${entry.state || QUEUE_EMPTY_CELL})`}
+                              onClick={() => handleUnblock(entry)}
+                              disabled={!canUnblock}
+                              busy={busyKeys.has(busyKey(entry, 'unblock'))}
+                            >
+                              Unblock
+                            </QueueActionButton>
+                            <QueueActionButton
+                              label={`Release ${queueEntryKey(entry)}'s gate`}
+                              disabledReason="Only a fired gate can be released"
+                              onClick={() => handleReleaseGate(entry)}
+                              disabled={!canRelease}
+                              busy={busyKeys.has(busyKey(entry, 'resume'))}
+                            >
+                              Release
+                            </QueueActionButton>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

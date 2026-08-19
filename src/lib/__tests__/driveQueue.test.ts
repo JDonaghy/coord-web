@@ -15,7 +15,10 @@
 import { describe, it, expect } from 'vitest'
 import type { BoardDriveQueueEntry, DriveQueueSummary, PipelineView } from '@/api/client'
 import {
+  applyQueueMoveOptimistic,
   buildQueueTitleLookup,
+  canReleaseQueueGate,
+  canUnblockQueueEntry,
   driveQueueRepoOptions,
   driveQueueSummaryStats,
   filterActiveQueueEntries,
@@ -26,6 +29,7 @@ import {
   queueEntryKey,
   queueHoldCell,
   queueMachineCell,
+  queueMoveNeighbor,
   queueReasonCell,
   queueStateCell,
   queueTitleCell,
@@ -350,5 +354,104 @@ describe('buildQueueTitleLookup / queueTitleCell', () => {
     expect(queueTitleCell(makeEntry({ repo_name: 'coord-web', issue_number: 999 }), titleByKey)).toBe(
       QUEUE_EMPTY_CELL,
     )
+  })
+})
+
+// ── row actions (#8 QW-4) ────────────────────────────────────────────────────
+
+describe('canUnblockQueueEntry', () => {
+  it('is true only for a blocked row -- same guard queue_unblock_selected enforces', () => {
+    expect(canUnblockQueueEntry(makeEntry({ state: 'blocked' }))).toBe(true)
+  })
+
+  it('is false for every other state', () => {
+    for (const state of ['waiting', 'running', 'pending', 'done', '']) {
+      expect(canUnblockQueueEntry(makeEntry({ state }))).toBe(false)
+    }
+  })
+})
+
+describe('canReleaseQueueGate', () => {
+  it('is true only when hold_state is "fired" -- same guard queue_resume_selected enforces', () => {
+    expect(canReleaseQueueGate(makeEntry({ hold_after: 1, hold_state: 'fired' }))).toBe(true)
+  })
+
+  it('is false for an armed-but-not-fired gate', () => {
+    expect(canReleaseQueueGate(makeEntry({ hold_after: 1, hold_state: 'armed' }))).toBe(false)
+  })
+
+  it('is false for an entry with no gate at all', () => {
+    expect(canReleaseQueueGate(makeEntry({ hold_after: 0, hold_state: '' }))).toBe(false)
+  })
+})
+
+describe('queueMoveNeighbor', () => {
+  const entries = [
+    makeEntry({ id: 1, repo_name: 'repo-a', issue_number: 1, position: 0 }),
+    makeEntry({ id: 2, repo_name: 'repo-a', issue_number: 2, position: 1 }),
+    makeEntry({ id: 3, repo_name: 'repo-a', issue_number: 3, position: 2 }),
+  ]
+
+  it('returns the row above for direction "up"', () => {
+    expect(queueMoveNeighbor(entries, entries[1], 'up')).toEqual(entries[0])
+  })
+
+  it('returns the row below for direction "down"', () => {
+    expect(queueMoveNeighbor(entries, entries[1], 'down')).toEqual(entries[2])
+  })
+
+  it('is null for the first row moving up', () => {
+    expect(queueMoveNeighbor(entries, entries[0], 'up')).toBeNull()
+  })
+
+  it('is null for the last row moving down', () => {
+    expect(queueMoveNeighbor(entries, entries[2], 'down')).toBeNull()
+  })
+
+  it('is null when the entry is not present in the list at all', () => {
+    const stranger = makeEntry({ id: 99, repo_name: 'repo-z', issue_number: 9, position: 0 })
+    expect(queueMoveNeighbor(entries, stranger, 'up')).toBeNull()
+  })
+
+  it('walks the displayed order passed in, not some global position order', () => {
+    // A repo-scoped view: only ids 1 and 3 are "displayed" here, in this
+    // order -- id 3 must read as id 1's neighbour despite the gap in
+    // `position` (id 2 exists but is filtered out of the passed-in list).
+    const scoped = [entries[0], entries[2]]
+    expect(queueMoveNeighbor(scoped, entries[2], 'up')).toEqual(entries[0])
+  })
+})
+
+describe('applyQueueMoveOptimistic', () => {
+  it('swaps the two entries\' positions and re-sorts ascending', () => {
+    const entries = [
+      makeEntry({ id: 1, repo_name: 'repo-a', issue_number: 1, position: 0 }),
+      makeEntry({ id: 2, repo_name: 'repo-a', issue_number: 2, position: 1 }),
+    ]
+    const result = applyQueueMoveOptimistic(entries, entries[1], entries[0])
+    expect(result.map((e) => ({ id: e.id, position: e.position }))).toEqual([
+      { id: 2, position: 0 },
+      { id: 1, position: 1 },
+    ])
+  })
+
+  it('leaves entries not involved in the swap untouched', () => {
+    const entries = [
+      makeEntry({ id: 1, repo_name: 'repo-a', issue_number: 1, position: 0 }),
+      makeEntry({ id: 2, repo_name: 'repo-a', issue_number: 2, position: 1 }),
+      makeEntry({ id: 3, repo_name: 'repo-a', issue_number: 3, position: 2 }),
+    ]
+    const result = applyQueueMoveOptimistic(entries, entries[0], entries[1])
+    expect(result.find((e) => e.id === 3)).toEqual(entries[2])
+  })
+
+  it('does not mutate the input array', () => {
+    const entries = [
+      makeEntry({ id: 1, repo_name: 'repo-a', issue_number: 1, position: 0 }),
+      makeEntry({ id: 2, repo_name: 'repo-a', issue_number: 2, position: 1 }),
+    ]
+    const before = entries.map((e) => e.position)
+    applyQueueMoveOptimistic(entries, entries[1], entries[0])
+    expect(entries.map((e) => e.position)).toEqual(before)
   })
 })
