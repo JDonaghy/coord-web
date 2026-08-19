@@ -12,13 +12,16 @@
  * Actions marked "(forthcoming)" in `PipelineAction`'s doc comment are
  * defined ahead of their backend implementation so TypeScript callers can
  * reference them; they will return HTTP 501 until the matching server PR
- * merges.
+ * merges. `DriveQueueAction` below follows the same convention ahead of
+ * DQW-2.
  */
 
 import type {
   Assignment,
   AssignmentStatus,
   AssignmentType,
+  BoardDriveQueueEntry,
+  DriveQueueSummary,
   PipelineAction,
   PipelineGate,
   PipelineStage,
@@ -30,6 +33,8 @@ export type {
   Assignment,
   AssignmentStatus,
   AssignmentType,
+  BoardDriveQueueEntry,
+  DriveQueueSummary,
   PipelineAction,
   PipelineGate,
   PipelineStage,
@@ -107,6 +112,41 @@ export interface PipelineActionResult {
   detail?: string
 }
 
+// ── GET /api/drive-queue ─────────────────────────────────────────────────────
+
+/** `GET /api/drive-queue`'s response shape — see `BoardDriveQueueEntry`/`DriveQueueSummary` in `./generated`. */
+export interface DriveQueueData {
+  entries: BoardDriveQueueEntry[]
+  summary: DriveQueueSummary
+}
+
+// ── POST /api/drive-queue/action (forthcoming — DQW-2) ──────────────────────
+
+/**
+ * Actions supported by POST /api/drive-queue/action.
+ *
+ * Defined ahead of DQW-2's backend implementation — same "(forthcoming)"
+ * convention as `PipelineAction` above. All three mirror `coord
+ * drive-queue`'s existing CLI verbs (`coord/commands/drive_queue.py`:
+ * `drive_queue_add` / `drive_queue_remove` / `drive_queue_move`), so the
+ * wire contract is a guess about naming only, not about behavior. Will 501
+ * until the matching server PR merges.
+ */
+export type DriveQueueAction = 'add' | 'remove' | 'move'
+
+export interface DriveQueueActionRequest {
+  repo: string
+  issue: number
+  action: DriveQueueAction
+  /** Additional payload fields for specific actions (e.g. to_position for move). */
+  [key: string]: unknown
+}
+
+export interface DriveQueueActionResult {
+  ok: boolean
+  error?: string
+}
+
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
 
 /** Same-origin base — webapp is served by coord/dashboard/server.py. */
@@ -133,6 +173,17 @@ export async function fetchPipeline(): Promise<PipelineView[]> {
   return apiFetch<PipelineView[]>('/api/pipeline')
 }
 
+/**
+ * Fetch the `coord drive` work queue in run order, plus a server-computed
+ * aggregate summary (#2428 DQW-1). Pass `repo` to narrow `entries` to one
+ * repo — `summary` is always computed over the full, unfiltered queue (see
+ * `BoardDriveQueueEntry`'s doc comment for why).
+ */
+export async function fetchDriveQueue(repo?: string): Promise<DriveQueueData> {
+  const query = repo ? `?repo=${encodeURIComponent(repo)}` : ''
+  return apiFetch<DriveQueueData>(`/api/drive-queue${query}`)
+}
+
 /** Fetch live coord-* interactive sessions the phone can take over (#1066). */
 export async function fetchSessions(): Promise<SessionInfo[]> {
   return apiFetch<SessionInfo[]>('/api/sessions')
@@ -156,6 +207,22 @@ export async function pipelineAction(
     body: JSON.stringify(body),
   })
   const data = (await res.json()) as PipelineActionResult
+  if (!res.ok) {
+    return { ok: false, error: data.error ?? `HTTP ${res.status}` }
+  }
+  return data
+}
+
+/** Act on a drive-queue entry (forthcoming — DQW-2; see `DriveQueueAction`'s doc comment). */
+export async function driveQueueAction(
+  body: DriveQueueActionRequest,
+): Promise<DriveQueueActionResult> {
+  const res = await fetch(`${API_BASE}/api/drive-queue/action`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const data = (await res.json()) as DriveQueueActionResult
   if (!res.ok) {
     return { ok: false, error: data.error ?? `HTTP ${res.status}` }
   }
