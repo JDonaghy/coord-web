@@ -175,3 +175,62 @@ export interface Assignment {
   driven_by: string | null
   stop_reason: string | null
 }
+
+// ── #2428 DQW-1 (claude-coordinator) / issue #5 (coord-web) ─────────────────
+//
+// Hand-added ahead of the next real `scripts/codegen.py` regeneration — that
+// script and the OpenAPI spec it reads both live in claude-coordinator, not
+// here (see this repo's CLAUDE.md "Generated API types drift silently"
+// note), so nothing in this checkout can actually run it. Field-for-field
+// transcription of what `coord.dashboard.server.openapi_spec()` serves today
+// for `GET /api/drive-queue`: `BoardDriveQueueEntry` from
+// `sqlite_table_schema(..., "drive_queue", ...)` (the wire shape IS the
+// `drive_queue` SQLite DDL, coord/db.py — same "no hand-maintained field
+// list to drift" reasoning coord/serve_app.py's `/board` schema uses) and
+// `DriveQueueSummary` from `dataclass_schema(DriveQueueSummary, ...)`
+// (coord/drive_queue.py). Re-diff against the real generated.ts output next
+// time it's regenerated and replace this block wholesale if it drifted.
+export interface BoardDriveQueueEntry {
+  id: number
+  repo_name: string
+  issue_number: number
+  position: number
+  machine: string | null
+  /** JSON-decoded on the wire (coord/dao.py `_JSON_COLUMNS`) — pre-req keys, e.g. ["repo#123"]. */
+  after_json: string[]
+  state: string
+  attempts: number
+  deferrals: number
+  last_reason: string
+  reason_at: number | null
+  session_name: string | null
+  launched_at: number | null
+  enqueued_at: number
+  hold_after: number
+  hold_reason: string
+  resume_when: string
+  hold_state: string
+  hold_probes: number
+  launch_host: string
+  hold_scope: string
+  resumes: number
+  retry_backoff_at: number | null
+}
+
+/**
+ * Server-computed aggregate over a drive-queue read — see
+ * `coord.drive_queue.summarize_drive_queue`/`DriveQueueSummary`. `level` is
+ * the ascending-severity rank 'empty' < 'normal' < 'stalled' < 'held' <
+ * 'blocked'; `scripts/codegen.py` has no `ENUM_OVERRIDES` entry for it, so
+ * it's a bare `string` here, same as it would be if regenerated today.
+ */
+export interface DriveQueueSummary {
+  level: string
+  pending: number
+  running: number
+  waiting: number
+  blocked: number
+  eligible: number
+  held: number
+  fleet_held: number
+}
