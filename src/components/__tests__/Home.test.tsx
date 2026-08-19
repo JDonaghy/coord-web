@@ -6,7 +6,7 @@
  * MemoryRouter so useQuery / useNavigate work correctly, matching
  * Detail.test.tsx's pattern.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -32,6 +32,20 @@ vi.mock('react-router-dom', async () => {
 
 beforeEach(() => {
   vi.clearAllMocks()
+})
+
+// Unconditionally restore the real clock between tests. One test below pins
+// `Date` with `vi.setSystemTime` to make its relative-time labels
+// deterministic; doing the restore *inline* at the end of that test means an
+// earlier assertion failure skips it and leaks a fake "now" into every
+// subsequent test in the file. That mattered once for real: the pinned clock
+// sits ~5 months ahead of the wall clock, and the staleness suite below
+// builds its fixtures from `Date.now()` at module load — so a single failure
+// up there silently aged every "2 hours ago" fixture past the 24h staleness
+// window and cascaded into two unrelated red tests. Cheap to make
+// unconditional; a no-op when timers were never faked.
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
@@ -266,8 +280,14 @@ describe('Home — Active tab grouping', () => {
     const now = 1_800_000_000_000
     vi.setSystemTime(now)
 
+    // Distinct issue numbers: since #2 the Active list collapses to one card
+    // per (repo, issue) — two fixtures both riding `makeView`'s default
+    // issue_number would be *one* issue's two assignment rows, so only the
+    // last would render and this test's "a label per card" premise would be
+    // silently untestable ("Work done (1)").
     const threeHoursAgo = makeView({
       assignment_id: 'a-done-3h',
+      issue_number: 1,
       issue_title: 'Finished three hours ago',
       current_stage: 'done',
       available_gates: [{ action: 'enqueue', label: 'Queue', endpoint: '/api/pipeline/action' }],
@@ -275,6 +295,7 @@ describe('Home — Active tab grouping', () => {
     })
     const twoDaysAgo = makeView({
       assignment_id: 'a-done-2d',
+      issue_number: 2,
       issue_title: 'Finished two days ago',
       current_stage: 'review_done',
       available_gates: [{ action: 'enqueue', label: 'Queue', endpoint: '/api/pipeline/action' }],
@@ -290,8 +311,8 @@ describe('Home — Active tab grouping', () => {
 
     expect(await screen.findByText('3h ago')).toBeInTheDocument()
     expect(screen.getByText('2d ago')).toBeInTheDocument()
-
-    vi.useRealTimers()
+    // The clock is restored by the file-level `afterEach`, not here — see the
+    // comment on it.
   })
 
   it('keeps the "Needs me" tab as a flat, ungrouped list', async () => {
@@ -474,6 +495,41 @@ describe('Home — Active tab staleness/order/grouping (#2)', () => {
 
     const cards = await screen.findAllByText('Rework cycle issue')
     expect(cards).toHaveLength(1)
+  })
+
+  it('collapses two done-ish rows for one issue into a single "Work done" card', async () => {
+    // The per-issue collapse is applied upstream of the in-progress/done-ish
+    // split, so it has to hold on the "Work done" path too — not just the
+    // expanded in-progress list the test above covers. Regression pin: the
+    // #1218-follow-up test in the sibling suite reads a *count* out of this
+    // section's header, so a collapse that only ran on the in-progress
+    // branch would show up there as a confusing off-by-one rather than as a
+    // failure that names the real rule.
+    const firstAttempt = makeView({
+      assignment_id: 'done-1',
+      issue_number: 1930,
+      issue_title: 'Done twice issue',
+      current_stage: 'done',
+      available_gates: [{ action: 'enqueue', label: 'Queue', endpoint: '/api/pipeline/action' }],
+      finished_at: daysAgoSec(2 / 24),
+    })
+    const secondAttempt = makeView({
+      assignment_id: 'done-2',
+      issue_number: 1930,
+      issue_title: 'Done twice issue',
+      current_stage: 'review_done',
+      available_gates: [{ action: 'enqueue', label: 'Queue', endpoint: '/api/pipeline/action' }],
+      finished_at: daysAgoSec(1 / 24),
+    })
+    vi.mocked(fetchPipeline).mockResolvedValue([firstAttempt, secondAttempt])
+    vi.mocked(fetchSessions).mockResolvedValue([])
+
+    renderHome()
+
+    const toggle = await screen.findByText('Work done (1)')
+    await userEvent.click(toggle)
+
+    expect(await screen.findAllByText('Done twice issue')).toHaveLength(1)
   })
 
   it('header count equals the number of rendered Active cards', async () => {
