@@ -55,7 +55,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install code-coordinator
+      # The base `code-coordinator` install is client-only (#1237) -- `coord
+      # web` needs uvicorn/Starlette, which live behind the `server` extra.
+      - run: pip install 'code-coordinator[server]'
       # claude-coordinator#2393: uncached `npx playwright install
       # chromium --with-deps` hung 20-34min three times in one afternoon.
       # Cache the browser binary; only a cache miss (a version bump) pays
