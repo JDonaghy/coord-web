@@ -27,6 +27,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import Home from '@/components/Home'
 import SessionsList from '@/components/SessionsList'
+import DriveQueuePanel from '@/components/DriveQueuePanel'
 import { fetchPipeline, fetchSessions } from '@/api/client'
 import { isActive, needsMe, latestPerIssue } from '@/lib/pipeline'
 import { RAIL_VIEW_PATH, shellViewFromPath } from '@/routes/paths'
@@ -112,11 +113,9 @@ export function ShellLayout() {
   } else if (currentView === 'sessions') {
     list = <SessionsList />
   } else if (currentView === 'queue') {
-    // QW-2 is the rail entry + route; the grid itself is QW-3. `ComingSoon`
-    // is the placeholder in the meantime — this branch exists (rather than
-    // falling through to the generic `else` below) so QW-3 has a one-line
-    // swap to make when the real panel lands.
-    list = <ComingSoon view={currentView} />
+    // QW-2 was the rail entry + route; QW-3 is this line — the summary
+    // block + repo-scope dropdown + nine-column grid itself.
+    list = <DriveQueuePanel />
   } else if (currentView === null) {
     list = <RouteNotFound />
   } else {

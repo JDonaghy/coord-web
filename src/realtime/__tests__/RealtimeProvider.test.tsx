@@ -87,6 +87,12 @@ function PipelineProbe({ queryFn }: { queryFn: () => Promise<string[]> }) {
   return <span data-testid="pipeline">{data?.length ?? 0}</span>
 }
 
+/** Same shape as `PipelineProbe`, keyed on `['drive-queue']` (#7 QW-3). */
+function DriveQueueProbe({ queryFn }: { queryFn: () => Promise<string[]> }) {
+  const { data } = useQuery({ queryKey: ['drive-queue'], queryFn })
+  return <span data-testid="drive-queue">{data?.length ?? 0}</span>
+}
+
 function createTestQueryClient() {
   return new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -128,6 +134,26 @@ describe('RealtimeProvider', () => {
     act(() => lastInstance().emitOpen())
 
     act(() => lastInstance().emitMessage('assignment_started', { assignment_id: 'w-1' }))
+
+    await waitFor(() => expect(queryFn).toHaveBeenCalledTimes(2))
+  })
+
+  it('invalidates the drive-queue query when an assignment_completed event arrives (#7 QW-3)', async () => {
+    const queryClient = createTestQueryClient()
+    const queryFn = pipelineFetcher()
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RealtimeProvider createEventSource={(url) => new FakeEventSource(url) as unknown as SseHandle}>
+          <DriveQueueProbe queryFn={queryFn} />
+        </RealtimeProvider>
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => expect(queryFn).toHaveBeenCalledTimes(1))
+    act(() => lastInstance().emitOpen())
+
+    act(() => lastInstance().emitMessage('assignment_completed', { assignment_id: 'w-1' }))
 
     await waitFor(() => expect(queryFn).toHaveBeenCalledTimes(2))
   })

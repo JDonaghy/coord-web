@@ -65,6 +65,7 @@ export type QueryKey = readonly unknown[]
 
 const PIPELINE: QueryKey = ['pipeline']
 const SESSIONS: QueryKey = ['sessions']
+const DRIVE_QUEUE: QueryKey = ['drive-queue']
 
 /**
  * Event type -> the query keys it invalidates.
@@ -72,28 +73,32 @@ const SESSIONS: QueryKey = ['sessions']
  * - `assignment_*` (including the dashboard-server-only `_cancelled` /
  *   `_advisory` / `_refused_policy` / `_needs_attention` variants) changes an item's
  *   stage/verdict/needs-attention flag (-> pipeline) and can start/stop a
- *   live `coord-*` tmux session (-> sessions).
+ *   live `coord-*` tmux session (-> sessions). The same launch/finish that
+ *   drives those also reconciles `coord drive`'s queue entries (`waiting` ->
+ *   `running` -> `done`, `last_reason`/`attempts` updated) -> drive-queue
+ *   (#7 QW-3), except `_needs_attention` (a pipeline-only gate flag with no
+ *   drive-queue analogue).
  * - `machine_*` only affects session reachability/attach state (-> sessions).
  * - `board_updated` is the background poller's coarse "something may have
  *   changed" heartbeat (every 30s server-side, `coord/dashboard/server.py`
- *   `_POLL_INTERVAL`) — treated as a catch-all for both lists so a change
- *   this event vocabulary doesn't yet name specifically still surfaces
- *   within one heartbeat instead of never. It is a catch-all for *unnamed*
- *   changes only, not a substitute for subscribing to a named event type —
- *   a type missing from `EVENT_TYPES` above never reaches this map at all
- *   (see that constant's doc comment).
+ *   `_POLL_INTERVAL`) — treated as a catch-all for all three lists so a
+ *   change this event vocabulary doesn't yet name specifically still
+ *   surfaces within one heartbeat instead of never. It is a catch-all for
+ *   *unnamed* changes only, not a substitute for subscribing to a named
+ *   event type — a type missing from `EVENT_TYPES` above never reaches this
+ *   map at all (see that constant's doc comment).
  */
 export const EVENT_QUERY_KEYS: Readonly<Record<string, readonly QueryKey[]>> = {
-  [ASSIGNMENT_STARTED]: [PIPELINE, SESSIONS],
-  [ASSIGNMENT_COMPLETED]: [PIPELINE, SESSIONS],
-  [ASSIGNMENT_FAILED]: [PIPELINE, SESSIONS],
-  [ASSIGNMENT_CANCELLED]: [PIPELINE, SESSIONS],
-  [ASSIGNMENT_ADVISORY]: [PIPELINE, SESSIONS],
-  [ASSIGNMENT_REFUSED_POLICY]: [PIPELINE, SESSIONS],
+  [ASSIGNMENT_STARTED]: [PIPELINE, SESSIONS, DRIVE_QUEUE],
+  [ASSIGNMENT_COMPLETED]: [PIPELINE, SESSIONS, DRIVE_QUEUE],
+  [ASSIGNMENT_FAILED]: [PIPELINE, SESSIONS, DRIVE_QUEUE],
+  [ASSIGNMENT_CANCELLED]: [PIPELINE, SESSIONS, DRIVE_QUEUE],
+  [ASSIGNMENT_ADVISORY]: [PIPELINE, SESSIONS, DRIVE_QUEUE],
+  [ASSIGNMENT_REFUSED_POLICY]: [PIPELINE, SESSIONS, DRIVE_QUEUE],
   [ASSIGNMENT_NEEDS_ATTENTION]: [PIPELINE],
   [MACHINE_CONNECTED]: [SESSIONS],
   [MACHINE_DISCONNECTED]: [SESSIONS],
-  [BOARD_UPDATED]: [PIPELINE, SESSIONS],
+  [BOARD_UPDATED]: [PIPELINE, SESSIONS, DRIVE_QUEUE],
 }
 
 /**
@@ -107,4 +112,4 @@ export const EVENT_QUERY_KEYS: Readonly<Record<string, readonly QueryKey[]>> = {
  * an explicit resync on recovery is what makes "live" mean "correct", not
  * just "the socket is open again".
  */
-export const RESYNC_QUERY_KEYS: readonly QueryKey[] = [PIPELINE, SESSIONS]
+export const RESYNC_QUERY_KEYS: readonly QueryKey[] = [PIPELINE, SESSIONS, DRIVE_QUEUE]

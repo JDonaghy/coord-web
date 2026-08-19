@@ -33,9 +33,13 @@ vi.mock('@/api/client', () => ({
   fetchSessions: vi.fn(),
   fetchDiff: vi.fn(),
   pipelineAction: vi.fn(),
+  // `DriveQueuePanel` (#7 QW-3) is the real /queue list content now, not
+  // `ComingSoon` -- it calls this on mount the same way Home calls
+  // fetchPipeline/fetchSessions.
+  fetchDriveQueue: vi.fn(),
 }))
 
-import { fetchPipeline, fetchSessions } from '@/api/client'
+import { fetchDriveQueue, fetchPipeline, fetchSessions } from '@/api/client'
 
 // ── fixtures ──────────────────────────────────────────────────────────────────
 
@@ -144,6 +148,19 @@ beforeEach(() => {
   window.localStorage.clear()
   vi.mocked(fetchPipeline).mockResolvedValue([makeView()])
   vi.mocked(fetchSessions).mockResolvedValue([makeSession()])
+  vi.mocked(fetchDriveQueue).mockResolvedValue({
+    entries: [],
+    summary: {
+      level: 'empty',
+      pending: 0,
+      running: 0,
+      waiting: 0,
+      blocked: 0,
+      eligible: 0,
+      held: 0,
+      fleet_held: 0,
+    },
+  })
 })
 
 afterEach(() => {
