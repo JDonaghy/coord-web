@@ -46,11 +46,11 @@ const Gallery = lazy(() => import('@/components/Gallery'))
  *                                        the M-W2+ panels, addressable today
  *                                        so a link to one isn't a 404 while
  *                                        it's being built
- *   /queue                           -> ComingSoon(view) today too (QW-2);
- *                                        unlike the row above, this entry is
- *                                        'ready' in the rail (railItems.ts)
- *                                        -- the route and nav are done, only
- *                                        the grid content (QW-3) is pending
+ *   /queue                           -> DriveQueuePanel (QW-3) in the list
+ *                                        slot, `element={null}` here same as
+ *                                        every route above -- there is no
+ *                                        detail view for a queue entry yet
+ *                                        (QW-4/QW-5)
  *   *  (inside the shell)            -> RouteNotFound -- a real not-found
  *                                        state for a genuinely unknown path,
  *                                        rendered inside the shell (rail,
@@ -108,11 +108,14 @@ export default function App() {
             <Route path="/spend" element={null} />
             <Route path="/settings" element={null} />
 
-            {/* Rail entry + route only (QW-2); the queue grid itself is
-                QW-3. Declared explicitly rather than left to fall through to
-                the wildcard below, same as every other placeholder above --
-                this one just happens to be 'ready' (clickable) in the rail
-                already, see railItems.ts. */}
+            {/* The list slot's `DriveQueuePanel` (QW-3) is wired in
+                `ShellLayout`, not here -- this route's own element stays
+                `null` same as every other placeholder above, since there is
+                no detail-slot content for a queue entry yet. Declared
+                explicitly rather than left to fall through to the wildcard
+                below, same as every other placeholder -- this one just
+                happens to be 'ready' (clickable) in the rail already, see
+                railItems.ts. */}
             <Route path="/queue" element={null} />
 
             {/* Genuinely unknown path under the shell -- a typo'd URL, or a
