@@ -33,11 +33,19 @@
  * `canReleaseQueueGate` / `queueMoveNeighbor` in `src/lib/driveQueue.ts`) --
  * a button that doesn't apply to a row renders *disabled with a tooltip*,
  * never hidden, so the action's existence stays discoverable (the standing
- * "rich client, not hotkeys" feedback this codebase has had before). No issue
- * hyperlink yet (QW-5, navigation) -- that's still a plain cell.
+ * "rich client, not hotkeys" feedback this codebase has had before).
+ *
+ * The **Issue** cell (#9 QW-5) is a `<Link>` to `paths.pipelineItem`, for
+ * in-app SPA navigation, plus a small secondary `<a target="_blank">`
+ * affordance right next to it. Plain `<Link>`/`<a>` semantics already give
+ * ctrl/cmd-click-to-new-tab for free, so the second element isn't there to
+ * make new-tab *possible* -- it's there to make it *discoverable* without
+ * relying on a modifier click nobody's told about.
  */
 import { useMemo, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { ExternalLink } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import {
   driveQueueAction,
   fetchDriveQueue,
@@ -49,6 +57,7 @@ import {
 import { PanelHeader } from '@/components/PanelHeader'
 import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { toast } from '@/components/ui/use-toast'
+import { paths } from '@/routes/paths'
 import { cn } from '@/lib/utils'
 import {
   applyQueueMoveOptimistic,
@@ -366,7 +375,26 @@ export default function DriveQueuePanel() {
                     return (
                       <tr key={queueEntryKey(entry)} className="border-b border-border/60 last:border-0">
                         <td className="px-3 py-2 text-right font-mono">{entry.position}</td>
-                        <td className="px-3 py-2 font-mono">{queueEntryKey(entry)}</td>
+                        <td className="px-3 py-2 font-mono">
+                          <div className="flex items-center gap-1">
+                            <Link
+                              to={paths.pipelineItem(entry.repo_name, entry.issue_number)}
+                              className="hover:underline"
+                            >
+                              {queueEntryKey(entry)}
+                            </Link>
+                            <a
+                              href={paths.pipelineItem(entry.repo_name, entry.issue_number)}
+                              target="_blank"
+                              rel="noreferrer"
+                              aria-label={`Open ${queueEntryKey(entry)} in a new tab`}
+                              title="Open in new tab"
+                              className="text-muted-foreground hover:text-foreground"
+                            >
+                              <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                            </a>
+                          </div>
+                        </td>
                         <td className="max-w-[220px] truncate px-3 py-2">
                           {queueTitleCell(entry, titleByKey)}
                         </td>
