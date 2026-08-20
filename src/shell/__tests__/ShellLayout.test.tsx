@@ -285,6 +285,38 @@ describe('shell — wide (>= 1024px)', () => {
     // see shellState.ts).
     expect(await screen.findByRole('heading', { name: 'Sessions' })).toBeInTheDocument()
   })
+
+  it('lets the Queue list pane fill the width instead of an empty detail column (#17 QW-6)', async () => {
+    renderShell(paths.queue())
+    await screen.findByRole('heading', { name: 'Queue' })
+
+    // No detail route for a queue entry yet -- the detail slot doesn't
+    // mount at all, unlike Pipeline/Sessions which keep their "nothing
+    // selected" placeholder on wide.
+    expect(detailRegion()).not.toBeInTheDocument()
+    // No separator either -- nothing to resize the list against.
+    expect(screen.queryByRole('separator', { name: 'Resize list panel' })).not.toBeInTheDocument()
+
+    // Two columns (rail, list), the list column an unbounded `1fr` rather
+    // than pinned to the persisted/default `listWidthPx` -- the whole point
+    // of the fix is that it's no longer capped at `LIST_WIDTH_MAX_PX`.
+    const shellGrid = document.querySelector('[data-shell-mode="wide"]') as HTMLElement
+    expect(shellGrid.style.gridTemplateColumns.trim().split(/\s+/)).toHaveLength(2)
+    expect(shellGrid.style.gridTemplateColumns).toContain('minmax(0,1fr)')
+    expect(shellGrid.style.gridTemplateColumns).not.toContain(`${LIST_WIDTH_DEFAULT_PX}px`)
+  })
+
+  it('keeps the three-column split (list capped, detail column present) for Pipeline, which does have a detail route', async () => {
+    renderShell()
+    await screen.findByRole('heading', { name: 'Pipeline' })
+
+    expect(detailRegion()).toBeInTheDocument()
+    expect(screen.getByRole('separator', { name: 'Resize list panel' })).toBeInTheDocument()
+
+    const shellGrid = document.querySelector('[data-shell-mode="wide"]') as HTMLElement
+    expect(shellGrid.style.gridTemplateColumns.trim().split(/\s+/)).toHaveLength(3)
+    expect(shellGrid.style.gridTemplateColumns).toContain(`${LIST_WIDTH_DEFAULT_PX}px`)
+  })
 })
 
 // ── narrow ────────────────────────────────────────────────────────────────────
