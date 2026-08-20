@@ -42,6 +42,21 @@ import { useRegionFocus, type ShellRegion } from './useRegionFocus'
 
 const ATTENTION_VIEWS: ReadonlySet<ShellView> = new Set<ShellView>(['pipeline'])
 
+/**
+ * Views whose detail-slot route renders real content — a "nothing selected"
+ * placeholder or an actual item view — rather than `element={null}` (see
+ * `App.tsx`'s route table doc comment). Every other view (Queue included)
+ * has nothing to put in the detail column yet, so on wide `AppShell` lets
+ * the list pane claim that column's width instead of leaving it empty next
+ * to a capped-width list (#17 QW-6).
+ *
+ * Revisit this set the day a view outside it grows a real detail route —
+ * e.g. a `/queue/:issue`-shaped view for QW-4/QW-5 (#8/#9). At that point
+ * Queue moves into this set and gets its list/detail split back, the same
+ * way Pipeline and Sessions already have one.
+ */
+const VIEWS_WITH_DETAIL_ROUTE: ReadonlySet<ShellView> = new Set<ShellView>(['pipeline', 'sessions'])
+
 export function ShellLayout() {
   const mode = useShellMode()
   const shell = useShellState()
@@ -65,6 +80,12 @@ export function ShellLayout() {
   const sessionItemMatch = useMatch('/sessions/:id')
   const detailActive = !!(pipelineItemMatch || pipelineItemTabMatch || sessionItemMatch)
 
+  // Whether the current view's detail route is real content at all (see
+  // `VIEWS_WITH_DETAIL_ROUTE` above) — independent of `detailActive`
+  // ("is a specific item selected"), since a view can have detail content
+  // (the "nothing selected" placeholder) without anything selected.
+  const hasDetailRoute = currentView !== null && VIEWS_WITH_DETAIL_ROUTE.has(currentView)
+
   // Same query keys the panels use, so this is a cache read, not a second
   // fetch (see main.tsx: staleTime Infinity + SSE-driven invalidation).
   const { data: pipeline } = useQuery({ queryKey: ['pipeline'], queryFn: fetchPipeline })
@@ -85,7 +106,7 @@ export function ShellLayout() {
   // Kept in step with AppShell's own `showList` / `showDetail` — F6 must not
   // offer a region that isn't mounted.
   const listMounted = mode === 'narrow' ? !detailActive : !(mode === 'wide' && shell.listCollapsed)
-  const detailMounted = mode === 'wide' || detailActive
+  const detailMounted = detailActive || (mode === 'wide' && hasDetailRoute)
 
   // F6 must skip regions that aren't on screen — cycling into an unmounted
   // container would silently drop focus to <body>.
@@ -114,7 +135,12 @@ export function ShellLayout() {
     list = <SessionsList />
   } else if (currentView === 'queue') {
     // QW-2 was the rail entry + route; QW-3 is this line — the summary
-    // block + repo-scope dropdown + nine-column grid itself.
+    // block + repo-scope dropdown + nine-column grid itself. There is still
+    // no detail view for a queue entry (QW-4/QW-5), so `hasDetailRoute` is
+    // `false` here and `AppShell` lets this list pane fill the width that
+    // would otherwise sit empty next to it (#17 QW-6) — see
+    // `VIEWS_WITH_DETAIL_ROUTE` above for the tension with a future detail
+    // view landing.
     list = <DriveQueuePanel />
   } else if (currentView === null) {
     list = <RouteNotFound />
@@ -130,6 +156,7 @@ export function ShellLayout() {
       listWidthPx={shell.listWidthPx}
       onListWidthChange={shell.setListWidthPx}
       detailActive={detailActive}
+      detailAvailable={hasDetailRoute}
       registerRegion={registerRegion}
       focusedRegion={focusedRegion}
       rail={

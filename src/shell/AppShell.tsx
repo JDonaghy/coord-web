@@ -9,6 +9,14 @@
  *
  *   wide     rail | list | detail, three columns, status bar spanning the
  *            foot. The list/detail boundary is a draggable separator.
+ *            When the current view has no detail-slot content at all
+ *            (`detailAvailable` false — e.g. Queue, which has no per-entry
+ *            detail view yet, #17 QW-6) this collapses to rail | list, and
+ *            the list column fills the width the empty detail column would
+ *            otherwise waste — see `showDetail` below. That's a property of
+ *            the *view*, not the viewport: a view can gain a detail route
+ *            later (QW-4/QW-5 for Queue) and go back to the three-column
+ *            split without anything here changing.
  *   medium   rail | content. The detail arrives as an overlay sheet in the
  *            same grid cell as the list, so a drill-in doesn't cost you the
  *            list you drilled in from.
@@ -65,6 +73,15 @@ export interface AppShellProps {
   onListWidthChange: (px: number) => void
   /** True when a detail item is selected (on narrow: show detail, hide list). */
   detailActive: boolean
+  /**
+   * True when the current view's detail slot has real content to show at
+   * all — a placeholder or an actual item view — as opposed to a view with
+   * no detail route yet (e.g. Queue, #17 QW-6). Only meaningful on wide:
+   * that's the only mode that would otherwise mount an empty detail column
+   * next to a width-capped list. Narrow/medium already gate the detail slot
+   * on `detailActive` alone and are unaffected.
+   */
+  detailAvailable: boolean
   rail: ReactNode
   list: ReactNode
   detail: ReactNode
@@ -80,6 +97,7 @@ export function AppShell({
   listWidthPx,
   onListWidthChange,
   detailActive,
+  detailAvailable,
   rail,
   list,
   detail,
@@ -98,10 +116,13 @@ export function AppShell({
   const listHidden = wide && listCollapsed
   const showList = narrow ? !detailActive : !listHidden
   // Wide is the only mode with a column reserved for the detail, so it's the
-  // only one that mounts the "nothing selected" placeholder. On medium the
-  // detail shares the list's grid cell — mounting it unselected would paint an
-  // opaque placeholder straight over the list.
-  const showDetail = wide || detailActive
+  // only one that mounts the "nothing selected" placeholder — and only when
+  // the current view actually has detail content to mount (`detailAvailable`,
+  // #17 QW-6): a view with no detail route yet (Queue) has nothing to put
+  // there, so it stays unmounted the same as it would on medium/narrow. On
+  // medium the detail shares the list's grid cell — mounting it unselected
+  // would paint an opaque placeholder straight over the list.
+  const showDetail = detailActive || (wide && detailAvailable)
   // On medium the detail sheet sits *on top of* the list in the same cell.
   const detailOverlays = mode === 'medium' && detailActive
 
@@ -109,7 +130,12 @@ export function AppShell({
     ? { gridTemplateColumns: 'minmax(0,1fr)', gridTemplateRows: 'minmax(0,1fr) auto auto' }
     : {
         gridTemplateColumns: wide
-          ? `${railPx}px ${listHidden ? 0 : listWidthPx}px minmax(0,1fr)`
+          ? showDetail
+            ? `${railPx}px ${listHidden ? 0 : listWidthPx}px minmax(0,1fr)`
+            : // No detail column to give away: let the list claim the rest of
+              // the width instead of sitting capped at `listWidthPx` next to
+              // an empty third column (#17 QW-6).
+              `${railPx}px minmax(0,1fr)`
           : `${railPx}px minmax(0,1fr)`,
         gridTemplateRows: 'minmax(0,1fr) auto',
       }
@@ -231,7 +257,7 @@ export function AppShell({
         >
           <div className="min-h-0 flex-1 overflow-y-auto">{list}</div>
 
-          {wide && (
+          {wide && showDetail && (
             <div
               role="separator"
               aria-orientation="vertical"
