@@ -475,6 +475,13 @@ describe('Home — Active tab staleness/order/grouping (#2)', () => {
 
   it('renders exactly one Active card for an issue with a rework cycle (two work rows)', async () => {
     // Mirrors #1930: a request-changes attempt followed by its approve fix-1.
+    // Row order is the API's real one — newest first (#19).
+    const approveFix = makeView({
+      assignment_id: 'review-2',
+      issue_number: 1930,
+      issue_title: 'Rework cycle issue',
+      current_stage: 'coding',
+    })
     const requestChanges = makeView({
       assignment_id: 'review-1',
       issue_number: 1930,
@@ -482,19 +489,91 @@ describe('Home — Active tab staleness/order/grouping (#2)', () => {
       current_stage: 'review_failed',
       available_gates: [{ action: 'dispatch_fix', label: 'Fix', endpoint: '/api/pipeline/action' }],
     })
-    const approveFix = makeView({
-      assignment_id: 'review-2',
-      issue_number: 1930,
-      issue_title: 'Rework cycle issue',
-      current_stage: 'coding',
-    })
-    vi.mocked(fetchPipeline).mockResolvedValue([requestChanges, approveFix])
+    vi.mocked(fetchPipeline).mockResolvedValue([approveFix, requestChanges])
     vi.mocked(fetchSessions).mockResolvedValue([])
 
     renderHome()
 
     const cards = await screen.findAllByText('Rework cycle issue')
     expect(cards).toHaveLength(1)
+  })
+
+  // ── #19: the collapse must keep the NEWEST row, not the oldest ──────────────
+  //
+  // `/api/pipeline` sorts newest-first, but `latestPerIssue` kept the row with
+  // the highest array index — i.e. each issue's *oldest* attempt. Both tests
+  // below drive the rendered Home screen, not the helper, because the reported
+  // symptom was visual: a red "failed" badge that never went away.
+
+  it('badges a reworked issue by its newest row, not the superseded failure (#19)', async () => {
+    // claude-coordinator#2472's shape, one step earlier: the retry is running
+    // again, so the card belongs in Active — but badged "running", not "failed".
+    const retryRunning = makeView({
+      assignment_id: 'work-2472-retry',
+      issue_number: 2472,
+      issue_title: 'Reworked and running again',
+      current_stage: 'coding',
+    })
+    const earlierReviewFailure = makeView({
+      assignment_id: 'review-2472',
+      issue_number: 2472,
+      issue_title: 'Reworked and running again',
+      current_stage: 'review_failed',
+      finished_at: daysAgoSec(6 / 24),
+      available_gates: [{ action: 'dispatch_fix', label: 'Fix', endpoint: '/api/pipeline/action' }],
+    })
+    vi.mocked(fetchPipeline).mockResolvedValue([retryRunning, earlierReviewFailure])
+    vi.mocked(fetchSessions).mockResolvedValue([])
+
+    renderHome()
+
+    const section = await screen.findByRole('region', { name: 'Active items' })
+    const cards = within(section).getAllByRole('button')
+    expect(cards).toHaveLength(1)
+    expect(cards[0]).toHaveTextContent('Reworked and running again')
+    expect(within(cards[0]).getByText('running')).toBeInTheDocument()
+    expect(within(cards[0]).queryByText('failed')).not.toBeInTheDocument()
+  })
+
+  it('drops an issue out of Active once its newest row is merged (#19)', async () => {
+    // The reported defect verbatim: #2472 merged, but an older review_failed
+    // row won the collapse, so `isActive` never saw "merged" and the red card
+    // sat in Active indefinitely.
+    const merged = makeView({
+      assignment_id: 'merge-2472',
+      issue_number: 2472,
+      issue_title: 'Merged but badged failed',
+      repo_name: 'claude-coordinator',
+      current_stage: 'merged',
+      finished_at: daysAgoSec(1 / 24),
+    })
+    const earlierReviewFailure = makeView({
+      assignment_id: 'review-2472',
+      issue_number: 2472,
+      issue_title: 'Merged but badged failed',
+      repo_name: 'claude-coordinator',
+      current_stage: 'review_failed',
+      finished_at: daysAgoSec(6 / 24),
+      available_gates: [{ action: 'dispatch_fix', label: 'Fix', endpoint: '/api/pipeline/action' }],
+    })
+    const unrelatedLive = makeView({
+      assignment_id: 'a-live',
+      issue_number: 1960,
+      issue_title: 'Unrelated live work',
+      current_stage: 'coding',
+    })
+    vi.mocked(fetchPipeline).mockResolvedValue([merged, earlierReviewFailure, unrelatedLive])
+    vi.mocked(fetchSessions).mockResolvedValue([])
+
+    renderHome()
+
+    // Sanity: the list rendered at all.
+    await waitFor(() => {
+      expect(screen.getByText('Unrelated live work')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Merged but badged failed')).not.toBeInTheDocument()
+    // ...and the header count agrees — one tracked Active issue, not two.
+    expect(screen.getByText('1 tracked')).toBeInTheDocument()
   })
 
   it('collapses two done-ish rows for one issue into a single "Work done" card', async () => {
