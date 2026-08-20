@@ -262,10 +262,12 @@ export default function Detail() {
   // reverse (a leading-zero or malformed URL segment must fail the match,
   // not silently coerce to some other issue's number).
   //
-  // #2: `findLatestForIssue` picks the LAST matching assignment row, not the
-  // first — a rework cycle files several rows for the same issue, and this
-  // screen must show the most recent attempt's state, not a superseded one
-  // (Home's card for this issue is the same latest row, via `latestPerIssue`).
+  // #2: a rework cycle files several rows for the same issue, and this screen
+  // must show the most recent attempt's state, not a superseded one.
+  // `findLatestForIssue` picks the newest matching row — #19: newest means
+  // the *first* one `/api/pipeline` returns (it sorts newest-first), plus a
+  // `finished_at` comparison, not simply the last row in the array. Home's
+  // card for this issue resolves to that same row via `latestPerIssue`.
   const view: PipelineView | null = repo && issue ? findLatestForIssue(pipeline ?? [], repo, issue) : null
 
   // `navigate(-1)` is a silent no-op when there is no in-app history entry to

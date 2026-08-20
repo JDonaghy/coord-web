@@ -107,12 +107,17 @@ describe('needsMe', () => {
   })
 })
 
+// `/api/pipeline` sorts rows NEWEST-FIRST (claude-coordinator
+// `coord/dashboard/server.py`, `reverse=True`, #2066 step 3). Every
+// multi-row fixture below is written in that real order — newest row first —
+// because #19 was exactly the bug of assuming the opposite.
 describe('latestPerIssue', () => {
-  it('collapses N assignment rows for one issue into a single entry', () => {
+  it('collapses N assignment rows for one issue into a single entry, keeping the newest', () => {
+    // Newest-first, as the API returns them: a3 is the current attempt.
     const views = [
-      makeView({ assignment_id: 'a1', issue_number: 370, repo_name: 'r' }),
-      makeView({ assignment_id: 'a2', issue_number: 370, repo_name: 'r' }),
       makeView({ assignment_id: 'a3', issue_number: 370, repo_name: 'r' }),
+      makeView({ assignment_id: 'a2', issue_number: 370, repo_name: 'r' }),
+      makeView({ assignment_id: 'a1', issue_number: 370, repo_name: 'r' }),
     ]
     const result = latestPerIssue(views)
     expect(result).toHaveLength(1)
@@ -120,31 +125,125 @@ describe('latestPerIssue', () => {
   })
 
   it('keeps the latest attempt of a rework cycle (request-changes, then approve fix-1)', () => {
-    const requestChanges = makeView({
-      assignment_id: 'review-1',
-      issue_number: 1930,
-      repo_name: 'r',
-      current_stage: 'review_failed',
-    })
     const approveFix = makeView({
       assignment_id: 'review-2',
       issue_number: 1930,
       repo_name: 'r',
       current_stage: 'merge_ready',
     })
-    const result = latestPerIssue([requestChanges, approveFix])
+    const requestChanges = makeView({
+      assignment_id: 'review-1',
+      issue_number: 1930,
+      repo_name: 'r',
+      current_stage: 'review_failed',
+    })
+    const result = latestPerIssue([approveFix, requestChanges])
     expect(result).toHaveLength(1)
     expect(result[0].assignment_id).toBe('review-2')
   })
 
-  it('preserves each surviving issue at the position of its LAST occurrence', () => {
-    const older = makeView({ assignment_id: 'a1', issue_number: 1, repo_name: 'r' })
-    const newest = makeView({ assignment_id: 'b1', issue_number: 2, repo_name: 'r' })
-    const olderAgain = makeView({ assignment_id: 'a2', issue_number: 1, repo_name: 'r' })
-    // Issue 1's last row (a2) comes after issue 2's only row (b1) — so issue
-    // 1 should end up second in the result, not first.
-    const result = latestPerIssue([older, newest, olderAgain])
-    expect(result.map((v) => v.assignment_id)).toEqual(['b1', 'a2'])
+  // #19's reported defect, verbatim: claude-coordinator#2472 rendered a red
+  // "failed" badge forever, because the collapse kept the row with the
+  // highest array index — which, against the API's newest-first order, is the
+  // OLDEST attempt. The merged row could never win.
+  it('keeps a merged row over an earlier review_failed row for the same issue (#19)', () => {
+    const merged = makeView({
+      assignment_id: 'merge-2472',
+      issue_number: 2472,
+      repo_name: 'claude-coordinator',
+      current_stage: 'merged',
+      finished_at: NOW_MS / 1000 - 60 * 60,
+    })
+    const reviewFailed = makeView({
+      assignment_id: 'review-2472',
+      issue_number: 2472,
+      repo_name: 'claude-coordinator',
+      current_stage: 'review_failed',
+      finished_at: NOW_MS / 1000 - 6 * 60 * 60,
+    })
+    const result = latestPerIssue([merged, reviewFailed])
+    expect(result).toHaveLength(1)
+    expect(result[0].assignment_id).toBe('merge-2472')
+    expect(result[0].current_stage).toBe('merged')
+  })
+
+  it('drops that issue from the Active tab, since the surviving row is merged (#19)', () => {
+    // The stale-row bug also pinned the card in Active forever: `isActive` was
+    // evaluated against the collapsed (non-merged) row, so it never read as
+    // finished. Same fixture, one filter further down Home's pipeline.
+    const merged = makeView({
+      assignment_id: 'merge-2472',
+      issue_number: 2472,
+      repo_name: 'claude-coordinator',
+      current_stage: 'merged',
+      finished_at: Date.now() / 1000 - 60 * 60,
+    })
+    const reviewFailed = makeView({
+      assignment_id: 'review-2472',
+      issue_number: 2472,
+      repo_name: 'claude-coordinator',
+      current_stage: 'review_failed',
+      finished_at: Date.now() / 1000 - 6 * 60 * 60,
+    })
+    expect(latestPerIssue([merged, reviewFailed]).filter(isActive)).toEqual([])
+  })
+
+  it('prefers the greater finished_at even if the rows arrive oldest-first', () => {
+    // Robustness, not the current server contract: comparing `finished_at`
+    // directly (the same signal the server sorts by) means the collapse can't
+    // silently invert again if that ordering ever changes.
+    const older = makeView({
+      assignment_id: 'review-1',
+      issue_number: 2472,
+      repo_name: 'r',
+      current_stage: 'review_failed',
+      finished_at: NOW_MS / 1000 - 6 * 60 * 60,
+    })
+    const newer = makeView({
+      assignment_id: 'merge-1',
+      issue_number: 2472,
+      repo_name: 'r',
+      current_stage: 'merged',
+      finished_at: NOW_MS / 1000 - 60 * 60,
+    })
+    const result = latestPerIssue([older, newer])
+    expect(result).toHaveLength(1)
+    expect(result[0].assignment_id).toBe('merge-1')
+  })
+
+  it('does not let an unfinished row outrank a newer finished one', () => {
+    // A limbo/abandoned attempt has finished_at === null. Ranking null as
+    // "newest" would reintroduce #19 with the roles swapped: the dead row
+    // would permanently shadow the real merged one. Newest-first order says
+    // the merged row leads, and it wins.
+    const merged = makeView({
+      assignment_id: 'merge-1',
+      issue_number: 2472,
+      repo_name: 'r',
+      current_stage: 'merged',
+      finished_at: NOW_MS / 1000 - 60 * 60,
+    })
+    const abandoned = makeView({
+      assignment_id: 'work-limbo',
+      issue_number: 2472,
+      repo_name: 'r',
+      current_stage: 'coding',
+      finished_at: null,
+    })
+    const result = latestPerIssue([merged, abandoned])
+    expect(result).toHaveLength(1)
+    expect(result[0].assignment_id).toBe('merge-1')
+  })
+
+  it('preserves each surviving issue at the position of its winning row', () => {
+    const newestForIssue1 = makeView({ assignment_id: 'a2', issue_number: 1, repo_name: 'r' })
+    const onlyRowForIssue2 = makeView({ assignment_id: 'b1', issue_number: 2, repo_name: 'r' })
+    const olderForIssue1 = makeView({ assignment_id: 'a1', issue_number: 1, repo_name: 'r' })
+    // Issue 1's winning (first, newest) row leads the API response, so issue 1
+    // keeps that leading position — it does not slide down to the superseded
+    // row's index.
+    const result = latestPerIssue([newestForIssue1, onlyRowForIssue2, olderForIssue1])
+    expect(result.map((v) => v.assignment_id)).toEqual(['a2', 'b1'])
   })
 
   it('leaves distinct issues untouched', () => {
@@ -152,14 +251,59 @@ describe('latestPerIssue', () => {
     const b = makeView({ assignment_id: 'b', issue_number: 2, repo_name: 'r' })
     expect(latestPerIssue([a, b])).toEqual([a, b])
   })
+
+  it('does not collapse the same issue number across different repos', () => {
+    const a = makeView({ assignment_id: 'a', issue_number: 19, repo_name: 'coord-web' })
+    const b = makeView({ assignment_id: 'b', issue_number: 19, repo_name: 'claude-coordinator' })
+    expect(latestPerIssue([a, b]).map((v) => v.assignment_id)).toEqual(['a', 'b'])
+  })
 })
 
 describe('findLatestForIssue', () => {
-  it('returns the last matching row for a (repo, issue) pair', () => {
-    const first = makeView({ assignment_id: 'w1', issue_number: 1930, repo_name: 'r' })
-    const second = makeView({ assignment_id: 'w2', issue_number: 1930, repo_name: 'r' })
-    expect(findLatestForIssue([first, second], 'r', 1930)?.assignment_id).toBe('w2')
-    expect(findLatestForIssue([first, second], 'r', '1930')?.assignment_id).toBe('w2')
+  it('returns the newest matching row for a (repo, issue) pair', () => {
+    // Newest-first API order: the current attempt leads.
+    const newest = makeView({ assignment_id: 'w2', issue_number: 1930, repo_name: 'r' })
+    const older = makeView({ assignment_id: 'w1', issue_number: 1930, repo_name: 'r' })
+    expect(findLatestForIssue([newest, older], 'r', 1930)?.assignment_id).toBe('w2')
+    expect(findLatestForIssue([newest, older], 'r', '1930')?.assignment_id).toBe('w2')
+  })
+
+  it('agrees with latestPerIssue on which row an issue is currently at (#19)', () => {
+    // Detail.tsx looks the issue up with this; Home.tsx renders the card with
+    // `latestPerIssue`. If the two disagreed, tapping a card would open a
+    // detail view for a different attempt than the card that led there.
+    const merged = makeView({
+      assignment_id: 'merge-2472',
+      issue_number: 2472,
+      repo_name: 'claude-coordinator',
+      current_stage: 'merged',
+      finished_at: NOW_MS / 1000 - 60 * 60,
+    })
+    const reviewFailed = makeView({
+      assignment_id: 'review-2472',
+      issue_number: 2472,
+      repo_name: 'claude-coordinator',
+      current_stage: 'review_failed',
+      finished_at: NOW_MS / 1000 - 6 * 60 * 60,
+    })
+    const rows = [merged, reviewFailed]
+    expect(findLatestForIssue(rows, 'claude-coordinator', 2472)).toBe(latestPerIssue(rows)[0])
+  })
+
+  it('prefers the greater finished_at even if the rows arrive oldest-first', () => {
+    const older = makeView({
+      assignment_id: 'w1',
+      issue_number: 1930,
+      repo_name: 'r',
+      finished_at: NOW_MS / 1000 - 6 * 60 * 60,
+    })
+    const newer = makeView({
+      assignment_id: 'w2',
+      issue_number: 1930,
+      repo_name: 'r',
+      finished_at: NOW_MS / 1000 - 60 * 60,
+    })
+    expect(findLatestForIssue([older, newer], 'r', 1930)?.assignment_id).toBe('w2')
   })
 
   it('returns null when nothing matches', () => {

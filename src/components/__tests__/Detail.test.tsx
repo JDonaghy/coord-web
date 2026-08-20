@@ -683,24 +683,26 @@ describe('Detail — misc gate actions', () => {
 
 describe('Detail — rework cycle', () => {
   it('renders the latest attempt when the pipeline has two rows for the same issue', async () => {
-    // Mirrors #1930: a request-changes attempt (superseded), then its
-    // approve fix-1 (the current state). `findLatestForIssue` picks the
-    // LAST matching row — this is a black-box check, through the rendered
-    // Detail view, that the fix actually lands there and not just in the
+    // Mirrors #1930: a request-changes attempt (superseded) and its approve
+    // fix-1 (the current state), in the order `/api/pipeline` actually
+    // returns them — NEWEST FIRST (#19; claude-coordinator
+    // `coord/dashboard/server.py` sorts `reverse=True`). `findLatestForIssue`
+    // picks the newest matching row; this is a black-box check, through the
+    // rendered Detail view, that the fix lands there and not just in the
     // pure-function unit tests in pipeline.test.ts.
-    const requestChanges = makeView({
-      assignment_id: 'review-1',
-      current_stage: 'review_failed',
-      review_verdict: 'request-changes',
-      available_gates: [{ action: 'dispatch_fix', label: 'Fix', endpoint: '/api/pipeline/action' }],
-    })
     const approveFix = makeView({
       assignment_id: 'review-2',
       current_stage: 'merge_ready',
       review_verdict: 'approve',
       available_gates: [{ action: 'merge', label: 'Merge', endpoint: '/api/pipeline/action' }],
     })
-    vi.mocked(fetchPipeline).mockResolvedValue([requestChanges, approveFix])
+    const requestChanges = makeView({
+      assignment_id: 'review-1',
+      current_stage: 'review_failed',
+      review_verdict: 'request-changes',
+      available_gates: [{ action: 'dispatch_fix', label: 'Fix', endpoint: '/api/pipeline/action' }],
+    })
+    vi.mocked(fetchPipeline).mockResolvedValue([approveFix, requestChanges])
     vi.mocked(fetchDiff).mockResolvedValue(makeDiff())
     vi.mocked(pipelineAction).mockResolvedValue({ ok: true } satisfies PipelineActionResult)
 

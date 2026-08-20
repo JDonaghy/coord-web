@@ -97,35 +97,79 @@ function issueKey(view: PipelineView): string {
 }
 
 /**
- * Collapse assignment rows to one per (repo, issue), keeping the LAST
- * occurrence of each key. `/api/pipeline` lists assignment rows in creation
- * order, so an issue's last row is its most recent attempt/state — the one
- * a single card should represent; earlier attempts are superseded, not
- * discarded (they're still reachable from the detail view's history, not
- * duplicated here as sibling cards).
+ * Does `candidate` — which appears *later* in the API's row list than
+ * `incumbent` — nonetheless represent a more recent attempt/state for the
+ * same issue? (#19)
  *
- * The result preserves each surviving key's position at its LAST
- * occurrence's index in `views`, not its first — so an issue with a recent
- * rework attempt sorts by that attempt's place in the list, not the
- * original one's.
+ * Two signals, in priority order:
+ *
+ * 1. **`finished_at`, when both rows have one.** This is the same recency
+ *    signal the server itself sorts by, so comparing it directly means the
+ *    collapse survives a change to (or a bug in) the server's ordering
+ *    instead of silently inverting again. Strictly greater wins, so equal
+ *    timestamps fall through to rule 2.
+ * 2. **Otherwise, array position — earlier wins** (`false` here).
+ *    `/api/pipeline` sorts rows *newest-first* (claude-coordinator
+ *    `coord/dashboard/server.py`, `reverse=True`, #2066 step 3: "today's
+ *    running work above a July failure, not the reverse"), so the FIRST
+ *    occurrence of a key is its newest row.
+ *
+ * Rule 2 is what covers unfinished rows: a still-running attempt has
+ * `finished_at === null`, and the server ranks it by `dispatched_at` —
+ * a field `PipelineView` does not carry (see `src/api/generated.ts`, which
+ * is code-generated and must not be hand-extended), so array position is
+ * the only recency signal available for those rows. Deliberately *not*
+ * treating `null` as "newest": an abandoned/limbo row that never finished
+ * would then permanently outrank a genuinely newer `merged` row — the exact
+ * class of bug #19 was.
+ *
+ * #19 was the inverse of rule 2: the old code kept the LAST occurrence, on a
+ * doc comment claiming rows arrive in creation order. Against the real
+ * newest-first order that kept each issue's *oldest* attempt, so any issue
+ * with a rework cycle rendered its stale row forever — e.g.
+ * claude-coordinator#2472 stuck on a red "failed" badge long after it merged,
+ * and stuck in the Active tab because `isActive` was evaluated against that
+ * stale row rather than the `merged` one.
  */
-export function latestPerIssue(views: PipelineView[]): PipelineView[] {
-  const lastIndexForKey = new Map<string, number>()
-  views.forEach((view, i) => lastIndexForKey.set(issueKey(view), i))
-
-  const result: PipelineView[] = []
-  views.forEach((view, i) => {
-    if (lastIndexForKey.get(issueKey(view)) === i) {
-      result.push(view)
-    }
-  })
-  return result
+function supersedes(candidate: PipelineView, incumbent: PipelineView): boolean {
+  if (candidate.finished_at != null && incumbent.finished_at != null) {
+    return candidate.finished_at > incumbent.finished_at
+  }
+  return false
 }
 
 /**
- * The single view representing an issue's current state — the same "last
- * occurrence wins" rule `latestPerIssue` uses, for call sites (`Detail.tsx`)
- * that look up one (repo, issue) pair rather than rendering the whole list.
+ * Collapse assignment rows to one per (repo, issue), keeping the most recent
+ * row for each key (see `supersedes` for what "most recent" means and why).
+ * Earlier attempts are superseded, not discarded — they're still reachable
+ * from the detail view's history, just not duplicated here as sibling cards.
+ *
+ * The result preserves each surviving key's position at the *winning* row's
+ * index in `views`, so an issue keeps the place its current state earned in
+ * the server's ordering.
+ */
+export function latestPerIssue(views: PipelineView[]): PipelineView[] {
+  const winnerIndexForKey = new Map<string, number>()
+  views.forEach((view, i) => {
+    const key = issueKey(view)
+    const incumbent = winnerIndexForKey.get(key)
+    if (incumbent === undefined || supersedes(view, views[incumbent])) {
+      winnerIndexForKey.set(key, i)
+    }
+  })
+
+  const winners = new Set(winnerIndexForKey.values())
+  return views.filter((_, i) => winners.has(i))
+}
+
+/**
+ * The single view representing an issue's current state — the same recency
+ * rule `latestPerIssue` uses, for call sites (`Detail.tsx`) that look up one
+ * (repo, issue) pair rather than rendering the whole list. Sharing
+ * `supersedes` is the point: if this picked a different row than the
+ * collapse does, tapping a card would open a detail view describing a
+ * different attempt than the card that led there.
+ *
  * `issueNumber` accepts a route param string as-is; comparison always
  * converts to string so a leading-zero or malformed URL segment fails the
  * match rather than silently coercing to some other issue's number.
@@ -135,11 +179,14 @@ export function findLatestForIssue(
   repo: string,
   issueNumber: number | string,
 ): PipelineView | null {
-  for (let i = views.length - 1; i >= 0; i--) {
-    const view = views[i]
-    if (view.repo_name === repo && String(view.issue_number) === String(issueNumber)) {
-      return view
+  let latest: PipelineView | null = null
+  for (const view of views) {
+    if (view.repo_name !== repo || String(view.issue_number) !== String(issueNumber)) {
+      continue
+    }
+    if (latest === null || supersedes(view, latest)) {
+      latest = view
     }
   }
-  return null
+  return latest
 }
