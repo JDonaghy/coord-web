@@ -1,20 +1,21 @@
 name: CI
 
 # Split out of claude-coordinator's test.yml/acceptance-web.yml (#2005, epic
-# #2002 UX-3/UX-4). Two things this repo's CI deliberately does NOT do yet,
-# both open cross-repo design questions tracked in claude-coordinator:
+# #2002 UX-3/UX-4). One thing this repo's CI deliberately does NOT do yet,
+# an open cross-repo design question tracked in claude-coordinator:
 #
 #   - `python scripts/codegen.py --check` (the generated.ts drift gate) --
 #     it needs the Python backend's OpenAPI spec, which lives in
 #     claude-coordinator, not here. See claude-coordinator#2258.
-#   - The sealed oracle-loop acceptance suite (tests/acceptance/ms-51) --
-#     where it lives post-split is an explicitly open question,
-#     claude-coordinator#2007 (UX-5). Not duplicated here until that's
-#     decided.
 #
-# Until those land, this is the gate: typecheck, unit tests, production
-# build, and the Playwright e2e suite (including the one spec that boots a
-# real `coord web --fixture` process -- installed from PyPI, the same public
+# The sealed oracle-loop acceptance suite (tests/acceptance/ms-51) moved
+# here from claude-coordinator's `coord/dashboard/webapp/**` route by #2007
+# (UX-5) -- see docs/ADR_COORD_WEB_ACCEPTANCE_SUITE.md there -- and is
+# covered by the `acceptance` job below.
+#
+# The gate: typecheck, unit tests, production build, the Playwright e2e
+# suite, and the sealed acceptance suite -- the latter two each boot a real
+# `coord web --fixture` process (installed from PyPI, the same public
 # package `pip install code-coordinator` anyone gets).
 
 on:
@@ -86,3 +87,46 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
       - run: npm run test:e2e
+
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run build
+      # playwright.acceptance.config.ts boots a real `coord web --fixture`
+      # process (#1818) -- same requirement as the e2e job's
+      # live-update-fixture.spec.ts, see that job's comments above.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install 'code-coordinator[server]'
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+      - name: Install Playwright + OS deps (cache miss)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: |
+          for attempt in 1 2 3; do
+            echo "Playwright install attempt $attempt/3..."
+            if timeout 300 npx playwright install chromium --with-deps; then
+              echo "Playwright install succeeded on attempt $attempt"
+              exit 0
+            fi
+            echo "Playwright install attempt $attempt failed or timed out after 5m"
+            sleep 10
+          done
+          echo "Playwright install failed after 3 attempts"
+          exit 1
+      - name: Install Playwright OS deps only (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+      - run: npm run test:acceptance -- ms-51
