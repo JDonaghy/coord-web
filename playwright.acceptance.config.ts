@@ -22,8 +22,9 @@
  *    so a human running it directly (outside the driver) gets readable
  *    output instead of silently inheriting a `CI` env var's default.
  *
- * `run:` (acceptance.drivers.claude-coordinator.routes, coordinator.yml):
- *   cd coord/dashboard/webapp && npm run test:acceptance -- {ms}
+ * `run:` (acceptance.drivers.coord-web, coordinator.yml — moved here from
+ * claude-coordinator's `coord/dashboard/webapp/**` route by #2007, UX-5):
+ *   npm run test:acceptance -- {ms}
  * `{ms}` (e.g. "ms-40") is substituted by `render_run_command` and passed as
  * Playwright's positional test-file filter — it matches by substring against
  * each spec file's resolved path, so `tests/acceptance/ms-40/foo.spec.ts`
@@ -60,9 +61,9 @@
  * directory; `resolveFixturePath` raises at config-load time if it finds
  * more than one, rather than silently picking one and hiding the ambiguity.
  * A milestone with no `fixtures/` directory falls back to the repo-wide
- * `tests/fixtures/board-pipeline-basic.json` default (the same fixture
- * `e2e/fixtureServer.ts` uses) — harmless for a slice that seeds itself
- * another way.
+ * `e2e/fixtures/board-pipeline-basic.json` default (the same fixture
+ * `e2e/fixtureServer.ts` uses, vendored there post-#2005 split) — harmless
+ * for a slice that seeds itself another way.
  *
  * ms-51 (#1544's proving rig) is deliberately left on `page.route()` — see
  * that slice's own header comment and #1818's "recommend leaving ms-51
@@ -84,10 +85,17 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
-const REPO_ROOT = path.resolve(here, '../../..')
-const ACCEPTANCE_DIR = path.resolve(here, '../../../tests/acceptance')
+// #2005 split + #2007 (UX-5) move: this file already sits at coord-web's own
+// repo root (moved from `coord/dashboard/webapp/`, three levels below the
+// old claude-coordinator monorepo root) — there is no monorepo above it to
+// climb to, matching the fix `e2e/fixtureServer.ts` already made for the
+// same reason (see its `REPO_ROOT = WEBAPP_ROOT` comment, #2005 PR).
+const ACCEPTANCE_DIR = path.resolve(here, 'tests/acceptance')
 const DIST_DIR = path.join(here, 'dist')
-const DEFAULT_FIXTURE = path.join(REPO_ROOT, 'tests/fixtures/board-pipeline-basic.json')
+// Reuse the fixture `e2e/fixtureServer.ts` already vendored post-#2005
+// (commit 7e0bf5b) rather than resurrecting a repo-root `tests/fixtures/`
+// that no longer exists here.
+const DEFAULT_FIXTURE = path.join(here, 'e2e/fixtures/board-pipeline-basic.json')
 
 /**
  * Resolve which fixture JSON seeds `coord web --fixture` for this run.
