@@ -1,14 +1,17 @@
 /**
- * Component tests for `DriveQueuePanel` (#7 QW-3).
+ * Component tests for `DriveQueuePanel` (#7 QW-3, #9 QW-5).
  *
  * Mocks `@/api/client` entirely; wraps renders in a QueryClientProvider +
- * ThemeProvider, matching `Home.test.tsx`'s pattern (`PanelHeader` renders a
- * `ThemeToggle`, which needs the theme context).
+ * ThemeProvider + MemoryRouter, matching `Home.test.tsx`'s pattern
+ * (`PanelHeader` renders a `ThemeToggle`, which needs the theme context; the
+ * Issue cell's `<Link>` -- #9 QW-5 -- needs a Router context to render at
+ * all, same reason `Home.test.tsx` wraps in one).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router-dom'
 import DriveQueuePanel from '@/components/DriveQueuePanel'
 import { ThemeProvider } from '@/components/ui/theme-provider'
 import type {
@@ -121,11 +124,13 @@ function createTestQueryClient() {
 
 function renderPanel() {
   return render(
-    <ThemeProvider>
-      <QueryClientProvider client={createTestQueryClient()}>
-        <DriveQueuePanel />
-      </QueryClientProvider>
-    </ThemeProvider>,
+    <MemoryRouter initialEntries={['/queue']}>
+      <ThemeProvider>
+        <QueryClientProvider client={createTestQueryClient()}>
+          <DriveQueuePanel />
+        </QueryClientProvider>
+      </ThemeProvider>
+    </MemoryRouter>,
   )
 }
 
@@ -298,6 +303,39 @@ describe('DriveQueuePanel — nine-column grid', () => {
       'checks_failed',
     ])
     expect(cells).toHaveLength(10)
+  })
+})
+
+// ── issue hyperlink + new-tab affordance (#9 QW-5) ──────────────────────────
+
+describe('DriveQueuePanel — Issue cell hyperlink', () => {
+  it('links the Issue cell to the pipeline detail route for in-app navigation', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({ entries: [makeEntry({ repo_name: 'repo-a', issue_number: 42 })] }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([])
+    renderPanel()
+
+    const link = await screen.findByRole('link', { name: 'repo-a#42' })
+    expect(link).toHaveAttribute('href', '/pipeline/repo-a/42')
+    // In-app SPA nav -- no explicit target, so it navigates within the
+    // existing tab (ctrl/cmd-click still opens a new one for free).
+    expect(link).not.toHaveAttribute('target')
+  })
+
+  it('offers a secondary, discoverable open-in-new-tab affordance alongside the link', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({ entries: [makeEntry({ repo_name: 'repo-a', issue_number: 42 })] }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([])
+    renderPanel()
+
+    const newTabLink = await screen.findByRole('link', { name: 'Open repo-a#42 in a new tab' })
+    expect(newTabLink).toHaveAttribute('href', '/pipeline/repo-a/42')
+    expect(newTabLink).toHaveAttribute('target', '_blank')
+    // `rel="noreferrer"` on a target="_blank" link -- standard hardening
+    // against the opened tab reaching back via `window.opener`.
+    expect(newTabLink).toHaveAttribute('rel', expect.stringContaining('noreferrer'))
   })
 })
 
