@@ -99,6 +99,41 @@ export function stageChipVisual(stage: PipelineStage, view: PipelineView): Stage
 export const STAGE_CHIP_RING_CLASS = 'ring-2 ring-ring ring-offset-1 ring-offset-background'
 
 /**
+ * `pending` fill's border/text treatment, split by `ring` (CI fix for #28).
+ *
+ * `STAGE_CHIP_RING_CLASS` above is a box-shadow-only `ring-*` utility — a
+ * real, visible affordance in the browser, but invisible to anything that
+ * only inspects `color`/`backgroundColor`/`borderColor`/`opacity`/
+ * `fontWeight`. ms-51's sealed acceptance spec does exactly that on purpose
+ * (`chipStyle`'s own doc comment: the contract forbids pinning a colour or
+ * class name, only comparing two renderings for sameness), so a card's
+ * currently-in-flight stage and a stage still waiting behind it both landed
+ * in the same `'pending'` fill differing only by box-shadow — two chips the
+ * browser renders differently but `chipStyle` reads as byte-identical CSS.
+ * `home-active(-extended).spec.ts` pin exactly the opposite (current !=
+ * waiting; two different currents render alike; two waiting instances of the
+ * same stage render alike), so the border/text pair here is keyed on `ring`
+ * alone, never on `stage.name` — keying by stage name too would still make
+ * two *different* currently-in-flight stages (e.g. `review` current on one
+ * card, `coding` current on another) diverge, which the "equal states render
+ * alike" clause forbids.
+ */
+export const PENDING_CHIP_BORDER_CLASS = {
+  waiting: 'border-border',
+  current: 'border-ring',
+} as const
+
+export const PENDING_CHIP_TEXT_CLASS = {
+  waiting: 'text-muted-foreground',
+  current: 'text-foreground',
+} as const
+
+export const PENDING_CHIP_DOT_CLASS = {
+  waiting: 'bg-border',
+  current: 'bg-ring',
+} as const
+
+/**
  * #2: how long a *failed* item stays visible in the Active tab before it's
  * treated as stale. The reported defect was a run that finished 34 days
  * earlier still rendering as the top Active card, badged "Failed" — because

@@ -40,6 +40,9 @@ import {
   FAILED_STAGES,
   stageChipVisual,
   STAGE_CHIP_RING_CLASS,
+  PENDING_CHIP_BORDER_CLASS,
+  PENDING_CHIP_TEXT_CLASS,
+  PENDING_CHIP_DOT_CLASS,
 } from '@/lib/pipeline'
 import { paths } from '@/routes/paths'
 
@@ -464,7 +467,11 @@ export default function Detail() {
                   ? 'bg-destructive text-destructive-foreground'
                   : fill === 'skipped'
                     ? 'border border-border text-muted-foreground opacity-40'
-                    : 'border border-border text-muted-foreground' // 'pending'
+                    : cn(
+                        'border',
+                        ring ? PENDING_CHIP_BORDER_CLASS.current : PENDING_CHIP_BORDER_CLASS.waiting,
+                        ring ? PENDING_CHIP_TEXT_CLASS.current : PENDING_CHIP_TEXT_CLASS.waiting,
+                      ) // 'pending'
             return (
               <span
                 key={stage.name}
@@ -673,13 +680,19 @@ export default function Detail() {
                     ? 'bg-destructive'
                     : fill === 'skipped'
                       ? 'bg-border opacity-40'
-                      : 'bg-border' // 'pending'
+                      : ring
+                        ? PENDING_CHIP_DOT_CLASS.current
+                        : PENDING_CHIP_DOT_CLASS.waiting // 'pending'
               const textClass =
                 fill === 'pass'
                   ? 'text-green-400'
                   : fill === 'fail'
                     ? 'text-destructive'
-                    : 'text-muted-foreground' // 'pending' | 'skipped'
+                    : fill === 'skipped'
+                      ? 'text-muted-foreground'
+                      : ring
+                        ? PENDING_CHIP_TEXT_CLASS.current
+                        : PENDING_CHIP_TEXT_CLASS.waiting // 'pending'
               return (
                 <div key={stage.name} className="flex items-center gap-2 text-xs">
                   <span
