@@ -6,7 +6,13 @@
  */
 import { cn } from '@/lib/utils'
 import { type PipelineView, type PipelineStage } from '@/api/client'
-import { FAILED_STAGES, stageChipVisual, STAGE_CHIP_RING_CLASS } from '@/lib/pipeline'
+import {
+  FAILED_STAGES,
+  stageChipVisual,
+  STAGE_CHIP_RING_CLASS,
+  PENDING_CHIP_BORDER_CLASS,
+  PENDING_CHIP_TEXT_CLASS,
+} from '@/lib/pipeline'
 
 // ── Stage display helpers ─────────────────────────────────────────────────────
 
@@ -48,7 +54,11 @@ function stageChipClass(stage: PipelineStage, view: PipelineView): string {
         ? 'bg-destructive text-destructive-foreground'
         : fill === 'skipped'
           ? 'border border-border text-muted-foreground opacity-40'
-          : 'border border-border text-muted-foreground' // 'pending'
+          : cn(
+              'border',
+              ring ? PENDING_CHIP_BORDER_CLASS.current : PENDING_CHIP_BORDER_CLASS.waiting,
+              ring ? PENDING_CHIP_TEXT_CLASS.current : PENDING_CHIP_TEXT_CLASS.waiting,
+            ) // 'pending'
 
   return cn(base, fillClass, ring && STAGE_CHIP_RING_CLASS)
 }

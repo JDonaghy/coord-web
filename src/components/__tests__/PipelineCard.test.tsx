@@ -176,6 +176,35 @@ describe('PipelineCard — stage-chip verdict awareness (#28)', () => {
     expect(screen.getByText('work')).toHaveClass('ring-2')
     expect(screen.getByText('review')).not.toHaveClass('ring-2')
   })
+
+  // CI fix (issue #28 follow-up): the `ring-*` utility above is a box-shadow
+  // only — invisible to ms-51's sealed acceptance `chipStyle` helper, which
+  // samples color/backgroundColor/borderColor/opacity/fontWeight and nothing
+  // else. Before this, a currently-in-flight `pending` chip and a merely
+  // `waiting` `pending` chip shared the exact same border/text classes, so
+  // `home-active(-extended).spec.ts` (which assert current != waiting) went
+  // red. Pin the border/text distinction directly so a regression here fails
+  // fast, in-repo, instead of only in the sealed suite.
+  it('gives the is_current pending chip a different border/text than a waiting pending chip', () => {
+    const view = makeView({
+      current_stage: 'coding',
+      stages: [
+        { name: 'coding', status: 'active',  is_current: true },
+        { name: 'review', status: 'waiting', is_current: false },
+        { name: 'smoke',  status: 'waiting', is_current: false },
+        { name: 'merge',  status: 'waiting', is_current: false },
+      ],
+    })
+    render(<PipelineCard view={view} onClick={() => undefined} />)
+    const current = screen.getByText('work')
+    const waiting = screen.getByText('merge')
+
+    expect(current).toHaveClass('border-ring')
+    expect(current).toHaveClass('text-foreground')
+    expect(waiting).toHaveClass('border-border')
+    expect(waiting).toHaveClass('text-muted-foreground')
+    expect(current.className).not.toBe(waiting.className)
+  })
 })
 
 // ── Relative-time label buckets (rendered via PipelineCard's `finishedAt`) ────
