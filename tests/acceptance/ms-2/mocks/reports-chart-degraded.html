@@ -160,12 +160,13 @@
       <div class="param-field">
         <label for="param-window">Window</label>
         <select id="param-window" data-testid="reports-param-window">
+          <option value="24h" selected>Last 24 hours</option>
           <option value="7d">Last 7 days</option>
-          <option value="today" selected>Today</option>
+          <option value="4w">Last 4 weeks</option>
         </select>
       </div>
       <button type="submit" class="btn-primary" data-testid="reports-run-button">Run report</button>
-      <a href="/api/reports/queue-outcomes?format=csv&window=today" download class="btn-export" aria-label="Export CSV" data-testid="reports-export-action">Export CSV</a>
+      <a href="/api/reports/queue-outcomes?format=csv&window=24h" download class="btn-export" aria-label="Export CSV" data-testid="reports-export-action">Export CSV</a>
     </form>
 
     <!--

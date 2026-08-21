@@ -1,7 +1,7 @@
 # ms-2 acceptance contract — Reports panel
 
 **Milestone ms-2 · "Reports panel" · tracking issue #26**
-**Driver: `web-playwright` · mocks: [`mocks/`](mocks/) (six screen states, listed in §0)**
+**Driver: `web-playwright` · mocks: [`mocks/`](mocks/) (seven screen states, listed in §0)**
 
 ## What this contract is for — read first
 
@@ -43,6 +43,7 @@ flag there.)
 | `mocks/reports-picker.html` | drive-queue-status | n/a — nothing run yet | n/a |
 | `mocks/reports-grid.html` | drive-queue-status | None (no `chart` declared) | **absent** — see §7.1 |
 | `mocks/reports-row-nav.html` | issue-activity | None | present (Link) |
+| `mocks/reports-completed.html` | completed | None | present (Link) + `money`-kind column — see §6b |
 | `mocks/reports-decisions.html` | decisions | None | present (Link) + `options` column |
 | `mocks/reports-chart.html` | queue-outcomes | **Render** | absent |
 | `mocks/reports-chart-degraded.html` | queue-outcomes | **Degrade** | absent |
@@ -51,6 +52,12 @@ There is no seventh mock for the chart's third outcome, **None**: it is
 exactly what `reports-grid.html` / `reports-row-nav.html` /
 `reports-decisions.html` already show — no chart region in the DOM at all,
 for a report that never declares `chart`.
+
+`mocks/reports-completed.html` was added on amend (operator review of the
+first Gate-A pass, 2026-08-20) — the original six mocks covered only four of
+the six catalogue reports and never showed `completed` at all, despite it
+being one of the three reports #23 names as row_identity-bearing. See
+"Amendment history" at the end of this document.
 
 ## §1 — Rail entry and routing (RPT-2, #21)
 
@@ -134,9 +141,14 @@ for a report that never declares `chart`.
   each parameter of kind `text` renders as a text `<input>` — per #21's
   literal mapping. This contract's mocks show one of each (`Repo` as
   `choice`, `Search` as `text` on `drive-queue-status`; `Window` as `choice`
-  on `queue-outcomes`) — the exact parameter set per report is **not**
-  pinned (no issue body enumerates it); only the choice→`<select>` /
-  text→`<input>` dispatch rule is contractual.
+  on `queue-outcomes`; `Time range` as `choice` on `issue-activity` and
+  `completed`, both of which declare the same `since`/`until`/`repo` three
+  as each other, per `coord/reports.py`'s `ISSUE_ACTIVITY`/`COMPLETED`
+  `ReportDef`s) — the exact parameter set per report is **not** pinned (no
+  issue body enumerates it); only the choice→`<select>` / text→`<input>`
+  dispatch rule is contractual. `until`/"Window end" is a real param on both
+  reports but is not separately mocked anywhere in this set (same posture as
+  the "not every param needs its own mock" rule this section already states).
 - **§4c** A submit button with the exact text **`Run report`**,
   `data-testid` `reports-run-button`.
 
@@ -179,7 +191,7 @@ for a report that never declares `chart`.
   | `timestamp` | `YYYY-MM-DD HH:MM`, mono | `Updated`, `Timestamp` columns |
   | `duration` | Compact human string (`3h 12m`, `1d 4h`), mono | `Age` column |
   | `list` | Comma-joined, mono, em-dash (`—`) when empty | `After` column |
-  | `money` | **Not demonstrated in any mock** — no report in this milestone's five newly-lit reports obviously needs it; flagged in §7.6 rather than inventing a report to show it | — |
+  | `money` | `$X.XXXX` (4 decimal places), right-aligned mono, port of `format_money`/`tui/src/app/format.rs` — a literal zero renders as an em-dash (`—`), never `$0.0000` | `Total $` column, `reports-completed.html` |
 
   An unrecognised/future `kind` is explicitly out of scope for this
   contract; #21 doesn't specify a fallback and this mock set doesn't invent
@@ -238,7 +250,7 @@ Link) — but a worker landing #23 should double-check whether
 `drive-queue-status` was meant to be a fourth entry on that list before
 building against this mock as-is.
 
-### §7.2-§7.6 — Other open questions, not resolved here
+### §7.2-§7.8 — Other open questions, not resolved here
 
 - **§7.2** `paths.reports()`'s name and the `/reports` path itself are this
   contract's own choice (mirroring `paths.queue()`/`paths.board()`) — no
@@ -249,8 +261,10 @@ building against this mock as-is.
   this open; this contract picks tabs.
 - **§7.5** The CSV export's base route path (§5b) is inferred, not
   confirmed against code-coordinator#2492.
-- **§7.6** No report in this milestone's set obviously exercises
-  `ColumnMeta.kind: money` — not demonstrated, not invented.
+- **§7.6** ~~No report in this milestone's set obviously exercises
+  `ColumnMeta.kind: money`~~ — resolved on amend: `completed`'s `cost_total`
+  column is `money`-kind (`coord/reports.py` `COMPLETED_COLUMN_META`) and is
+  now pinned in `reports-completed.html`'s `Total $` column (see §6b).
 - **§7.7** RPT-6 (#25) explicitly defers its own charting-library and exact
   mark-type decision to itself ("needs a charting-library decision first ...
   check the dataviz skill for house style before picking one"). This
@@ -259,6 +273,19 @@ building against this mock as-is.
   grid, direct value labels, status-colour reuse, one-line Degrade fallback
   — not a mandated library, mark type, or pixel geometry. Section 8 below
   lists exactly what IS load-bearing from those two mocks.
+- **§7.8** (added on amend) `reports-row-nav.html` (`issue-activity`) and
+  `reports-decisions.html` (`decisions`) both render a 4-column grid
+  (`Issue`/`Activity`/`Actor`/`Timestamp` and `Issue`/`Decision`/`Options`/
+  `Timestamp` respectively) that does not match either report's real column
+  set in `coord/reports.py` (`ISSUE_ACTIVITY_COLUMNS` has 11 columns —
+  `repo, issue, title, started_at, machines, fix_iterations, test_verdicts,
+  review_verdicts, merged_at, drive_exit, outcome`; `DECISIONS_COLUMNS` has
+  9). Separately, `decisions` does not currently declare `row_identity` in
+  `coord/reports.py` at all — only `issue-activity` and `completed` do —
+  despite #23 naming all three; this may be forthcoming RPT-3/RPT-4 backend
+  work rather than a mock error. Neither is resolved by this amend (out of
+  scope for the amend that prompted it — see "Amendment history"); flagged
+  here rather than silently left for a worker to discover mid-build.
 
 ## §8 — Chart rendering (RPT-6, #25)
 
@@ -317,6 +344,29 @@ the affected mock/slice together — don't let the two drift apart, which is
 exactly what the oracle-loop process (docs/ORACLE_LOOP.md) exists to
 prevent.
 
+### Amendment history
+
+- **2026-08-20** (operator Gate-A review, `coord gate-a --changes` round
+  trip): three defects found reading the first pass — (1) `issue-activity`'s
+  mock (`reports-row-nav.html`) never showed a time-range param even though
+  the real `ISSUE_ACTIVITY` `ReportDef` declares `since`/`until`; (2)
+  `queue-outcomes`'s two mocks (`reports-chart.html`,
+  `reports-chart-degraded.html`) offered `Window` options (`7d`/`30d`,
+  `7d`/`today`) that don't match the real `QUEUE_OUTCOMES_WINDOW_CHOICES =
+  ("24h", "7d", "4w")` — `30d` and `today` aren't real values for this
+  report at all (`today` belongs to `usage`'s window vocabulary, not
+  `queue-outcomes`'s); (3) `completed` had no mock at all. Fixed: added the
+  `Time range` select to `reports-row-nav.html`; corrected both `queue-outcomes`
+  mocks' `Window` options to the real three, selecting `24h` (which also
+  fixes a shape mismatch — §8's own text says `24h` renders one bar per
+  category with no trend, which is what both mocks' single-set-of-4-bars
+  chart actually shows; the old `7d`/`today` selections implied per-period
+  trend data the mocks never drew); added `reports-completed.html`, which
+  incidentally resolved §7.6 (money-kind, never demonstrated) for free since
+  `completed`'s `Total $` column is `money`-kind. §7.9 flags two further
+  mock/backend mismatches found along the way that are explicitly **not**
+  fixed by this amend (out of scope for what was asked).
+
 ## SMOKE_TESTS
 
 SMOKE_TESTS:
@@ -328,4 +378,7 @@ SMOKE_TESTS:
 - Decisions options rendering — open `mocks/reports-decisions.html` — confirm the "Options" column shows short readable option lines (e.g. "Release gate ★", "Extend hold") stacked per row, NOT a raw JSON blob or a single run-on string; hovering an option should show a tooltip with a `coord ...` command.
 - Chart above the grid — open `mocks/reports-chart.html` — confirm a bar chart (4 colored bars labelled Completed/Held/Blocked/Abandoned, each with a number above it) sits above a data table, and the bar colors visually match each row's status-pill color in the table beneath.
 - Chart degrade fallback — open `mocks/reports-chart-degraded.html` — confirm the chart's usual position instead shows a single amber-tinted line of text with a warning glyph (no chart/SVG at all), and the data table below it still renders normally with real data.
+- Time range param present — open `mocks/reports-row-nav.html` — confirm a "Time range" dropdown (reading "Last 24 hours") sits to the left of the "Repo" dropdown in the parameter bar, above the grid.
+- Queue outcomes window options — open `mocks/reports-chart.html` — confirm the "Window" dropdown offers exactly "Last 24 hours" (selected), "Last 7 days", "Last 4 weeks" — no "Last 30 days" or "Today" option anywhere.
+- Completed report cost column — open `mocks/reports-completed.html` — confirm the grid's rightmost "Total $" column shows dollar amounts (e.g. "$4.8210") right-aligned in mono, and the last row's "Total $" cell shows a plain em dash ("—") rather than "$0.0000" or a blank cell.
 END_SMOKE_TESTS
