@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>coord web — Reports panel, drive-queue-status grid (ms-2 Gate-A mock)</title>
+<!--
+  Gate-A mock · milestone ms-2 "Reports panel" · tracking issue #26
+  Screen: /reports, drive-queue-status has been run this session.
+
+  THIS MOCK DESCRIBES A PROPOSED DESIGN, NOT SHIPPED BEHAVIOUR — see
+  reports-picker.html's header comment for the full framing; not repeated here.
+
+  Pins the base grid: seven ColumnMeta.kind values (text / mono-text / enum /
+  int / duration / timestamp / list), client-side header-click sort (Position,
+  ascending), the header count, and Export CSV now enabled as a real
+  <a download> per #24.
+
+  IMPORTANT — drive-queue-status has NO row_identity. #23's own issue body
+  lists exactly three reports with row_identity: "issue-activity, completed,
+  decisions" — drive-queue-status is not among them, despite being
+  issue-keyed data structurally identical to DriveQueuePanel's existing grid
+  (which already has row navigation, #9). This mock renders the Issue column
+  as plain mono text, matching that literal list. See contract.md's "Notes /
+  open questions" — this is flagged, not silently resolved, because it reads
+  like it could be an oversight rather than a deliberate omission.
+
+  Compare reports-row-nav.html, which runs issue-activity and DOES render a
+  row_identity Link + external-link affordance in the same Issue-shaped
+  column position, so the two mocks together pin the presence/absence
+  distinction rather than leaving it implicit.
+-->
+<style>
+  :root {
+    --ground: #101418; --surface: #171c22; --surface-2: #1e242b; --surface-3: #252d36;
+    --line: #2a323b; --line-strong: #3a444f;
+    --text: #dfe6ee; --text-dim: #8b97a5; --text-faint: #5f6b78;
+    --accent: #4fb8cf; --accent-dim: #2d7688; --accent-wash: rgba(79,184,207,.12);
+    --pass: #4ea87a; --pass-wash: rgba(78,168,122,.14);
+    --attn: #d9a54c; --attn-wash: rgba(217,165,76,.14);
+    --fail: #d9605e; --fail-wash: rgba(217,96,94,.14);
+    --idle: #55606d; --idle-wash: rgba(85,96,109,.14);
+    --primary-fg: #08161a;
+    --r-sm: 5px; --r-md: 8px; --r-lg: 12px;
+    --rail-w: 216px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--ground); color: var(--text); font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+  .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+
+  .shell { display: flex; height: 100vh; width: 100%; }
+  .rail { display: flex; flex-direction: column; flex-shrink: 0; width: var(--rail-w); background: var(--surface); border-right: 1px solid var(--line); height: 100%; overflow: hidden; }
+  .rail-brand { display: flex; align-items: center; gap: 9px; padding: 14px 14px 12px; border-bottom: 1px solid var(--line); }
+  .co-badge { display: grid; place-items: center; flex-shrink: 0; width: 26px; height: 26px; border-radius: 7px; background: linear-gradient(to bottom right, var(--accent), var(--accent-dim)); font-family: ui-monospace, monospace; font-size: .72rem; font-weight: 700; color: var(--primary-fg); }
+  .co-badge-sm { width: 22px; height: 22px; font-size: .62rem; border-radius: 6px; }
+  .rail-word { font-weight: 600; letter-spacing: -.01em; white-space: nowrap; }
+  .rail-word-dim { font-weight: 400; color: var(--text-dim); }
+  .rail-groups { flex: 1; display: flex; flex-direction: column; gap: 1px; padding: 10px 8px; overflow-y: auto; }
+  .rail-group { display: flex; flex-direction: column; gap: 1px; }
+  .rail-heading { padding: 14px 10px 5px; font-size: .66rem; font-weight: 600; text-transform: uppercase; letter-spacing: .09em; color: var(--text-faint); }
+  .nav-item { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; border: none; background: transparent; border-radius: 4px; padding: 6px 10px; font: inherit; font-size: .875rem; color: var(--text-dim); text-align: left; cursor: pointer; }
+  .nav-item:hover { background: var(--surface-2); color: var(--text); }
+  .nav-item.soon { cursor: default; opacity: .42; }
+  .nav-item.selected { background: var(--accent-wash); color: var(--accent); }
+  .rail-accent-bar { position: absolute; left: -8px; top: 50%; transform: translateY(-50%); width: 3px; height: 17px; border-radius: 0 3px 3px 0; background: var(--accent); }
+  .nav-icon { flex-shrink: 0; width: 17px; text-align: center; }
+  .soon-pill { margin-left: auto; flex-shrink: 0; border: 1px solid var(--line-strong); border-radius: 9999px; padding: 0 5px; font-size: .58rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-faint); }
+  .rail-foot { display: flex; flex-direction: column; gap: 1px; padding: 10px 8px; border-top: 1px solid var(--line); }
+
+  .list-panel { flex: 1; min-width: 0; height: 100%; overflow-y: auto; padding: 16px 20px; }
+  .panel-header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+  .panel-header h1 { margin: 0; font-size: 1rem; font-weight: 600; letter-spacing: -.01em; }
+  .header-count { font-family: ui-monospace, monospace; font-size: .75rem; color: var(--text-faint); }
+  .header-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+  .report-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .report-tabs [role="tab"] { border: 1px solid var(--line); background: transparent; border-radius: 9999px; padding: 5px 12px; font-size: .8rem; font-weight: 500; color: var(--text-dim); cursor: pointer; }
+  .report-tabs [role="tab"][aria-selected="true"] { background: var(--accent); border-color: transparent; color: var(--primary-fg); font-weight: 600; }
+  .report-desc { margin: 0 0 14px; font-size: .8rem; color: var(--text-dim); }
+
+  .param-bar { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin-bottom: 16px; }
+  .param-field { display: flex; flex-direction: column; gap: 4px; }
+  .param-field label { font-size: .7rem; color: var(--text-faint); }
+  .param-field select, .param-field input { border: 1px solid var(--line); background: var(--surface); color: var(--text); border-radius: var(--r-sm); padding: 5px 8px; font: inherit; font-size: .8rem; min-width: 140px; }
+  .btn-primary { border: none; border-radius: var(--r-sm); background: var(--accent); color: var(--primary-fg); padding: 6px 14px; font-size: .8rem; font-weight: 600; cursor: pointer; }
+  .btn-export { border: 1px solid var(--accent-dim); border-radius: var(--r-sm); background: transparent; color: var(--accent); padding: 6px 14px; font-size: .8rem; font-weight: 500; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; }
+
+  .grid-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r-md); }
+  table { width: 100%; min-width: 720px; border-collapse: collapse; font-size: .8rem; text-align: left; }
+  thead tr { background: rgba(255,255,255,.02); border-bottom: 1px solid var(--line); color: var(--text-faint); }
+  th { padding: 8px 12px; font-weight: 500; white-space: nowrap; }
+  th.sortable { cursor: pointer; user-select: none; }
+  th.sorted { color: var(--text); }
+  th.num, td.num { text-align: right; }
+  tbody tr { border-bottom: 1px solid rgba(58,68,79,.4); }
+  tbody tr:last-child { border-bottom: none; }
+  td { padding: 8px 12px; vertical-align: top; }
+
+  .badge { display: inline-flex; align-items: center; border-radius: 9999px; padding: 2px 9px; font-size: .72rem; font-weight: 600; border: 1px solid transparent; }
+  .badge.success { background: var(--pass-wash); color: var(--pass); }
+  .badge.warning { background: var(--attn-wash); color: var(--attn); }
+  .badge.destructive { background: var(--fail-wash); color: var(--fail); }
+  .badge.outline { border-color: var(--line-strong); color: var(--text); }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <nav class="rail" aria-label="Views">
+    <div class="rail-brand">
+      <span class="co-badge" aria-hidden="true">co</span>
+      <span class="rail-word">coord <span class="rail-word-dim">web</span></span>
+    </div>
+    <div class="rail-groups">
+      <div class="rail-group">
+        <button type="button" class="nav-item" title="Pipeline"><span class="nav-icon" aria-hidden="true">⌥</span><span>Pipeline</span></button>
+        <button type="button" class="nav-item soon" aria-disabled="true" title="Board panel — M-W2"><span class="nav-icon" aria-hidden="true">▦</span><span>Board</span><span class="soon-pill">soon</span></button>
+        <button type="button" class="nav-item" title="Sessions"><span class="nav-icon" aria-hidden="true">▢</span><span>Sessions</span></button>
+        <button type="button" class="nav-item soon" aria-disabled="true" title="Standalone terminal panel"><span class="nav-icon" aria-hidden="true">▤</span><span>Terminal</span><span class="soon-pill">soon</span></button>
+        <button type="button" class="nav-item soon" aria-disabled="true" title="Machines panel — M-W2"><span class="nav-icon" aria-hidden="true">▥</span><span>Machines</span><span class="soon-pill">soon</span></button>
+      </div>
+      <div class="rail-group">
+        <div class="rail-heading">Flow</div>
+        <button type="button" class="nav-item soon" aria-disabled="true" title="Merge queue panel — M-W2"><span class="nav-icon" aria-hidden="true">⑂</span><span>Merge queue</span><span class="soon-pill">soon</span></button>
+        <button type="button" class="nav-item soon" aria-disabled="true" title="Milestone DAG — M-W3"><span class="nav-icon" aria-hidden="true">◈</span><span>Milestones</span><span class="soon-pill">soon</span></button>
+        <button type="button" class="nav-item" title="Queue grid"><span class="nav-icon" aria-hidden="true">☰</span><span>Queue</span></button>
+      </div>
+      <div class="rail-group">
+        <div class="rail-heading">Insight</div>
+        <button type="button" class="nav-item soon" aria-disabled="true" title="Audit trail — milestone #33"><span class="nav-icon" aria-hidden="true">▧</span><span>Audit</span><span class="soon-pill">soon</span></button>
+        <button type="button" class="nav-item soon" aria-disabled="true" title="Spend & time observability — milestone #37"><span class="nav-icon" aria-hidden="true">▨</span><span>Spend</span><span class="soon-pill">soon</span></button>
+        <button type="button" class="nav-item selected" aria-current="page" title="Reports" data-testid="rail-item-reports">
+          <span class="rail-accent-bar" aria-hidden="true"></span>
+          <span class="nav-icon" aria-hidden="true">▥</span><span>Reports</span>
+        </button>
+      </div>
+    </div>
+    <div class="rail-foot">
+      <button type="button" class="nav-item" title="Switch to light theme"><span class="nav-icon" aria-hidden="true">☾</span><span>Theme</span></button>
+      <button type="button" class="nav-item soon" aria-disabled="true" title="Settings panel — M-W3"><span class="nav-icon" aria-hidden="true">⚙</span><span>Settings</span><span class="soon-pill">soon</span></button>
+      <button type="button" class="nav-item" title="Minimize list panel"><span class="nav-icon" aria-hidden="true">⟨⟩</span><span>Hide list</span></button>
+      <button type="button" class="nav-item" title="Collapse rail"><span class="nav-icon" aria-hidden="true">⟨</span><span>Collapse</span></button>
+    </div>
+  </nav>
+
+  <div class="list-panel">
+    <header class="panel-header">
+      <span class="co-badge co-badge-sm" aria-hidden="true">co</span>
+      <h1>Reports</h1>
+      <span class="header-count" data-testid="reports-header-count">3 rows</span>
+      <div class="header-right"></div>
+    </header>
+
+    <div role="tablist" aria-label="Reports catalogue" class="report-tabs" data-testid="reports-tablist">
+      <button type="button" role="tab" aria-selected="true" data-testid="reports-tab-drive-queue-status">Drive queue status</button>
+      <button type="button" role="tab" aria-selected="false" data-testid="reports-tab-issue-activity">Issue activity</button>
+      <button type="button" role="tab" aria-selected="false" data-testid="reports-tab-completed">Completed</button>
+      <button type="button" role="tab" aria-selected="false" data-testid="reports-tab-decisions">Decisions</button>
+      <button type="button" role="tab" aria-selected="false" data-testid="reports-tab-usage">Usage</button>
+      <button type="button" role="tab" aria-selected="false" data-testid="reports-tab-queue-outcomes">Queue outcomes</button>
+    </div>
+    <p class="report-desc" data-testid="reports-description">Drive queue entries and their current state.</p>
+
+    <form class="param-bar" aria-label="Report parameters" data-testid="reports-param-bar">
+      <div class="param-field">
+        <label for="param-repo">Repo</label>
+        <select id="param-repo" data-testid="reports-param-repo">
+          <option value="">All repos</option>
+          <option value="api" selected>api</option>
+          <option value="coord-web">coord-web</option>
+        </select>
+      </div>
+      <div class="param-field">
+        <label for="param-search">Search</label>
+        <input id="param-search" type="text" placeholder="Filter by title or reason…" data-testid="reports-param-search">
+      </div>
+      <button type="submit" class="btn-primary" data-testid="reports-run-button">Run report</button>
+      <!--
+        #24 RPT-5: a real <download> anchor once a report has run this
+        session, hitting the report's own route with `?format=csv` appended
+        -- server sets Content-Disposition, no client-side CSV generation.
+        The exact base path (`/api/reports/drive-queue-status` below) is this
+        mock's own placeholder, NOT confirmed by any ms-2 issue body -- see
+        contract.md's open-questions note; only the `?format=csv` querystring
+        convention and the enabled/disabled behaviour are pinned.
+      -->
+      <a
+        href="/api/reports/drive-queue-status?format=csv&repo=api"
+        download
+        class="btn-export"
+        aria-label="Export CSV"
+        data-testid="reports-export-action"
+      >Export CSV</a>
+    </form>
+
+    <div class="grid-wrap">
+      <table data-testid="reports-grid">
+        <thead>
+          <tr>
+            <th class="num sortable sorted" aria-sort="ascending" data-testid="reports-col-position"># <span aria-hidden="true">▲</span></th>
+            <th data-testid="reports-col-issue">Issue</th>
+            <th data-testid="reports-col-title">Title</th>
+            <th data-testid="reports-col-state">State</th>
+            <th class="num" data-testid="reports-col-tries">Tries</th>
+            <th data-testid="reports-col-age">Age</th>
+            <th data-testid="reports-col-updated">Updated</th>
+            <th data-testid="reports-col-after">After</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="num mono">1</td>
+            <td class="mono">api#42</td>
+            <td>Fix the dashboard rendering</td>
+            <td><span class="badge success">running</span></td>
+            <td class="num mono">1</td>
+            <td class="mono">3h 12m</td>
+            <td class="mono">2026-08-20 07:31</td>
+            <td class="mono">—</td>
+          </tr>
+          <tr>
+            <td class="num mono">2</td>
+            <td class="mono">api#40</td>
+            <td>Refactor merge queue</td>
+            <td><span class="badge destructive">blocked</span></td>
+            <td class="num mono">3</td>
+            <td class="mono">1d 4h</td>
+            <td class="mono">2026-08-19 10:02</td>
+            <td class="mono">—</td>
+          </tr>
+          <tr>
+            <td class="num mono">3</td>
+            <td class="mono">coord-web#9</td>
+            <td>Queue panel issue hyperlink</td>
+            <td><span class="badge outline">waiting</span></td>
+            <td class="num mono">0</td>
+            <td class="mono">12m</td>
+            <td class="mono">2026-08-20 10:19</td>
+            <td class="mono">api#42, api#40</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
