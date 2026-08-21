@@ -208,6 +208,65 @@ describe('Detail — header', () => {
   })
 })
 
+// ── Stage-chip verdict awareness + active ring (#28) ───────────────────────────
+//
+// Before #28, the header stage-chip strip only knew about `FAILED_STAGES`
+// (crashed assignments), never a rejected/failed *verdict* — a review that
+// ran fine and came back `request-changes` maps to the same
+// `current_stage = "review_done"` a genuinely approved review produces, so
+// its chip stayed green. These assert the chip is red regardless of
+// `stage.status`/`current_stage`, and that the "in flight" ring is separate
+// from fill color.
+
+describe('Detail — stage-chip verdict awareness (#28)', () => {
+  it('review chip renders fail-red when review_verdict is request-changes, even though the stage is completed and no longer current', async () => {
+    renderDetail({
+      current_stage: 'review_done',
+      review_verdict: 'request-changes',
+      stages: [
+        { name: 'coding', status: 'completed', is_current: false },
+        { name: 'smoke',  status: 'waiting',   is_current: false },
+        { name: 'review', status: 'completed', is_current: false },
+        { name: 'merge',  status: 'waiting',   is_current: false },
+      ],
+    })
+
+    await waitFor(() => screen.getByText('review'))
+    expect(screen.getByText('review')).toHaveClass('bg-destructive')
+  })
+
+  it('test chip renders fail-red when test_verdict is failed, even though the stage is completed', async () => {
+    renderDetail({
+      test_verdict: 'failed',
+      stages: [
+        { name: 'coding', status: 'completed', is_current: false },
+        { name: 'smoke',  status: 'completed', is_current: false },
+        { name: 'review', status: 'waiting',   is_current: false },
+        { name: 'merge',  status: 'waiting',   is_current: false },
+      ],
+    })
+
+    await waitFor(() => screen.getByText('test'))
+    expect(screen.getByText('test')).toHaveClass('bg-destructive')
+  })
+
+  it('gives only the is_current stage chip a ring, independent of its fill color', async () => {
+    renderDetail({
+      current_stage: 'coding',
+      stages: [
+        { name: 'coding', status: 'active',  is_current: true },
+        { name: 'smoke',  status: 'waiting', is_current: false },
+        { name: 'review', status: 'waiting', is_current: false },
+        { name: 'merge',  status: 'waiting', is_current: false },
+      ],
+    })
+
+    await waitFor(() => screen.getByText('work'))
+    expect(screen.getByText('work')).toHaveClass('ring-2')
+    expect(screen.getByText('review')).not.toHaveClass('ring-2')
+  })
+})
+
 // ── Test gate ─────────────────────────────────────────────────────────────────
 
 describe('Detail — test gate', () => {
@@ -510,6 +569,77 @@ describe('Detail — merge section', () => {
       const mergeSection = screen.getByRole('region', { name: /merge/i })
       expect(mergeSection).toBeInTheDocument()
     })
+  })
+
+  // #28: the gate-status list previously had no fail-red case at all — a
+  // rejected review rendered identically to a genuinely-approved one here,
+  // even though the top strip at least turned red for `FAILED_STAGES`.
+  // These reproduce #1823's exact reported symptom: `current_stage` jumps to
+  // `merge_ready` (the merge-queue behavior #2498 tracks separately)
+  // *without* `review_verdict` ever being consulted — the acceptance bar
+  // here is that the gate list is red regardless of that.
+  it('gives the review row fail-red treatment when review_verdict is request-changes, even with current_stage merge_ready', async () => {
+    renderDetail({
+      current_stage: 'merge_ready',
+      review_verdict: 'request-changes',
+      available_gates: [{ action: 'merge', label: 'Merge', endpoint: '/api/pipeline/action' }],
+      stages: [
+        { name: 'coding', status: 'completed', is_current: false },
+        { name: 'smoke',  status: 'completed', is_current: false },
+        { name: 'review', status: 'completed', is_current: false },
+        { name: 'merge',  status: 'active',    is_current: true },
+      ],
+    })
+
+    const mergeSection = await screen.findByRole('region', { name: /merge/i })
+    const reviewRow = within(mergeSection).getByText('review').parentElement as HTMLElement
+    const dot = reviewRow.querySelector('span:first-child') as HTMLElement
+    const statusText = reviewRow.querySelector('span:last-child') as HTMLElement
+    expect(dot).toHaveClass('bg-destructive')
+    expect(statusText).toHaveClass('text-destructive')
+  })
+
+  it('gives the test row fail-red treatment when test_verdict is failed', async () => {
+    renderDetail({
+      current_stage: 'merge_ready',
+      test_verdict: 'failed',
+      available_gates: [{ action: 'merge', label: 'Merge', endpoint: '/api/pipeline/action' }],
+      stages: [
+        { name: 'coding', status: 'completed', is_current: false },
+        { name: 'smoke',  status: 'completed', is_current: false },
+        { name: 'review', status: 'completed', is_current: false },
+        { name: 'merge',  status: 'active',    is_current: true },
+      ],
+    })
+
+    const mergeSection = await screen.findByRole('region', { name: /merge/i })
+    const testRow = within(mergeSection).getByText('test').parentElement as HTMLElement
+    const dot = testRow.querySelector('span:first-child') as HTMLElement
+    const statusText = testRow.querySelector('span:last-child') as HTMLElement
+    expect(dot).toHaveClass('bg-destructive')
+    expect(statusText).toHaveClass('text-destructive')
+  })
+
+  it('gives only the is_current row a ring in the gate-status list', async () => {
+    renderDetail({
+      current_stage: 'merge_ready',
+      available_gates: [{ action: 'merge', label: 'Merge', endpoint: '/api/pipeline/action' }],
+      stages: [
+        { name: 'coding', status: 'completed', is_current: false },
+        { name: 'smoke',  status: 'completed', is_current: false },
+        { name: 'review', status: 'completed', is_current: false },
+        { name: 'merge',  status: 'active',    is_current: true },
+      ],
+    })
+
+    const mergeSection = await screen.findByRole('region', { name: /merge/i })
+    const mergeRow = within(mergeSection).getByText('merge').parentElement as HTMLElement
+    const mergeDot = mergeRow.querySelector('span:first-child') as HTMLElement
+    expect(mergeDot).toHaveClass('ring-2')
+
+    const reviewRow = within(mergeSection).getByText('review').parentElement as HTMLElement
+    const reviewDot = reviewRow.querySelector('span:first-child') as HTMLElement
+    expect(reviewDot).not.toHaveClass('ring-2')
   })
 })
 

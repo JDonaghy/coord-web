@@ -7,7 +7,7 @@
  * "what counts as active" in the rail would be a lie the moment either
  * definition changed.
  */
-import type { PipelineView } from '@/api/client'
+import type { PipelineStage, PipelineView } from '@/api/client'
 
 /**
  * `current_stage` values that are terminal failures. Exported (rather than
@@ -18,6 +18,85 @@ import type { PipelineView } from '@/api/client'
  * filter.
  */
 export const FAILED_STAGES = new Set(['failed', 'review_failed', 'smoke_failed'])
+
+/**
+ * The two independent facts a stage chip needs to show (#28):
+ *
+ * - `fill` — the stage's *outcome*: did/will it pass. `'pending'` covers both
+ *   "hasn't run yet" and "running right now" — outcome-wise those are the
+ *   same unknown, so they render identically; only `ring` (below)
+ *   distinguishes "running right now" from "hasn't started".
+ * - `ring` — whether this is the stage *currently in flight*, independent of
+ *   outcome. Kept off the same visual channel as `fill` on purpose: before
+ *   #28, `is_current` was expressed by swapping the chip's fill color, which
+ *   conflated "is this happening right now" with "did/will it succeed" into
+ *   one color choice.
+ */
+export type StageChipFill = 'pass' | 'fail' | 'pending' | 'skipped'
+
+export interface StageChipVisual {
+  fill: StageChipFill
+  ring: boolean
+}
+
+/**
+ * Single source of truth for stage-chip coloring (#28), shared by
+ * `PipelineCard`'s stage chips, `Detail`'s header stage-chip strip, and
+ * `Detail`'s merge-section gate-status list — three call sites that, before
+ * this, each reimplemented the same completed/current/skipped/waiting →
+ * color mapping separately (this repo already has one instance of exactly
+ * that class of bug at the cross-repo level, the TUI/coord-web split-brain
+ * epic claude-coordinator#2096; no reason to also have it three times within
+ * one file).
+ *
+ * `fill` is verdict-aware where `stage.status`/`current_stage` alone are
+ * not: a review that ran fine and came back `request-changes` maps to
+ * backend `current_stage = "review_done"` — the exact same value a genuinely
+ * *approved* review produces (`coord/pipeline.py` is verdict-blind by
+ * design) — so `FAILED_STAGES` (crashed *assignments*, e.g. `review_failed`)
+ * never fires for a rejected verdict, and once the review stage is no longer
+ * `is_current` it falls into the plain `status === 'completed'` case and
+ * renders green regardless of the verdict. Checking `view.review_verdict` /
+ * `view.test_verdict` directly closes that gap without touching the backend
+ * — `PipelineView` already carries both fields on the wire (visible
+ * elsewhere in `Detail.tsx`, e.g. the "Verdict: Changes requested" text),
+ * they just weren't consulted by any badge-coloring code before this.
+ *
+ * Verdict checks run first and win outright — a rejected/failed verdict
+ * renders red *regardless* of `stage.status` or whether the stage is still
+ * `is_current`, per #28's acceptance bar (this must hold true even before
+ * claude-coordinator#2498 — which fixes `current_stage` itself jumping to
+ * `merge_ready` without checking `review_verdict` — lands; the two issues
+ * are independent).
+ */
+export function stageChipVisual(stage: PipelineStage, view: PipelineView): StageChipVisual {
+  const ring = stage.is_current
+
+  if (stage.name === 'review' && view.review_verdict === 'request-changes') {
+    return { fill: 'fail', ring }
+  }
+  if (stage.name === 'smoke' && view.test_verdict === 'failed') {
+    return { fill: 'fail', ring }
+  }
+  if (stage.is_current && FAILED_STAGES.has(view.current_stage)) {
+    return { fill: 'fail', ring }
+  }
+  if (stage.status === 'completed') {
+    return { fill: 'pass', ring }
+  }
+  if (stage.status === 'skipped') {
+    return { fill: 'skipped', ring }
+  }
+  return { fill: 'pending', ring }
+}
+
+/**
+ * Shared ring treatment for `stageChipVisual`'s `ring: true` case — kept as
+ * one constant so the "this stage is currently in flight" affordance looks
+ * the same across all three call sites (badge chips and the merge-section
+ * status dots alike) rather than each picking its own.
+ */
+export const STAGE_CHIP_RING_CLASS = 'ring-2 ring-ring ring-offset-1 ring-offset-background'
 
 /**
  * #2: how long a *failed* item stays visible in the Active tab before it's

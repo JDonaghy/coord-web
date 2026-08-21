@@ -6,7 +6,7 @@
  */
 import { cn } from '@/lib/utils'
 import { type PipelineView, type PipelineStage } from '@/api/client'
-import { FAILED_STAGES } from '@/lib/pipeline'
+import { FAILED_STAGES, stageChipVisual, STAGE_CHIP_RING_CLASS } from '@/lib/pipeline'
 
 // ── Stage display helpers ─────────────────────────────────────────────────────
 
@@ -32,27 +32,25 @@ const RUNNING_STAGES = new Set([
   'merging',
 ])
 
-/** Return Tailwind classes for a single stage chip. */
-function stageChipClass(stage: PipelineStage, currentStage: string): string {
+/**
+ * Return Tailwind classes for a single stage chip (#28: fill = outcome,
+ * ring = "this stage is currently in flight" — see `stageChipVisual`'s doc
+ * comment for why those are kept on separate visual channels).
+ */
+function stageChipClass(stage: PipelineStage, view: PipelineView): string {
   const base = 'rounded px-1.5 py-0.5 text-xs font-medium'
+  const { fill, ring } = stageChipVisual(stage, view)
 
-  if (stage.is_current) {
-    // Active stage — colour by failure vs running
-    if (FAILED_STAGES.has(currentStage)) {
-      return cn(base, 'bg-destructive text-destructive-foreground')
-    }
-    return cn(base, 'bg-primary text-primary-foreground')
-  }
+  const fillClass =
+    fill === 'pass'
+      ? 'bg-green-700 text-white'
+      : fill === 'fail'
+        ? 'bg-destructive text-destructive-foreground'
+        : fill === 'skipped'
+          ? 'border border-border text-muted-foreground opacity-40'
+          : 'border border-border text-muted-foreground' // 'pending'
 
-  switch (stage.status) {
-    case 'completed':
-      return cn(base, 'bg-green-700 text-white')
-    case 'skipped':
-      return cn(base, 'border border-border text-muted-foreground opacity-40')
-    default:
-      // "waiting"
-      return cn(base, 'border border-border text-muted-foreground')
-  }
+  return cn(base, fillClass, ring && STAGE_CHIP_RING_CLASS)
 }
 
 // ── Relative-time label ───────────────────────────────────────────────────────
@@ -191,7 +189,7 @@ export function PipelineCard({ view, onClick, selected, finishedAt }: PipelineCa
         {view.stages.map((stage) => (
           <span
             key={stage.name}
-            className={stageChipClass(stage, view.current_stage)}
+            className={stageChipClass(stage, view)}
           >
             {STAGE_LABEL[stage.name] ?? stage.name}
           </span>
