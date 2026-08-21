@@ -123,6 +123,61 @@ describe('PipelineCard', () => {
   })
 })
 
+// ── Stage-chip verdict awareness + active ring (#28) ──────────────────────────
+//
+// Before #28, a stage chip's color came from `stage.status`/`is_current`
+// alone — a rejected review or failed test never turned its chip red once
+// the stage was no longer current. These assert the fix directly: a
+// stage-specific verdict wins outright regardless of `status`/`current_stage`,
+// and the "currently in flight" ring is a separate visual channel from fill.
+
+describe('PipelineCard — stage-chip verdict awareness (#28)', () => {
+  it('review chip renders fail-red when review_verdict is request-changes, even though the stage is completed and no longer current', () => {
+    const view = makeView({
+      current_stage: 'review_done',
+      review_verdict: 'request-changes',
+      stages: [
+        { name: 'coding', status: 'completed', is_current: false },
+        { name: 'review', status: 'completed', is_current: false },
+        { name: 'smoke',  status: 'waiting',   is_current: false },
+        { name: 'merge',  status: 'waiting',   is_current: false },
+      ],
+    })
+    render(<PipelineCard view={view} onClick={() => undefined} />)
+    expect(screen.getByText('review')).toHaveClass('bg-destructive')
+  })
+
+  it('test chip renders fail-red when test_verdict is failed, even though the stage is completed', () => {
+    const view = makeView({
+      current_stage: 'smoke_passed',
+      test_verdict: 'failed',
+      stages: [
+        { name: 'coding', status: 'completed', is_current: false },
+        { name: 'review', status: 'waiting',   is_current: false },
+        { name: 'smoke',  status: 'completed', is_current: false },
+        { name: 'merge',  status: 'waiting',   is_current: false },
+      ],
+    })
+    render(<PipelineCard view={view} onClick={() => undefined} />)
+    expect(screen.getByText('test')).toHaveClass('bg-destructive')
+  })
+
+  it('gives only the is_current stage a ring, independent of its fill color', () => {
+    const view = makeView({
+      current_stage: 'coding',
+      stages: [
+        { name: 'coding', status: 'active',  is_current: true },
+        { name: 'review', status: 'waiting', is_current: false },
+        { name: 'smoke',  status: 'waiting', is_current: false },
+        { name: 'merge',  status: 'waiting', is_current: false },
+      ],
+    })
+    render(<PipelineCard view={view} onClick={() => undefined} />)
+    expect(screen.getByText('work')).toHaveClass('ring-2')
+    expect(screen.getByText('review')).not.toHaveClass('ring-2')
+  })
+})
+
 // ── Relative-time label buckets (rendered via PipelineCard's `finishedAt`) ────
 //
 // formatRelativeTime itself is module-private (a named export here would trip

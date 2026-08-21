@@ -35,7 +35,12 @@ import {
   type PipelineActionRequest,
 } from '@/api/client'
 import { cn } from '@/lib/utils'
-import { findLatestForIssue, FAILED_STAGES } from '@/lib/pipeline'
+import {
+  findLatestForIssue,
+  FAILED_STAGES,
+  stageChipVisual,
+  STAGE_CHIP_RING_CLASS,
+} from '@/lib/pipeline'
 import { paths } from '@/routes/paths'
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
@@ -446,24 +451,25 @@ export default function Detail() {
           </span>
         </div>
 
-        {/* Stage chips */}
+        {/* Stage chips (#28: fill = outcome, ring = "currently in flight" —
+            see stageChipVisual's doc comment in lib/pipeline.ts) */}
         <div className="mt-3 flex flex-wrap gap-1.5">
           {view.stages.map((stage) => {
             const base = 'rounded px-1.5 py-0.5 text-xs font-medium'
-            let cls: string
-            if (stage.is_current) {
-              cls = FAILED_STAGES.has(view.current_stage)
-                ? cn(base, 'bg-destructive text-destructive-foreground')
-                : cn(base, 'bg-primary text-primary-foreground')
-            } else if (stage.status === 'completed') {
-              cls = cn(base, 'bg-green-700 text-white')
-            } else if (stage.status === 'skipped') {
-              cls = cn(base, 'border border-border text-muted-foreground opacity-40')
-            } else {
-              cls = cn(base, 'border border-border text-muted-foreground')
-            }
+            const { fill, ring } = stageChipVisual(stage, view)
+            const fillClass =
+              fill === 'pass'
+                ? 'bg-green-700 text-white'
+                : fill === 'fail'
+                  ? 'bg-destructive text-destructive-foreground'
+                  : fill === 'skipped'
+                    ? 'border border-border text-muted-foreground opacity-40'
+                    : 'border border-border text-muted-foreground' // 'pending'
             return (
-              <span key={stage.name} className={cls}>
+              <span
+                key={stage.name}
+                className={cn(base, fillClass, ring && STAGE_CHIP_RING_CLASS)}
+              >
                 {STAGE_LABEL[stage.name] ?? stage.name}
               </span>
             )
@@ -653,34 +659,41 @@ export default function Detail() {
         <section className="mb-4 rounded-lg border border-border bg-card p-4" aria-label="Merge">
           <h3 className="mb-3 text-sm font-semibold text-card-foreground">Merge</h3>
 
-          {/* Gate status list */}
+          {/* Gate status list (#28: same fill/ring semantics as the header
+              stage chips above — this list previously had no fail-red case
+              at all, so a rejected review rendered exactly like a
+              genuinely-approved one here too) */}
           <div className="mb-3 space-y-1.5">
-            {view.stages.map((stage) => (
-              <div key={stage.name} className="flex items-center gap-2 text-xs">
-                <span
-                  className={cn(
-                    'h-1.5 w-1.5 shrink-0 rounded-full',
-                    stage.status === 'completed' || stage.status === 'skipped'
-                      ? 'bg-green-500'
-                      : stage.is_current
-                        ? 'bg-primary'
-                        : 'bg-border',
-                  )}
-                />
-                <span className="text-muted-foreground">{STAGE_LABEL[stage.name] ?? stage.name}</span>
-                <span
-                  className={cn(
-                    stage.status === 'completed' || stage.status === 'skipped'
-                      ? 'text-green-400'
-                      : stage.is_current
-                        ? 'text-primary'
-                        : 'text-muted-foreground',
-                  )}
-                >
-                  {stage.status}
-                </span>
-              </div>
-            ))}
+            {view.stages.map((stage) => {
+              const { fill, ring } = stageChipVisual(stage, view)
+              const dotClass =
+                fill === 'pass'
+                  ? 'bg-green-500'
+                  : fill === 'fail'
+                    ? 'bg-destructive'
+                    : fill === 'skipped'
+                      ? 'bg-border opacity-40'
+                      : 'bg-border' // 'pending'
+              const textClass =
+                fill === 'pass'
+                  ? 'text-green-400'
+                  : fill === 'fail'
+                    ? 'text-destructive'
+                    : 'text-muted-foreground' // 'pending' | 'skipped'
+              return (
+                <div key={stage.name} className="flex items-center gap-2 text-xs">
+                  <span
+                    className={cn(
+                      'h-1.5 w-1.5 shrink-0 rounded-full',
+                      dotClass,
+                      ring && STAGE_CHIP_RING_CLASS,
+                    )}
+                  />
+                  <span className="text-muted-foreground">{STAGE_LABEL[stage.name] ?? stage.name}</span>
+                  <span className={textClass}>{stage.status}</span>
+                </div>
+              )
+            })}
           </div>
 
           {view.current_stage === 'merged' ? (

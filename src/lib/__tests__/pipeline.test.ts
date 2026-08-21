@@ -4,8 +4,15 @@
  * rows not collapsed to one card per issue, and the resulting count drift.
  */
 import { describe, it, expect } from 'vitest'
-import { isActive, isStaleFailure, needsMe, latestPerIssue, findLatestForIssue } from '@/lib/pipeline'
-import { type PipelineView } from '@/api/client'
+import {
+  isActive,
+  isStaleFailure,
+  needsMe,
+  latestPerIssue,
+  findLatestForIssue,
+  stageChipVisual,
+} from '@/lib/pipeline'
+import { type PipelineStage, type PipelineView } from '@/api/client'
 
 function makeView(overrides: Partial<PipelineView> = {}): PipelineView {
   return {
@@ -256,6 +263,83 @@ describe('latestPerIssue', () => {
     const a = makeView({ assignment_id: 'a', issue_number: 19, repo_name: 'coord-web' })
     const b = makeView({ assignment_id: 'b', issue_number: 19, repo_name: 'claude-coordinator' })
     expect(latestPerIssue([a, b]).map((v) => v.assignment_id)).toEqual(['a', 'b'])
+  })
+})
+
+// #28: `stageChipVisual` is the single source of truth for stage-chip
+// coloring, shared by `PipelineCard`, `Detail`'s header strip, and `Detail`'s
+// merge-section gate list. These pin its contract directly, independent of
+// any one call site's rendering.
+describe('stageChipVisual', () => {
+  function makeStage(overrides: Partial<PipelineStage> = {}): PipelineStage {
+    return { name: 'review', status: 'waiting', is_current: false, ...overrides }
+  }
+
+  it('renders review as fail when review_verdict is request-changes, regardless of stage.status', () => {
+    const view = makeView({ current_stage: 'review_done', review_verdict: 'request-changes' })
+    const completedReview = makeStage({ status: 'completed', is_current: false })
+    expect(stageChipVisual(completedReview, view).fill).toBe('fail')
+  })
+
+  it('renders review as fail even while the stage is still is_current', () => {
+    const view = makeView({ current_stage: 'review_running', review_verdict: 'request-changes' })
+    const currentReview = makeStage({ status: 'active', is_current: true })
+    expect(stageChipVisual(currentReview, view)).toEqual({ fill: 'fail', ring: true })
+  })
+
+  it('renders review as fail even when current_stage has jumped past it to merge_ready (#1823, before claude-coordinator#2498 lands)', () => {
+    const view = makeView({ current_stage: 'merge_ready', review_verdict: 'request-changes' })
+    const supersededReview = makeStage({ status: 'completed', is_current: false })
+    expect(stageChipVisual(supersededReview, view).fill).toBe('fail')
+  })
+
+  it('does not fail a non-review stage just because review_verdict is request-changes', () => {
+    const view = makeView({ current_stage: 'review_done', review_verdict: 'request-changes' })
+    const codingStage = makeStage({ name: 'coding', status: 'completed', is_current: false })
+    expect(stageChipVisual(codingStage, view).fill).toBe('pass')
+  })
+
+  it('renders smoke (test) as fail when test_verdict is failed, regardless of stage.status', () => {
+    const view = makeView({ current_stage: 'smoke_passed', test_verdict: 'failed' })
+    const completedSmoke = makeStage({ name: 'smoke', status: 'completed', is_current: false })
+    expect(stageChipVisual(completedSmoke, view).fill).toBe('fail')
+  })
+
+  it('renders a completed stage as pass when there is no adverse verdict', () => {
+    const view = makeView({ current_stage: 'done' })
+    const completedCoding = makeStage({ name: 'coding', status: 'completed', is_current: false })
+    expect(stageChipVisual(completedCoding, view).fill).toBe('pass')
+  })
+
+  it('renders a skipped stage as skipped', () => {
+    const view = makeView({ current_stage: 'merge_ready' })
+    const skippedSmoke = makeStage({ name: 'smoke', status: 'skipped', is_current: false })
+    expect(stageChipVisual(skippedSmoke, view).fill).toBe('skipped')
+  })
+
+  it('renders a not-yet-run waiting stage as pending', () => {
+    const view = makeView({ current_stage: 'coding' })
+    const waitingReview = makeStage({ status: 'waiting', is_current: false })
+    expect(stageChipVisual(waitingReview, view).fill).toBe('pending')
+  })
+
+  it('still marks a FAILED_STAGES current stage as fail (pre-#28 behavior preserved)', () => {
+    const view = makeView({ current_stage: 'smoke_failed' })
+    const currentSmoke = makeStage({ name: 'smoke', status: 'active', is_current: true })
+    expect(stageChipVisual(currentSmoke, view).fill).toBe('fail')
+  })
+
+  it('does not mark a non-current stage as fail just because current_stage is a FAILED_STAGES value', () => {
+    // `FAILED_STAGES` describes the *current* stage's crash, not siblings.
+    const view = makeView({ current_stage: 'smoke_failed' })
+    const priorCoding = makeStage({ name: 'coding', status: 'completed', is_current: false })
+    expect(stageChipVisual(priorCoding, view).fill).toBe('pass')
+  })
+
+  it('sets ring purely from is_current, independent of fill', () => {
+    const view = makeView({ current_stage: 'coding' })
+    expect(stageChipVisual(makeStage({ is_current: true }), view).ring).toBe(true)
+    expect(stageChipVisual(makeStage({ is_current: false }), view).ring).toBe(false)
   })
 })
 
