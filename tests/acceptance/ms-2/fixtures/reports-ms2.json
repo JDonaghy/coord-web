@@ -56,7 +56,46 @@
     "asserts the timestamp cell's FORMAT SHAPE only (`YYYY-MM-DD HH:MM`), not",
     "an exact clock reading -- contract.md's §6b pins the format, not a",
     "timezone-conversion rule, and this suite has no way to pin the browser",
-    "process's local timezone from inside tests/acceptance/ms-NN/**."
+    "process's local timezone from inside tests/acceptance/ms-NN/**.",
+    "",
+    "Extended by the #22 (RPT-3) test-author: added `report_results` for the",
+    "five remaining catalogue reports (issue-activity, completed, decisions,",
+    "usage, queue-outcomes) and added a `since`/'Time range' choice param to",
+    "issue-activity's/completed's `report_catalogue` entries (mirroring",
+    "mocks/reports-row-nav.html's and mocks/reports-completed.html's own",
+    "'Time range' select, added on the contract's own 2026-08-20 amendment).",
+    "Column shapes for issue-activity/completed/decisions mirror the pinned",
+    "MOCKS (reports-row-nav.html/reports-completed.html/reports-decisions.html)",
+    "exactly, NOT `coord/reports.py`'s real ISSUE_ACTIVITY_COLUMNS (11) /",
+    "DECISIONS_COLUMNS (9) -- contract.md §7.8 explicitly flags that mismatch",
+    "as open and unresolved, and this fixture (like drive-queue-status's own",
+    "entry above) follows the same established convention of pinning the",
+    "MOCK's shape, since `report_catalogue`/`report_results` here already",
+    "deliberately overrides the real backend for the whole milestone. Every",
+    "identifying/Issue-style column is a single `text`-kind `\"api#42\"`",
+    "string (not split repo/issue columns) so this fixture stays agnostic to",
+    "whether a `<Link>` wraps it -- row_identity-aware navigation is RPT-4's",
+    "own feature (#23, depends on #22) and this slice's tests deliberately do",
+    "not assert either way on that cell's Link-ness, leaving it for #23's own",
+    "independent test-author. `completed`'s three rows keep coming from",
+    "coord/reports.py's real COMPLETED_COLUMN_META shape (repo+issue already",
+    "collapsed to one `issue` field here for the reason above) with one row's",
+    "`cost_total: 0.0` specifically to exercise §6b's money-kind zero-renders-",
+    "as-em-dash rule. `decisions`' two rows carry `options` as arrays of",
+    "`{label, command_or_action, recommended}` dicts -- the exact shape",
+    "`coord/reports.py`'s real decision-options builder emits and",
+    "`tui/src/app/reports.rs`'s `reports_list_item_text` already consumes --",
+    "which is #22's own specifically-named risk (§6d: 'dicts ... not scalars",
+    "... render sanely instead of falling through to raw JSON'). `usage` has",
+    "no contract mock at all (see contract.md §0's inventory table) so its",
+    "shape here is this test-author's own invention purely to prove the tab",
+    "is wired into the same generic grid -- see the spec's own TODO comment.",
+    "`queue-outcomes`' row/column shape mirrors mocks/reports-chart.html's",
+    "grid (below its chart) but `chart` is left `null` here deliberately:",
+    "chart rendering is RPT-6's own feature (#25, depends on #22), out of",
+    "this slice's scope, and a null `chart` sidesteps any assumption about",
+    "how a pre-#25 client handles a populated `chart` key it doesn't render",
+    "yet."
   ],
   "now": 1787225000.0,
 
@@ -96,6 +135,15 @@
         "description": "Per-issue timeline of drive activity over a time window.",
         "params": [
           {
+            "id": "since",
+            "label": "Time range",
+            "kind": "choice",
+            "choices": ["1h", "6h", "24h", "3d", "7d"],
+            "default": "24h",
+            "help": "How far back to look.",
+            "free_form": false
+          },
+          {
             "id": "repo",
             "label": "Repo",
             "kind": "text",
@@ -112,6 +160,15 @@
         "title": "Completed",
         "description": "Issues that finished driving, with cost and outcome.",
         "params": [
+          {
+            "id": "since",
+            "label": "Time range",
+            "kind": "choice",
+            "choices": ["1h", "6h", "24h", "3d", "7d"],
+            "default": "24h",
+            "help": "How far back to look.",
+            "free_form": false
+          },
           {
             "id": "repo",
             "label": "Repo",
@@ -225,6 +282,158 @@
           "updated": 1787221140.0,
           "after": ["api#42", "api#40"]
         }
+      ],
+      "notes": [],
+      "totals": null,
+      "chart": null
+    },
+
+    "issue-activity": {
+      "report_id": "issue-activity",
+      "generated_at": 1787225000.0,
+      "window": [1787138600.0, 1787225000.0],
+      "columns": ["issue", "activity", "actor", "timestamp"],
+      "column_meta": [
+        { "id": "issue", "label": "Issue", "kind": "text", "align": "left", "weight": 1.0 },
+        { "id": "activity", "label": "Activity", "kind": "enum", "align": "left", "weight": 1.0 },
+        { "id": "actor", "label": "Actor", "kind": "text", "align": "left", "weight": 1.0 },
+        { "id": "timestamp", "label": "Timestamp", "kind": "timestamp", "align": "left", "weight": 1.0 }
+      ],
+      "rows": [
+        { "issue": "api#42", "activity": "review requested", "actor": "laptop", "timestamp": 1787221320.0 },
+        { "issue": "api#40", "activity": "gate fired", "actor": "server", "timestamp": 1787177100.0 },
+        { "issue": "coord-web#9", "activity": "merged", "actor": "dellserver", "timestamp": 1787067600.0 }
+      ],
+      "notes": [],
+      "totals": null,
+      "chart": null
+    },
+
+    "completed": {
+      "report_id": "completed",
+      "generated_at": 1787225000.0,
+      "window": [1787138600.0, 1787225000.0],
+      "columns": ["issue", "title", "started_at", "ended_at", "legs", "tokens_in", "tokens_out", "cost_total"],
+      "column_meta": [
+        { "id": "issue", "label": "Issue", "kind": "text", "align": "left", "weight": 1.0 },
+        { "id": "title", "label": "Title", "kind": "text", "align": "left", "weight": 3.0 },
+        { "id": "started_at", "label": "Started", "kind": "timestamp", "align": "left", "weight": 1.0 },
+        { "id": "ended_at", "label": "Ended", "kind": "timestamp", "align": "left", "weight": 1.0 },
+        { "id": "legs", "label": "Legs", "kind": "int", "align": "right", "weight": 0.6 },
+        { "id": "tokens_in", "label": "Tok In", "kind": "int", "align": "right", "weight": 1.0 },
+        { "id": "tokens_out", "label": "Tok Out", "kind": "int", "align": "right", "weight": 1.0 },
+        { "id": "cost_total", "label": "Total $", "kind": "money", "align": "right", "weight": 1.0 }
+      ],
+      "rows": [
+        {
+          "issue": "api#51",
+          "title": "Emergency revert --bare back to --setting-sources user",
+          "started_at": 1787217000.0,
+          "ended_at": 1787222400.0,
+          "legs": 2,
+          "tokens_in": 48120,
+          "tokens_out": 3110,
+          "cost_total": 4.821
+        },
+        {
+          "issue": "coord-web#19",
+          "title": "Web pipeline card shows a stale failed badge",
+          "started_at": 1787061720.0,
+          "ended_at": 1787068500.0,
+          "legs": 1,
+          "tokens_in": 9040,
+          "tokens_out": 612,
+          "cost_total": 0.931
+        },
+        {
+          "issue": "coord-web#9",
+          "title": "Issue hyperlink e2e exit gate",
+          "started_at": 1786791600.0,
+          "ended_at": 1786793700.0,
+          "legs": 1,
+          "tokens_in": 0,
+          "tokens_out": 0,
+          "cost_total": 0.0
+        }
+      ],
+      "notes": [],
+      "totals": null,
+      "chart": null
+    },
+
+    "decisions": {
+      "report_id": "decisions",
+      "generated_at": 1787225000.0,
+      "window": [1787138600.0, 1787225000.0],
+      "columns": ["issue", "decision", "options", "timestamp"],
+      "column_meta": [
+        { "id": "issue", "label": "Issue", "kind": "text", "align": "left", "weight": 1.0 },
+        { "id": "decision", "label": "Decision", "kind": "text", "align": "left", "weight": 2.0 },
+        { "id": "options", "label": "Options", "kind": "list", "align": "left", "weight": 3.0 },
+        { "id": "timestamp", "label": "Timestamp", "kind": "timestamp", "align": "left", "weight": 1.0 }
+      ],
+      "rows": [
+        {
+          "issue": "api#40",
+          "decision": "Gate fired, awaiting release",
+          "options": [
+            { "label": "Release gate", "command_or_action": "coord drive release --issue 40", "recommended": true },
+            { "label": "Extend hold", "command_or_action": "coord drive hold --issue 40 --extend 1h", "recommended": false }
+          ],
+          "timestamp": 1787177100.0
+        },
+        {
+          "issue": "api#33",
+          "decision": "Repeated smoke failure",
+          "options": [
+            { "label": "Retry", "command_or_action": "coord dispatch retry --issue 33", "recommended": true },
+            { "label": "Skip", "command_or_action": "coord dispatch skip --issue 33", "recommended": false },
+            { "label": "Unblock manually", "command_or_action": "coord drive unblock --issue 33", "recommended": false }
+          ],
+          "timestamp": 1787127240.0
+        }
+      ],
+      "notes": [],
+      "totals": null,
+      "chart": null
+    },
+
+    "usage": {
+      "report_id": "usage",
+      "generated_at": 1787225000.0,
+      "window": [1787138600.0, 1787225000.0],
+      "columns": ["repo", "legs", "tokens_in", "tokens_out", "cost_total"],
+      "column_meta": [
+        { "id": "repo", "label": "Repo", "kind": "text", "align": "left", "weight": 1.0 },
+        { "id": "legs", "label": "Legs", "kind": "int", "align": "right", "weight": 1.0 },
+        { "id": "tokens_in", "label": "Tok In", "kind": "int", "align": "right", "weight": 1.0 },
+        { "id": "tokens_out", "label": "Tok Out", "kind": "int", "align": "right", "weight": 1.0 },
+        { "id": "cost_total", "label": "Total $", "kind": "money", "align": "right", "weight": 1.0 }
+      ],
+      "rows": [
+        { "repo": "api", "legs": 6, "tokens_in": 120400, "tokens_out": 8210, "cost_total": 12.4050 },
+        { "repo": "coord-web", "legs": 3, "tokens_in": 40210, "tokens_out": 3005, "cost_total": 4.115 }
+      ],
+      "notes": [],
+      "totals": null,
+      "chart": null
+    },
+
+    "queue-outcomes": {
+      "report_id": "queue-outcomes",
+      "generated_at": 1787225000.0,
+      "window": [1787138600.0, 1787225000.0],
+      "columns": ["outcome", "count", "share"],
+      "column_meta": [
+        { "id": "outcome", "label": "Outcome", "kind": "enum", "align": "left", "weight": 1.0 },
+        { "id": "count", "label": "Count", "kind": "int", "align": "right", "weight": 1.0 },
+        { "id": "share", "label": "Share", "kind": "text", "align": "left", "weight": 1.0 }
+      ],
+      "rows": [
+        { "outcome": "completed", "count": 128, "share": "89%" },
+        { "outcome": "held", "count": 9, "share": "6%" },
+        { "outcome": "blocked", "count": 4, "share": "3%" },
+        { "outcome": "abandoned", "count": 2, "share": "1%" }
       ],
       "notes": [],
       "totals": null,
