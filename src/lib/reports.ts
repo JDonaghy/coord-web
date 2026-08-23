@@ -27,7 +27,7 @@
  *   doc comment) and lexicographic (via `reportCellText`, so a `list` sorts
  *   on its comma-joined rendering) for everything else.
  */
-import type { ColumnMeta, ReportDef, ReportParam } from '@/api/client'
+import type { ColumnMeta, ReportDef, ReportParam, RowIdentity } from '@/api/client'
 import type { BadgeProps } from '@/components/ui/badge'
 
 // ── cell formatting (contract §6b) ──────────────────────────────────────────
@@ -322,4 +322,68 @@ export function sortReportRows<T extends Record<string, unknown>>(
  * exact text, contract §2c. */
 export function reportRowCountLabel(count: number): string {
   return `${count} ${count === 1 ? 'row' : 'rows'}`
+}
+
+// ── row navigation via row_identity (contract §7, RPT-4 #23) ───────────────
+
+/**
+ * The `RowIdentity` declared by the catalogue entry a given `ReportResult`
+ * came from, looked up by `report_id` — `ReportResult` itself carries no
+ * `row_identity` (only `ReportDef` does, `RowIdentity`'s own doc comment),
+ * and the currently-selected tab can momentarily lag a just-landed result
+ * during the tab-switch race `ReportsPanel`'s `runTokenRef` already guards.
+ * `null` for a report missing from the catalogue (shouldn't happen) or one
+ * that declares no `row_identity` at all (§7c — `usage`, `queue-outcomes`,
+ * and, per §7.1's flagged-but-unresolved question, `drive-queue-status`
+ * today).
+ */
+export function reportRowIdentityFor(
+  reports: readonly ReportDef[],
+  reportId: string,
+): RowIdentity | null {
+  return reports.find((r) => r.id === reportId)?.row_identity ?? null
+}
+
+/**
+ * Is `columnId` the one column a `row_identity`-declaring report's
+ * identifying Link renders in? Always `rowIdentity.issue_column` — the same
+ * column `DriveQueuePanel`'s own Issue-column Link occupies. `null`
+ * `rowIdentity` (the common case, §7c) means no column ever qualifies, so a
+ * caller can unconditionally check every cell without a separate
+ * `row_identity !== null` guard.
+ */
+export function isReportRowIdentityColumn(columnId: string, rowIdentity: RowIdentity | null): boolean {
+  return rowIdentity !== null && columnId === rowIdentity.issue_column
+}
+
+/**
+ * `${repo}#${issue}` for a `row_identity`-declaring report's identifying
+ * cell — the same composition `DriveQueuePanel`'s `queueEntryKey`
+ * (`src/lib/driveQueue.ts`) uses for `repo_name#issue_number`, applied here
+ * to whichever two columns `RowIdentity` names rather than a fixed
+ * `BoardDriveQueueEntry` shape. Always composes from the two separate
+ * columns — even for a report whose own `issue` column value already
+ * *looks* combined (`completed`'s fixture is deliberately seeded this way,
+ * see `tests/acceptance/ms-2/rpt-4-row-nav.spec.ts`'s header comment); this
+ * function never special-cases a report id to "clean up" that string.
+ */
+export function reportRowIdentityKey(row: Record<string, unknown>, rowIdentity: RowIdentity): string {
+  const repo = row[rowIdentity.repo_column]
+  const issue = row[rowIdentity.issue_column]
+  return `${repo == null ? '' : String(repo)}#${issue == null ? '' : String(issue)}`
+}
+
+/** The `(repo, issue)` pair a `row_identity`-declaring report's identifying
+ * cell links to — `paths.pipelineItem(repo, issue)`'s own two arguments,
+ * read straight off the row via `RowIdentity`'s named columns. Kept
+ * separate from `reportRowIdentityKey` (which always joins with `#`)
+ * because `paths.pipelineItem` itself `encodeURIComponent`s each segment
+ * independently rather than a pre-joined string. */
+export function reportRowIdentityRepoIssue(
+  row: Record<string, unknown>,
+  rowIdentity: RowIdentity,
+): { repo: string; issue: string } {
+  const repo = row[rowIdentity.repo_column]
+  const issue = row[rowIdentity.issue_column]
+  return { repo: repo == null ? '' : String(repo), issue: issue == null ? '' : String(issue) }
 }
