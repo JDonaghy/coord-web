@@ -9,11 +9,13 @@
  * pure surfaces `ReportsPanel` builds its picker/parameter-bar/grid from.
  */
 import { describe, it, expect } from 'vitest'
-import type { ColumnMeta, ReportParam } from '@/api/client'
+import type { ColumnMeta, ReportParam, ReportResult } from '@/api/client'
 import {
+  buildReportChartAriaLabel,
   buildReportParamDefaults,
   DEFAULT_REPORT_ID,
   defaultSelectedReportId,
+  formatReportChartValue,
   formatReportDuration,
   formatReportList,
   formatReportMoney,
@@ -21,12 +23,15 @@ import {
   reportCellAlign,
   reportCellIsMono,
   reportCellText,
+  reportChartCategoryColorClass,
+  reportChartPlan,
   reportChoiceOptions,
   reportEnumBadgeVariant,
   reportListOptions,
   reportParamIsChoice,
   reportRowCountLabel,
   REPORT_EMPTY_CELL,
+  type ReportChartRenderPlan,
   sortReportRows,
   toggleSortDirection,
 } from '../reports'
@@ -364,5 +369,244 @@ describe('sortReportRows', () => {
     const textRows = [{ state: 'waiting' }, { state: 'blocked' }, { state: 'running' }]
     const sorted = sortReportRows(textRows, 'state', 'enum', 'ascending')
     expect(sorted.map((r) => r.state)).toEqual(['blocked', 'running', 'waiting'])
+  })
+})
+
+// ── chart rendering (contract §8, RPT-6 #25) ────────────────────────────────
+//
+// `reportChartPlan` is the port of `ChartPlan`/`reports_chart_plan` from
+// `tui/src/app/reports.rs` — these cases mirror the Rust source's own
+// outcome order (unsupported kind, no numeric series, too many series,
+// group_by pivot) plus the two ms-2 fixture shapes this milestone's own
+// acceptance slice (`tests/acceptance/ms-2/rpt-6-chart.spec.ts`) drives
+// against a live `coord web --fixture` process:
+// `fixtures/reports-ms2.json`'s `queue-outcomes` (Render: `kind: 'bar'`, one
+// series reading `count`, `x: 'outcome'`) and `usage` (Degrade: `kind:
+// 'scatter'`, a kind this build doesn't understand).
+
+function makeChartResult(overrides: Partial<ReportResult> = {}): ReportResult {
+  return {
+    report_id: 'queue-outcomes',
+    generated_at: 0,
+    window: [0, 0],
+    columns: ['outcome', 'count', 'share'],
+    column_meta: [
+      { id: 'outcome', label: 'Outcome', kind: 'enum', align: 'left', weight: 1 },
+      { id: 'count', label: 'Count', kind: 'int', align: 'right', weight: 1 },
+      { id: 'share', label: 'Share', kind: 'text', align: 'left', weight: 1 },
+    ],
+    rows: [
+      { outcome: 'completed', count: 128, share: '89%' },
+      { outcome: 'held', count: 9, share: '6%' },
+      { outcome: 'blocked', count: 4, share: '3%' },
+      { outcome: 'abandoned', count: 2, share: '1%' },
+    ],
+    notes: [],
+    totals: null,
+    chart: {
+      kind: 'bar',
+      series: [{ label: 'Count', column: 'count', color: null }],
+      x: 'outcome',
+      group_by: null,
+      stacked: false,
+      title: '',
+      y_label: '',
+    },
+    ...overrides,
+  }
+}
+
+describe('reportChartPlan — ChartPlan::None', () => {
+  it('no chart declared at all -> none', () => {
+    expect(reportChartPlan(makeChartResult({ chart: null }))).toEqual({ status: 'none' })
+  })
+
+  it('a chart IS declared but the result has zero rows -> none, not degrade (the empty-window message already owns the panel)', () => {
+    expect(reportChartPlan(makeChartResult({ rows: [] }))).toEqual({ status: 'none' })
+  })
+})
+
+describe('reportChartPlan — ChartPlan::Render (queue-outcomes fixture shape)', () => {
+  it('resolves the exact series/categories the fixture pins (128/9/4/2, completed/held/blocked/abandoned)', () => {
+    const plan = reportChartPlan(makeChartResult())
+    expect(plan.status).toBe('render')
+    const render = plan as ReportChartRenderPlan
+    expect(render.categories).toEqual(['completed', 'held', 'blocked', 'abandoned'])
+    expect(render.series).toEqual([{ label: 'Count', data: [128, 9, 4, 2] }])
+    expect(render.categoryColumnKind).toBe('enum')
+    expect(render.xLabel).toBe('Outcome')
+    expect(render.title).toBeNull()
+  })
+
+  it('a group_by pivot builds one series per distinct group value, summed per x cell', () => {
+    const result = makeChartResult({
+      columns: ['repo', 'state', 'count'],
+      column_meta: [
+        { id: 'repo', label: 'Repo', kind: 'text', align: 'left', weight: 1 },
+        { id: 'state', label: 'State', kind: 'enum', align: 'left', weight: 1 },
+        { id: 'count', label: 'Count', kind: 'int', align: 'right', weight: 1 },
+      ],
+      rows: [
+        { repo: 'api', state: 'running', count: 3 },
+        { repo: 'api', state: 'blocked', count: 1 },
+        { repo: 'coord-web', state: 'running', count: 2 },
+        { repo: 'api', state: 'running', count: 1 }, // second `api`/`running` row -- sums into the same cell
+      ],
+      chart: {
+        kind: 'bar',
+        series: [{ label: 'Count', column: 'count', color: null }],
+        x: 'state',
+        group_by: 'repo',
+        stacked: false,
+        title: 'By repo',
+        y_label: '',
+      },
+    })
+    const plan = reportChartPlan(result)
+    expect(plan.status).toBe('render')
+    const render = plan as ReportChartRenderPlan
+    // x categories in first-appearance order across ALL rows, not per group.
+    expect(render.categories).toEqual(['running', 'blocked'])
+    // One series per group, single declared series -> label is the group name
+    // itself (no ` · Count` suffix -- that only appears with >1 declared series).
+    expect(render.series).toEqual([
+      { label: 'api', data: [4, 1] }, // running: 3+1=4, blocked: 1
+      { label: 'coord-web', data: [2, 0] },
+    ])
+    expect(render.title).toBe('By repo')
+    expect(render.categoryColumnKind).toBe('text') // group_by column (`repo`) kind, not x's
+  })
+
+  it('an empty declared-series title/y_label become null, not empty strings', () => {
+    const plan = reportChartPlan(makeChartResult()) as ReportChartRenderPlan
+    expect(plan.title).toBeNull()
+    expect(plan.yLabel).toBeNull()
+  })
+})
+
+describe('reportChartPlan — ChartPlan::Degrade', () => {
+  it('an unsupported chart kind degrades (usage fixture: kind "scatter")', () => {
+    const plan = reportChartPlan(
+      makeChartResult({
+        report_id: 'usage',
+        chart: {
+          kind: 'scatter',
+          series: [{ label: 'Total $', column: 'cost_total', color: null }],
+          x: 'repo',
+          group_by: null,
+          stacked: false,
+          title: '',
+          y_label: '',
+        },
+      }),
+    )
+    expect(plan).toEqual({
+      status: 'degrade',
+      reason: "Chart not shown: this build does not understand chart kind 'scatter'. The table below carries the same numbers.",
+    })
+  })
+
+  it('a declared series column with no numeric value in any row degrades rather than plotting a flat zero line', () => {
+    const plan = reportChartPlan(
+      makeChartResult({
+        chart: {
+          kind: 'bar',
+          series: [{ label: 'Bogus', column: 'does_not_exist', color: null }],
+          x: 'outcome',
+          group_by: null,
+          stacked: false,
+          title: '',
+          y_label: '',
+        },
+      }),
+    )
+    expect(plan.status).toBe('degrade')
+    expect((plan as { reason: string }).reason).toMatch(/no numeric column/)
+  })
+
+  it('more series than a one-row legend can label degrades (no silent partial chart)', () => {
+    const columns = Array.from({ length: 13 }, (_, i) => `s${i}`)
+    const result = makeChartResult({
+      columns,
+      column_meta: columns.map((id) => ({ id, label: id, kind: 'int', align: 'right', weight: 1 })),
+      rows: [Object.fromEntries(columns.map((id, i) => [id, i + 1]))],
+      chart: {
+        kind: 'bar',
+        series: columns.map((id) => ({ label: id, column: id, color: null })),
+        x: null,
+        group_by: null,
+        stacked: false,
+        title: '',
+        y_label: '',
+      },
+    })
+    const plan = reportChartPlan(result)
+    expect(plan.status).toBe('degrade')
+    expect((plan as { reason: string }).reason).toMatch(/13 series/)
+  })
+})
+
+describe('formatReportChartValue', () => {
+  it('an integer renders with no decimal point', () => {
+    expect(formatReportChartValue(128)).toBe('128')
+  })
+
+  it('a non-integer renders to 2 decimal places', () => {
+    expect(formatReportChartValue(4.8)).toBe('4.80')
+  })
+})
+
+describe('reportChartCategoryColorClass', () => {
+  it('an enum-kind axis reuses the exact class the grid badge for that value resolves to', () => {
+    expect(reportChartCategoryColorClass('completed', 'enum', 0)).toBe('bg-pass')
+    expect(reportChartCategoryColorClass('held', 'enum', 1)).toBe('bg-attn')
+    expect(reportChartCategoryColorClass('blocked', 'enum', 2)).toBe('bg-fail')
+    // Matches `reportEnumBadgeVariant`'s own current mapping -- `abandoned`
+    // hits its `'destructive'` case today (same as `blocked`/`failed`), not
+    // a dedicated idle/gray one, so the chart mark must follow suit rather
+    // than inventing a colour the grid's own badge doesn't actually show.
+    expect(reportChartCategoryColorClass('abandoned', 'enum', 3)).toBe('bg-fail')
+  })
+
+  it('a non-enum axis falls back to the fixed categorical rotation, cycling past its own length', () => {
+    expect(reportChartCategoryColorClass('api', 'text', 0)).toBe('bg-brand')
+    expect(reportChartCategoryColorClass('coord-web', 'text', 1)).toBe('bg-pass')
+    expect(reportChartCategoryColorClass('sixth', 'text', 5)).toBe('bg-brand') // wraps: 5 % 5 === 0
+  })
+})
+
+describe('buildReportChartAriaLabel', () => {
+  it('every category is followed by its value with real whitespace between pairs (never glued for a \\b regex)', () => {
+    const plan = reportChartPlan(makeChartResult()) as ReportChartRenderPlan
+    const label = buildReportChartAriaLabel(plan)
+    for (const [category, value] of [
+      ['completed', 128],
+      ['held', 9],
+      ['blocked', 4],
+      ['abandoned', 2],
+    ] as const) {
+      expect(label).toMatch(new RegExp(`${category}[^0-9]*${value}\\b`, 'i'))
+    }
+  })
+
+  it('falls back to "<series label> by <x label>" when the declaration carries no title', () => {
+    const plan = reportChartPlan(makeChartResult()) as ReportChartRenderPlan
+    expect(buildReportChartAriaLabel(plan).startsWith('Count by Outcome: ')).toBe(true)
+  })
+
+  it('uses the declared title verbatim when present', () => {
+    const result = makeChartResult({
+      chart: {
+        kind: 'bar',
+        series: [{ label: 'Count', column: 'count', color: null }],
+        x: 'outcome',
+        group_by: null,
+        stacked: false,
+        title: 'Outcomes this window',
+        y_label: '',
+      },
+    })
+    const plan = reportChartPlan(result) as ReportChartRenderPlan
+    expect(buildReportChartAriaLabel(plan).startsWith('Outcomes this window: ')).toBe(true)
   })
 })
