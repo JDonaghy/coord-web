@@ -34,7 +34,7 @@
  * stays in the component; everything here is pure.
  */
 import type { BoardDriveQueueEntry, DriveQueueSummary, PipelineView } from '@/api/client'
-import { aliasIssueRef } from './repoRef'
+import { aliasIssueRef } from '@/lib/repoRef'
 
 /** Mirrors `coord/drive_queue.py`'s terminal `state` wire value. `done` rows
  * are set in place rather than deleted -- `coord/dao.py` applies no

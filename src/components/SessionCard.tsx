@@ -85,7 +85,11 @@ export function SessionCard({ session, onClick }: SessionCardProps) {
       </div>
 
       {/* Second row: aliased issue ref (#46, e.g. "CC#2639") + machine, when
-          the session maps to a tracked assignment */}
+          the session maps to a tracked assignment. Assumes repo/issue are
+          always both-null or both-set (true today: `api_sessions` in
+          `coord/dashboard/server.py` derives both from the same `assignment`
+          object) -- if that pairing ever loosens, an issue with no repo
+          would render as nothing instead of falling back to `#N`. */}
       {(session.repo || session.machine) && (
         <p className="mt-1 text-xs text-muted-foreground">
           {session.repo && session.issue !== null ? (

@@ -105,6 +105,11 @@ export default function SessionDetail() {
             ←
           </button>
           <div className="min-w-0 flex-1">
+            {/* Assumes repo/issue are always both-null or both-set (true
+                today: `api_sessions` in `coord/dashboard/server.py` derives
+                both from the same `assignment` object) -- if that pairing
+                ever loosens, an issue with no repo would render as nothing
+                instead of falling back to `#N`. */}
             <p className="text-xs text-muted-foreground">
               {session.repo && session.issue !== null ? (
                 <span className="font-mono">{issueRef(session.repo, session.issue)}</span>
