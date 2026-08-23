@@ -1,14 +1,11 @@
 /**
- * ReportsPanel — the Reports panel's list-slot content (#21 RPT-2).
+ * ReportsPanel — the Reports panel's list-slot content (#21 RPT-2, #22 RPT-3).
  *
  * `ShellLayout` owns the frame (rail, status bar) and renders this component
  * into the list slot for the `/reports` route, same convention
  * `DriveQueuePanel` documents for `/queue`.
  *
- * Ships the whole pipe against exactly one report — `drive-queue-status` —
- * to prove it end-to-end before RPT-3 lights up the other five
- * (`issue-activity`, `completed`, `decisions`, `usage`, `queue-outcomes`):
- * a tabbed **picker** built from `GET /api/report`'s catalogue (never a
+ * A tabbed **picker** built from `GET /api/report`'s catalogue (never a
  * hardcoded report list — see `src/lib/reports.ts`'s doc comment), a
  * **parameter bar** dispatching each catalogue param to a `<select>`
  * (`kind: 'choice'`) or text `<input>` (everything else), a **Run** action
@@ -20,10 +17,22 @@
  * `src/lib/reports.ts`, a port of `reports_cell_text` /
  * `tui/src/app/reports.rs`) with client-side header-click sort.
  *
+ * #21 (RPT-2) proved this pipe end-to-end against exactly one report
+ * (`drive-queue-status`); the picker/param-bar/grid above are entirely
+ * catalogue-driven, so #22 (RPT-3) lighting up the other five
+ * (`issue-activity`, `completed`, `decisions`, `usage`, `queue-outcomes`)
+ * needed no new rendering code here beyond one thing the abstraction hadn't
+ * yet exercised: a `list`-kind column whose cells are `{label,
+ * command_or_action, recommended}` dicts rather than scalars (`decisions`'
+ * `options` column). `reportListOptions` in `src/lib/reports.ts` detects
+ * that shape structurally — off the cell VALUE, never the report id or
+ * column id — so the branch below applies to any future dict-shaped `list`
+ * column too, not just this one.
+ *
  * Explicitly out of scope here (each is its own later RPT-N issue, see
  * `tests/acceptance/ms-2/contract.md`'s issue table):
- *  - Row navigation via `row_identity` (RPT-4, #23) — `drive-queue-status`
- *    itself declares none (contract §7.1), so every cell here is plain text.
+ *  - Row navigation via `row_identity` (RPT-4, #23) — every cell here is
+ *    still plain text/options, never a `<Link>`.
  *  - CSV export (RPT-5, #24) — no `reports-export-action` control yet.
  *  - Chart rendering (RPT-6, #25) — no `chart` region; `ReportResult.chart`
  *    is read by nothing here, matching the "additive, ignorable" contract
@@ -45,6 +54,7 @@ import {
   reportCellText,
   reportChoiceOptions,
   reportEnumBadgeVariant,
+  reportListOptions,
   reportParamIsChoice,
   reportRowCountLabel,
   sortReportRows,
@@ -319,17 +329,46 @@ export default function ReportsPanel() {
                       <tr key={index} className="border-b border-border/60 last:border-0">
                         {result.column_meta.map((meta) => {
                           const align = reportCellAlign(meta)
-                          const text = reportCellText(row[meta.id], meta.kind)
+                          const cellValue = row[meta.id]
+                          // Structural, not report-id-keyed: any `list`-kind
+                          // cell whose items are `{label, ...}` dicts (§6d —
+                          // `decisions`' `options` column is the one this
+                          // milestone ships) renders as its own option list
+                          // instead of falling through to the plain-text/
+                          // comma-join path every other `list` column uses.
+                          const options = meta.kind === 'list' ? reportListOptions(cellValue) : null
+                          const text = reportCellText(cellValue, meta.kind)
                           return (
                             <td
                               key={meta.id}
+                              data-testid={options ? `reports-options-cell-${index}` : undefined}
                               className={cn(
                                 'px-3 py-2',
                                 align === 'right' && 'text-right',
-                                reportCellIsMono(meta.kind) && 'font-mono',
+                                reportCellIsMono(meta.kind) && !options && 'font-mono',
                               )}
                             >
-                              {meta.kind === 'enum' ? (
+                              {options ? (
+                                <ul className="flex flex-col gap-1">
+                                  {options.map((opt, optIndex) => (
+                                    <li
+                                      key={optIndex}
+                                      title={opt.command_or_action}
+                                      className="inline-flex items-center gap-1"
+                                    >
+                                      {opt.label}
+                                      {opt.recommended && (
+                                        <>
+                                          <span aria-hidden="true" className="text-attn">
+                                            ★
+                                          </span>
+                                          <span className="sr-only">(recommended)</span>
+                                        </>
+                                      )}
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : meta.kind === 'enum' ? (
                                 <Badge variant={reportEnumBadgeVariant(String(row[meta.id] ?? ''))}>
                                   {text}
                                 </Badge>

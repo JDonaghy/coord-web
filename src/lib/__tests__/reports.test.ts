@@ -23,6 +23,7 @@ import {
   reportCellText,
   reportChoiceOptions,
   reportEnumBadgeVariant,
+  reportListOptions,
   reportParamIsChoice,
   reportRowCountLabel,
   REPORT_EMPTY_CELL,
@@ -102,6 +103,51 @@ describe('formatReportList', () => {
   it('null/undefined -> the empty cell', () => {
     expect(formatReportList(null)).toBe(REPORT_EMPTY_CELL)
     expect(formatReportList(undefined)).toBe(REPORT_EMPTY_CELL)
+  })
+
+  it('a decisions-shaped options list joins on each option\'s label, never [object Object]', () => {
+    expect(
+      formatReportList([
+        { label: 'Release gate', command_or_action: 'coord drive release --issue 40', recommended: true },
+        { label: 'Extend hold', command_or_action: 'coord drive hold --issue 40 --extend 1h', recommended: false },
+      ]),
+    ).toBe('Release gate, Extend hold')
+  })
+})
+
+// ── reportListOptions (§6d — decisions' options column) ──────────────────────
+
+describe('reportListOptions', () => {
+  it('detects a list of {label, command_or_action, recommended} dicts', () => {
+    const value = [
+      { label: 'Release gate', command_or_action: 'coord drive release --issue 40', recommended: true },
+      { label: 'Extend hold', command_or_action: 'coord drive hold --issue 40 --extend 1h', recommended: false },
+    ]
+    expect(reportListOptions(value)).toEqual([
+      { label: 'Release gate', command_or_action: 'coord drive release --issue 40', recommended: true },
+      { label: 'Extend hold', command_or_action: 'coord drive hold --issue 40 --extend 1h', recommended: false },
+    ])
+  })
+
+  it('defaults a missing/non-boolean recommended to false rather than throwing', () => {
+    expect(reportListOptions([{ label: 'Retry' }])).toEqual([
+      { label: 'Retry', command_or_action: undefined, recommended: false },
+    ])
+  })
+
+  it('a plain scalar list (e.g. drive-queue-status\'s "after") is not options', () => {
+    expect(reportListOptions(['api#42', 'api#40'])).toBeNull()
+  })
+
+  it('empty array, null, and non-array values are not options', () => {
+    expect(reportListOptions([])).toBeNull()
+    expect(reportListOptions(null)).toBeNull()
+    expect(reportListOptions(undefined)).toBeNull()
+    expect(reportListOptions('api#42')).toBeNull()
+  })
+
+  it('a mixed array (not every item shaped like an option) is not options', () => {
+    expect(reportListOptions(['api#42', { label: 'Retry' }])).toBeNull()
   })
 })
 
