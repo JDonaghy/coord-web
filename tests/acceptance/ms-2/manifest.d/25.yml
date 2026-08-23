@@ -59,10 +59,3 @@ tests:
   "[chromium] ms-2/rpt-6-chart.spec.ts › ms-2 Reports panel — RPT-6 chart rendering (#25) › an unrenderable chart degrades to a one-line reason, and the grid still renders in full — ChartPlan::Degrade (§8d)": 25
   "[chromium] ms-2/rpt-6-chart.spec.ts › ms-2 Reports panel — RPT-6 chart rendering (#25) › a report with no chart declaration renders neither a chart nor a degrade notice — ChartPlan::None (§8e)": 25
 
-expected_red:
-  25:
-    - "[chromium] ms-2/rpt-6-chart.spec.ts › ms-2 Reports panel — RPT-6 chart rendering (#25) › a chart-declaring report renders a chart region above the grid (§8a)"
-    - "[chromium] ms-2/rpt-6-chart.spec.ts › ms-2 Reports panel — RPT-6 chart rendering (#25) › the chart region carries a full-text aria-label summarizing every category and value (§8a)"
-    - "[chromium] ms-2/rpt-6-chart.spec.ts › ms-2 Reports panel — RPT-6 chart rendering (#25) › every mark carries a direct, visible value label — never colour alone (§8c)"
-    - "[chromium] ms-2/rpt-6-chart.spec.ts › ms-2 Reports panel — RPT-6 chart rendering (#25) › each category's mark colour is reused from the grid's own status badge for the identical value, never a fresh hue (§8b)"
-    - "[chromium] ms-2/rpt-6-chart.spec.ts › ms-2 Reports panel — RPT-6 chart rendering (#25) › an unrenderable chart degrades to a one-line reason, and the grid still renders in full — ChartPlan::Degrade (§8d)"
