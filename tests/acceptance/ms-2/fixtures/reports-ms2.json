@@ -95,7 +95,45 @@
     "chart rendering is RPT-6's own feature (#25, depends on #22), out of",
     "this slice's scope, and a null `chart` sidesteps any assumption about",
     "how a pre-#25 client handles a populated `chart` key it doesn't render",
-    "yet."
+    "yet.",
+    "",
+    "Extended by the #23 (RPT-4) test-author: added a `repo` field to every",
+    "row of issue-activity/completed/decisions (the three row_identity-",
+    "declaring reports, contract.md §7a) so `row_identity: {repo_column:",
+    "\"repo\", issue_column: \"issue\"}` (already declared per-report above by",
+    "#22) actually resolves to something -- previously `repo_column: \"repo\"`",
+    "pointed at a column that didn't exist in the row at all. For",
+    "issue-activity/decisions, also changed the `issue` field's own value",
+    "from the combined `\"api#42\"`-shaped string to the bare issue number as",
+    "a string (`\"42\"`) -- safe because no #21/#22 assertion reads that",
+    "cell's content or relies on its value for default-sort ordering (only",
+    "column headers/counts, and decisions' options-cell lookup which keys",
+    "off the `decision` column instead, per rpt-3's own spec comments) --",
+    "producing a clean `paths.pipelineItem(\"api\", \"42\")` ->",
+    "`/pipeline/api/42` href exactly matching reports-row-nav.html's/",
+    "reports-decisions.html's own href pins. `completed`'s `issue` value is",
+    "deliberately left UNCHANGED (still `\"api#51\"` etc, still the combined",
+    "shape) because rpt-3's own money-column test (`rows.nth(0)`/`nth(1)`/",
+    "`nth(2)`) depends on the CURRENT default ascending text-sort order of",
+    "that exact column, which is `column_meta[0]`'s (`issue`) own raw value",
+    "-- changing it to a bare number would resort the rows and silently",
+    "break that already-merged, already-gated #22 test. `paths.pipelineItem`",
+    "still resolves `row_identity.issue_column` (`\"issue\"`, the only",
+    "candidate: it has to name an actually-rendered `column_meta` entry for",
+    "a generic renderer to know which `<td>` becomes the Link at all) against",
+    "this unchanged value, so `completed`'s Link href is",
+    "`paths.pipelineItem(\"api\", \"api#51\")` -> `/pipeline/api/api%2351` --",
+    "unlike the other two, not a byte-for-byte match to reports-completed.",
+    "html's own illustrative `/pipeline/api/51` (that mock's numbers are its",
+    "own self-contained example data, not tied to this fixture's rows).",
+    "rpt-4-row-nav.spec.ts computes its expected href with the same encoding",
+    "`paths.pipelineItem` uses rather than hardcoding a clean-looking string,",
+    "so this stays a correct, self-consistent assertion either way -- see",
+    "that spec's own header comment for the full reasoning. TODO(test-",
+    "author): if a future contract amendment gives `completed` a real bare",
+    "`issue` value (e.g. by decoupling the sort key from the display/",
+    "identity column), tighten this fixture and drop the special-cased",
+    "assertion."
   ],
   "now": 1787225000.0,
 
@@ -300,9 +338,9 @@
         { "id": "timestamp", "label": "Timestamp", "kind": "timestamp", "align": "left", "weight": 1.0 }
       ],
       "rows": [
-        { "issue": "api#42", "activity": "review requested", "actor": "laptop", "timestamp": 1787221320.0 },
-        { "issue": "api#40", "activity": "gate fired", "actor": "server", "timestamp": 1787177100.0 },
-        { "issue": "coord-web#9", "activity": "merged", "actor": "dellserver", "timestamp": 1787067600.0 }
+        { "issue": "42", "repo": "api", "activity": "review requested", "actor": "laptop", "timestamp": 1787221320.0 },
+        { "issue": "40", "repo": "api", "activity": "gate fired", "actor": "server", "timestamp": 1787177100.0 },
+        { "issue": "9", "repo": "coord-web", "activity": "merged", "actor": "dellserver", "timestamp": 1787067600.0 }
       ],
       "notes": [],
       "totals": null,
@@ -327,6 +365,7 @@
       "rows": [
         {
           "issue": "api#51",
+          "repo": "api",
           "title": "Emergency revert --bare back to --setting-sources user",
           "started_at": 1787217000.0,
           "ended_at": 1787222400.0,
@@ -337,6 +376,7 @@
         },
         {
           "issue": "coord-web#19",
+          "repo": "coord-web",
           "title": "Web pipeline card shows a stale failed badge",
           "started_at": 1787061720.0,
           "ended_at": 1787068500.0,
@@ -347,6 +387,7 @@
         },
         {
           "issue": "coord-web#9",
+          "repo": "coord-web",
           "title": "Issue hyperlink e2e exit gate",
           "started_at": 1786791600.0,
           "ended_at": 1786793700.0,
@@ -374,7 +415,8 @@
       ],
       "rows": [
         {
-          "issue": "api#40",
+          "issue": "40",
+          "repo": "api",
           "decision": "Gate fired, awaiting release",
           "options": [
             { "label": "Release gate", "command_or_action": "coord drive release --issue 40", "recommended": true },
@@ -383,7 +425,8 @@
           "timestamp": 1787177100.0
         },
         {
-          "issue": "api#33",
+          "issue": "33",
+          "repo": "api",
           "decision": "Repeated smoke failure",
           "options": [
             { "label": "Retry", "command_or_action": "coord dispatch retry --issue 33", "recommended": true },

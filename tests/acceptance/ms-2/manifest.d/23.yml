@@ -1,0 +1,77 @@
+# Acceptance manifest fragment for #23 (RPT-4: row navigation via
+# row_identity on issue-activity/completed/decisions) — milestone ms-2
+# "Reports panel", tracking issue #26.
+#
+# Per #2543, this file belongs to #23 alone; no other ms-2 slice writes here.
+#
+# Driver: web-playwright
+#   npm run test:acceptance -- ms-2
+#
+# Test-ids are the exact shape coord.acceptance_drivers.parse_playwright_json_report
+# derives from Playwright's built-in json reporter:
+#   "[{project}] {file} › {describe path} › {test title}"
+# `{file}` is relative to the report's rootDir (tests/acceptance/), hence the
+# `ms-2/` prefix. Copied verbatim from a real
+# `npm run test:acceptance -- ms-2 --reporter=json` run parsed by that same
+# function — not hand-composed. IMPORTANT (learned the hard way while
+# authoring this slice): the driver's positional filter must be the bare
+# `ms-2` token. A narrower Playwright CLI filter like `ms-2/rpt-4-row-nav`
+# changes `process.argv`'s shape enough that playwright.acceptance.config.ts's
+# `resolveFixturePath` (which matches `/^ms-\d+$/` against `process.argv`)
+# silently falls back to the repo-wide default fixture
+# (e2e/fixtures/board-pipeline-basic.json, which has no `report_results` at
+# all) — every report run then 404s with "unknown report ... known reports: "
+# (empty), which looks exactly like a global wiring failure but is actually
+# just an invocation mistake. Always invoke the bare `ms-2` filter this
+# driver actually uses, exactly as #22's own manifest fragment already
+# flagged for the same reason.
+#
+# Contract: tests/acceptance/ms-2/contract.md §7 (§7a/§7b/§7c).
+# Mocks: mocks/reports-row-nav.html (issue-activity), mocks/reports-completed.html
+# (completed), mocks/reports-decisions.html (decisions), mocks/reports-grid.html
+# (drive-queue-status — the non-row_identity control case, §7c/§7.1).
+# Fixture: fixtures/reports-ms2.json (shared across the whole ms-2
+# milestone), extended by this slice with a `repo` field on every
+# issue-activity/completed/decisions row so `row_identity: {repo_column:
+# "repo", issue_column: "issue"}` (already declared per-report by #22's own
+# slice) actually resolves — previously `repo_column: "repo"` pointed at a
+# column that didn't exist in the row at all, deliberately left unresolved
+# by #22's own fixture comment for this slice to fix. Also cleaned up
+# issue-activity's/decisions' `issue` column values from a combined
+# `"api#42"`-shaped string to a bare issue number (safe — no #21/#22
+# assertion reads that cell's content); `completed`'s `issue` value is
+# deliberately left unchanged (still combined) because #22's own
+# money-column test depends on that column's default sort order — see the
+# fixture's own header comment and the spec file's own header comment for
+# the full reasoning, including why `completed`'s expected href is not
+# byte-for-byte identical in shape to the other two reports'.
+#
+# Deliberately NOT covered here (left for their own issues' slices, per
+# contract.md's own issue table): the rail/picker/param-bar/grid shell
+# (#21), the five additional reports' own rendering incl. the `decisions`
+# options column and `money`-kind formatting (#22), Export CSV (#24), chart
+# rendering/Degrade (#25).
+#
+# expected_red observed via `npm run test:acceptance -- ms-2 --reporter=json`
+# (the exact driver command, bare `ms-2` filter — see the note above), parsed
+# with parse_playwright_json_report — the three Link-navigation cases
+# (issue-activity/completed/decisions) each failed with "Expected: 2,
+# Received: 0" on the identifying cell's `<a>` count (no row_identity
+# handling exists yet — confirmed by grep: no `row_identity`/`pipelineItem`
+# reference in src/components/ReportsPanel.tsx or src/lib/reports.ts). The
+# fourth case (drive-queue-status's non-identity control) and all 24 other
+# already-shipped ms-2 tests (#21/#22/#24) stayed green in the same run,
+# confirming this reflects only #23's own missing feature, not a
+# wiring/fixture regression from this slice's edits.
+
+tests:
+  "[chromium] ms-2/rpt-4-row-nav.spec.ts › ms-2 Reports panel — RPT-4 row navigation via row_identity (#23) › issue-activity: every row Issue cell is a Link + open-in-new-tab affordance": 23
+  "[chromium] ms-2/rpt-4-row-nav.spec.ts › ms-2 Reports panel — RPT-4 row navigation via row_identity (#23) › decisions: every row Issue cell is a Link + open-in-new-tab affordance": 23
+  "[chromium] ms-2/rpt-4-row-nav.spec.ts › ms-2 Reports panel — RPT-4 row navigation via row_identity (#23) › completed: every row Issue cell is a Link + open-in-new-tab affordance": 23
+  "[chromium] ms-2/rpt-4-row-nav.spec.ts › ms-2 Reports panel — RPT-4 row navigation via row_identity (#23) › drive-queue-status (no row_identity): Issue column has no Link": 23
+
+expected_red:
+  23:
+    - "[chromium] ms-2/rpt-4-row-nav.spec.ts › ms-2 Reports panel — RPT-4 row navigation via row_identity (#23) › issue-activity: every row Issue cell is a Link + open-in-new-tab affordance"
+    - "[chromium] ms-2/rpt-4-row-nav.spec.ts › ms-2 Reports panel — RPT-4 row navigation via row_identity (#23) › decisions: every row Issue cell is a Link + open-in-new-tab affordance"
+    - "[chromium] ms-2/rpt-4-row-nav.spec.ts › ms-2 Reports panel — RPT-4 row navigation via row_identity (#23) › completed: every row Issue cell is a Link + open-in-new-tab affordance"
