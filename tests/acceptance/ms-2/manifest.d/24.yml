@@ -46,8 +46,3 @@ tests:
   "[chromium] ms-2/rpt-5-export-csv.spec.ts › ms-2 Reports panel — RPT-5 export CSV (#24) › running a report swaps Export CSV to an enabled download link carrying format=csv": 24
   "[chromium] ms-2/rpt-5-export-csv.spec.ts › ms-2 Reports panel — RPT-5 export CSV (#24) › the enabled Export CSV link is a plain download href, never a client-built blob/data URI": 24
 
-expected_red:
-  24:
-    - "[chromium] ms-2/rpt-5-export-csv.spec.ts › ms-2 Reports panel — RPT-5 export CSV (#24) › Export CSV is disabled with an explanatory tooltip before any report has run"
-    - "[chromium] ms-2/rpt-5-export-csv.spec.ts › ms-2 Reports panel — RPT-5 export CSV (#24) › running a report swaps Export CSV to an enabled download link carrying format=csv"
-    - "[chromium] ms-2/rpt-5-export-csv.spec.ts › ms-2 Reports panel — RPT-5 export CSV (#24) › the enabled Export CSV link is a plain download href, never a client-built blob/data URI"
