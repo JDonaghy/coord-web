@@ -28,6 +28,7 @@ import { useQuery } from '@tanstack/react-query'
 import Home from '@/components/Home'
 import SessionsList from '@/components/SessionsList'
 import DriveQueuePanel from '@/components/DriveQueuePanel'
+import ReportsPanel from '@/components/ReportsPanel'
 import { fetchPipeline, fetchSessions } from '@/api/client'
 import { isActive, needsMe, latestPerIssue } from '@/lib/pipeline'
 import { RAIL_VIEW_PATH, shellViewFromPath } from '@/routes/paths'
@@ -142,6 +143,12 @@ export function ShellLayout() {
     // `VIEWS_WITH_DETAIL_ROUTE` above for the tension with a future detail
     // view landing.
     list = <DriveQueuePanel />
+  } else if (currentView === 'reports') {
+    // #21 RPT-2: same posture as Queue above — no detail view for a report
+    // result yet, so `hasDetailRoute` stays `false` here (see
+    // `VIEWS_WITH_DETAIL_ROUTE`) and `AppShell` lets this list pane fill the
+    // width that would otherwise sit empty next to it.
+    list = <ReportsPanel />
   } else if (currentView === null) {
     list = <RouteNotFound />
   } else {

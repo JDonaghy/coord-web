@@ -36,6 +36,7 @@ export type ShellView =
   | 'queue'
   | 'audit'
   | 'spend'
+  | 'reports'
   | 'settings'
 
 export const LIST_WIDTH_MIN_PX = 260

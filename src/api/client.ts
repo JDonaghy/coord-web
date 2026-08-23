@@ -21,11 +21,19 @@ import type {
   AssignmentStatus,
   AssignmentType,
   BoardDriveQueueEntry,
+  ChartSeries,
+  ChartSpec,
+  ColumnMeta,
   DriveQueueSummary,
   PipelineAction,
   PipelineGate,
   PipelineStage,
   PipelineView,
+  ReportCatalogue,
+  ReportDef,
+  ReportParam,
+  ReportResult,
+  RowIdentity,
   TestVerdict,
 } from './generated'
 
@@ -34,11 +42,19 @@ export type {
   AssignmentStatus,
   AssignmentType,
   BoardDriveQueueEntry,
+  ChartSeries,
+  ChartSpec,
+  ColumnMeta,
   DriveQueueSummary,
   PipelineAction,
   PipelineGate,
   PipelineStage,
   PipelineView,
+  ReportCatalogue,
+  ReportDef,
+  ReportParam,
+  ReportResult,
+  RowIdentity,
   TestVerdict,
 }
 
@@ -192,6 +208,40 @@ export async function fetchDriveQueue(repo?: string): Promise<DriveQueueData> {
 /** Fetch live coord-* interactive sessions the phone can take over (#1066). */
 export async function fetchSessions(): Promise<SessionInfo[]> {
   return apiFetch<SessionInfo[]>('/api/sessions')
+}
+
+// ── GET /api/report, GET /api/report/{report_id} (#2492 RPT-1 / #21 RPT-2) ──
+
+/** Fetch the report catalogue — ids, titles, descriptions and full parameter
+ * metadata (kind/choices/default), so a client builds its picker and
+ * parameter form from here rather than hardcoding a per-report field list. */
+export async function fetchReportCatalogue(): Promise<ReportCatalogue> {
+  return apiFetch<ReportCatalogue>('/api/report')
+}
+
+/**
+ * Run a report and return its `ReportResult`. `params` are the report's own
+ * parameters (from its catalogue entry) — an empty/absent value is omitted
+ * from the query string entirely so the server falls back to that param's
+ * own `default` rather than an explicit empty override.
+ *
+ * `?format=csv` (#1765, RPT-5/#24) is deliberately not plumbed through this
+ * function — that route is a navigation/download target
+ * (`<a href download>`), never a `fetch()`+JSON parse, so it has no place in
+ * a function that returns `Promise<ReportResult>`.
+ */
+export async function fetchReport(
+  reportId: string,
+  params?: Readonly<Record<string, string>>,
+): Promise<ReportResult> {
+  const query = new URLSearchParams()
+  for (const [key, value] of Object.entries(params ?? {})) {
+    if (value) query.set(key, value)
+  }
+  const qs = query.toString()
+  return apiFetch<ReportResult>(
+    `/api/report/${encodeURIComponent(reportId)}${qs ? `?${qs}` : ''}`,
+  )
 }
 
 /**

@@ -14,6 +14,7 @@
  */
 import {
   BarChart3,
+  FileBarChart2,
   GitMerge,
   LayoutDashboard,
   ListOrdered,
@@ -39,6 +40,11 @@ export interface RailItem {
   group?: string
   /** Shown on hover / in the `soon` pill's tooltip. */
   hint?: string
+  /** `data-testid` on the rendered nav button — only set where a contract
+   * (e.g. `tests/acceptance/ms-2/contract.md` §1c's `rail-item-reports`)
+   * pins one; `ActivityRail`'s `NavItem` omits the attribute entirely when
+   * this is unset rather than inventing an id nobody asked for. */
+  testId?: string
 }
 
 export const RAIL_ITEMS: readonly RailItem[] = [
@@ -98,6 +104,18 @@ export const RAIL_ITEMS: readonly RailItem[] = [
     status: 'soon',
     group: 'Insight',
     hint: 'Spend & time observability — milestone #37',
+  },
+  {
+    id: 'reports',
+    label: 'Reports',
+    icon: FileBarChart2,
+    // #21 RPT-2: unlike its Audit/Spend neighbours above, Reports ships a
+    // real panel (the catalogue picker + drive-queue-status grid) in this
+    // same story — 'ready', not another placeholder.
+    status: 'ready',
+    group: 'Insight',
+    hint: 'Reports',
+    testId: 'rail-item-reports',
   },
 ] as const
 

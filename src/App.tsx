@@ -51,6 +51,10 @@ const Gallery = lazy(() => import('@/components/Gallery'))
  *                                        every route above -- there is no
  *                                        detail view for a queue entry yet
  *                                        (QW-4/QW-5)
+ *   /reports                         -> ReportsPanel (#21 RPT-2) in the list
+ *                                        slot, same `element={null}` posture
+ *                                        as /queue -- no detail view for a
+ *                                        report result yet
  *   *  (inside the shell)            -> RouteNotFound -- a real not-found
  *                                        state for a genuinely unknown path,
  *                                        rendered inside the shell (rail,
@@ -117,6 +121,11 @@ export default function App() {
                 happens to be 'ready' (clickable) in the rail already, see
                 railItems.ts. */}
             <Route path="/queue" element={null} />
+
+            {/* The list slot's `ReportsPanel` (#21 RPT-2) is wired in
+                `ShellLayout`, same as `/queue` above — no detail-slot
+                content for a report result yet. */}
+            <Route path="/reports" element={null} />
 
             {/* Genuinely unknown path under the shell -- a typo'd URL, or a
                 link to a feature that no longer exists. `ShellLayout` puts
