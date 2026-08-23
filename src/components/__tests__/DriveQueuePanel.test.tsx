@@ -200,14 +200,14 @@ describe('DriveQueuePanel — repo-scope dropdown', () => {
 
     renderPanel()
 
-    expect(await screen.findByText('repo-a#1')).toBeInTheDocument()
-    expect(screen.getByText('repo-b#2')).toBeInTheDocument()
+    expect(await screen.findByText('RA#1')).toBeInTheDocument()
+    expect(screen.getByText('RB#2')).toBeInTheDocument()
 
     const select = screen.getByLabelText('Repo')
     await userEvent.selectOptions(select, 'repo-a')
 
-    expect(screen.getByText('repo-a#1')).toBeInTheDocument()
-    expect(screen.queryByText('repo-b#2')).not.toBeInTheDocument()
+    expect(screen.getByText('RA#1')).toBeInTheDocument()
+    expect(screen.queryByText('RB#2')).not.toBeInTheDocument()
 
     // The summary block is unaffected by the repo scope -- it always reflects
     // the server's full-queue aggregate (fetchDriveQueue's own doc comment).
@@ -285,19 +285,19 @@ describe('DriveQueuePanel — nine-column grid', () => {
 
     renderPanel()
 
-    const row = (await screen.findByText('repo-a#1')).closest('tr')
+    const row = (await screen.findByText('RA#1')).closest('tr')
     expect(row).not.toBeNull()
     const cells = within(row as HTMLTableRowElement).getAllByRole('cell')
     // First nine cells are the TUI-parity columns; the tenth is the Actions
     // cell (#8 QW-4), covered by its own describe block below.
     expect(cells.slice(0, 9).map((c) => c.textContent)).toEqual([
       '3',
-      'repo-a#1',
+      'RA#1',
       'Fix the grid',
       'blocked',
       'desktop',
       '2',
-      'repo-a#0',
+      'RA#0',
       'FIRED [fleet]',
       // No `reason_at` on this fixture -> bare reason, no age suffix.
       'checks_failed',
@@ -316,7 +316,7 @@ describe('DriveQueuePanel — Issue cell hyperlink', () => {
     vi.mocked(fetchPipeline).mockResolvedValue([])
     renderPanel()
 
-    const link = await screen.findByRole('link', { name: 'repo-a#42' })
+    const link = await screen.findByRole('link', { name: 'RA#42' })
     expect(link).toHaveAttribute('href', '/pipeline/repo-a/42')
     // In-app SPA nav -- no explicit target, so it navigates within the
     // existing tab (ctrl/cmd-click still opens a new one for free).
@@ -330,7 +330,7 @@ describe('DriveQueuePanel — Issue cell hyperlink', () => {
     vi.mocked(fetchPipeline).mockResolvedValue([])
     renderPanel()
 
-    const newTabLink = await screen.findByRole('link', { name: 'Open repo-a#42 in a new tab' })
+    const newTabLink = await screen.findByRole('link', { name: 'Open RA#42 in a new tab' })
     expect(newTabLink).toHaveAttribute('href', '/pipeline/repo-a/42')
     expect(newTabLink).toHaveAttribute('target', '_blank')
     // `rel="noreferrer"` on a target="_blank" link -- standard hardening
@@ -361,9 +361,9 @@ describe('DriveQueuePanel — active-entry filter', () => {
 
     renderPanel()
 
-    expect(await screen.findByText('repo-a#3')).toBeInTheDocument()
-    expect(screen.getByText('repo-a#2')).toBeInTheDocument()
-    expect(screen.queryByText('repo-a#1')).not.toBeInTheDocument()
+    expect(await screen.findByText('RA#3')).toBeInTheDocument()
+    expect(screen.getByText('RA#2')).toBeInTheDocument()
+    expect(screen.queryByText('RA#1')).not.toBeInTheDocument()
 
     const table = screen.getByRole('table')
     expect(within(table).getAllByRole('row')).toHaveLength(3) // header + 2 active rows
@@ -410,7 +410,7 @@ describe('DriveQueuePanel — row actions: guard states', () => {
     vi.mocked(fetchPipeline).mockResolvedValue([])
     renderPanel()
 
-    const unblockBtn = await screen.findByRole('button', { name: 'Unblock repo-a#1' })
+    const unblockBtn = await screen.findByRole('button', { name: 'Unblock RA#1' })
     expect(unblockBtn).toBeDisabled()
     expect(unblockBtn.title).toContain('Only a blocked row can be unblocked')
   })
@@ -422,7 +422,7 @@ describe('DriveQueuePanel — row actions: guard states', () => {
     vi.mocked(fetchPipeline).mockResolvedValue([])
     renderPanel()
 
-    expect(await screen.findByRole('button', { name: 'Unblock repo-a#1' })).toBeEnabled()
+    expect(await screen.findByRole('button', { name: 'Unblock RA#1' })).toBeEnabled()
   })
 
   it('disables Release unless hold_state is "fired" (armed-but-unfired refuses too)', async () => {
@@ -442,7 +442,7 @@ describe('DriveQueuePanel — row actions: guard states', () => {
     vi.mocked(fetchPipeline).mockResolvedValue([])
     renderPanel()
 
-    const releaseBtn = await screen.findByRole('button', { name: "Release repo-a#1's gate" })
+    const releaseBtn = await screen.findByRole('button', { name: "Release RA#1's gate" })
     expect(releaseBtn).toBeDisabled()
     expect(releaseBtn.title).toContain('Only a fired gate can be released')
   })
@@ -464,7 +464,7 @@ describe('DriveQueuePanel — row actions: guard states', () => {
     vi.mocked(fetchPipeline).mockResolvedValue([])
     renderPanel()
 
-    expect(await screen.findByRole('button', { name: "Release repo-a#1's gate" })).toBeEnabled()
+    expect(await screen.findByRole('button', { name: "Release RA#1's gate" })).toBeEnabled()
   })
 
   it('disables Move up on the first row and Move down on the last row only', async () => {
@@ -480,13 +480,13 @@ describe('DriveQueuePanel — row actions: guard states', () => {
     vi.mocked(fetchPipeline).mockResolvedValue([])
     renderPanel()
 
-    await screen.findByText('repo-a#1')
-    expect(screen.getByRole('button', { name: 'Move repo-a#1 up' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Move repo-a#1 down' })).toBeEnabled()
-    expect(screen.getByRole('button', { name: 'Move repo-a#2 up' })).toBeEnabled()
-    expect(screen.getByRole('button', { name: 'Move repo-a#2 down' })).toBeEnabled()
-    expect(screen.getByRole('button', { name: 'Move repo-a#3 up' })).toBeEnabled()
-    expect(screen.getByRole('button', { name: 'Move repo-a#3 down' })).toBeDisabled()
+    await screen.findByText('RA#1')
+    expect(screen.getByRole('button', { name: 'Move RA#1 up' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Move RA#1 down' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Move RA#2 up' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Move RA#2 down' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Move RA#3 up' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Move RA#3 down' })).toBeDisabled()
   })
 })
 
@@ -504,7 +504,7 @@ describe('DriveQueuePanel — row actions: request payload, busy state, toast', 
     )
     renderPanel()
 
-    const unblockBtn = await screen.findByRole('button', { name: 'Unblock repo-a#1' })
+    const unblockBtn = await screen.findByRole('button', { name: 'Unblock RA#1' })
     await userEvent.click(unblockBtn)
 
     // Immediate pending/busy state -- a fire-and-forget POST with no visible
@@ -539,7 +539,7 @@ describe('DriveQueuePanel — row actions: request payload, busy state, toast', 
     vi.mocked(driveQueueAction).mockResolvedValue({ ok: true })
     renderPanel()
 
-    const releaseBtn = await screen.findByRole('button', { name: "Release repo-a#1's gate" })
+    const releaseBtn = await screen.findByRole('button', { name: "Release RA#1's gate" })
     await userEvent.click(releaseBtn)
 
     await waitFor(() =>
@@ -564,7 +564,7 @@ describe('DriveQueuePanel — row actions: request payload, busy state, toast', 
     vi.mocked(driveQueueAction).mockResolvedValue({ ok: false, error: 'queue busy' })
     renderPanel()
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Unblock repo-a#1' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Unblock RA#1' }))
 
     await waitFor(() =>
       expect(toast).toHaveBeenCalledWith(
@@ -585,7 +585,7 @@ describe('DriveQueuePanel — row actions: request payload, busy state, toast', 
     vi.mocked(driveQueueAction).mockRejectedValue(new Error('network down'))
     renderPanel()
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Unblock repo-a#1' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Unblock RA#1' }))
 
     await waitFor(() =>
       expect(toast).toHaveBeenCalledWith(
@@ -618,16 +618,16 @@ describe('DriveQueuePanel — row actions: optimistic reorder', () => {
     )
     renderPanel()
 
-    await screen.findByText('repo-a#1')
+    await screen.findByText('RA#1')
     const rowsBefore = within(screen.getByRole('table')).getAllByRole('row')
-    expect(within(rowsBefore[1]).getByText('repo-a#1')).toBeInTheDocument()
+    expect(within(rowsBefore[1]).getByText('RA#1')).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Move repo-a#2 up' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Move RA#2 up' }))
 
     // Optimistic: the swap is visible before the request settles at all.
     await waitFor(() => {
       const rowsAfter = within(screen.getByRole('table')).getAllByRole('row')
-      expect(within(rowsAfter[1]).getByText('repo-a#2')).toBeInTheDocument()
+      expect(within(rowsAfter[1]).getByText('RA#2')).toBeInTheDocument()
     })
 
     expect(driveQueueAction).toHaveBeenCalledWith({

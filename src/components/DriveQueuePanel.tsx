@@ -59,6 +59,7 @@ import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { toast } from '@/components/ui/use-toast'
 import { paths } from '@/routes/paths'
 import { cn } from '@/lib/utils'
+import { issueRef } from '@/lib/repoRef'
 import {
   applyQueueMoveOptimistic,
   buildQueueTitleLookup,
@@ -121,6 +122,14 @@ function stateBadgeVariant(state: string): BadgeProps['variant'] {
     default:
       return 'outline'
   }
+}
+
+/** Display spelling for an entry's issue ref (#46) -- `RA#9101`, never
+ * `repo-alpha#9101`. `queueEntryKey(entry)` stays the wire/identity format
+ * (React `key`, `busyKey`) and must not be routed through this; this is for
+ * visible text, aria-labels and toast descriptions only. */
+function entryRef(entry: BoardDriveQueueEntry): string {
+  return issueRef(entry.repo_name, entry.issue_number)
 }
 
 // ── row actions (#8 QW-4) ───────────────────────────────────────────────────
@@ -234,19 +243,19 @@ export default function DriveQueuePanel() {
         ...extra,
       })
       if (result.ok) {
-        toast({ variant: 'success', title: successMessage, description: queueEntryKey(entry) })
+        toast({ variant: 'success', title: successMessage, description: entryRef(entry) })
       } else {
         toast({
           variant: 'destructive',
           title: 'Action failed',
-          description: result.error ?? queueEntryKey(entry),
+          description: result.error ?? entryRef(entry),
         })
       }
     } catch (e) {
       toast({
         variant: 'destructive',
         title: 'Action failed',
-        description: e instanceof Error ? e.message : queueEntryKey(entry),
+        description: e instanceof Error ? e.message : entryRef(entry),
       })
     } finally {
       setBusyKeys((prev) => {
@@ -381,13 +390,13 @@ export default function DriveQueuePanel() {
                               to={paths.pipelineItem(entry.repo_name, entry.issue_number)}
                               className="hover:underline"
                             >
-                              {queueEntryKey(entry)}
+                              {entryRef(entry)}
                             </Link>
                             <a
                               href={paths.pipelineItem(entry.repo_name, entry.issue_number)}
                               target="_blank"
                               rel="noreferrer"
-                              aria-label={`Open ${queueEntryKey(entry)} in a new tab`}
+                              aria-label={`Open ${entryRef(entry)} in a new tab`}
                               title="Open in new tab"
                               className="text-muted-foreground hover:text-foreground"
                             >
@@ -409,7 +418,7 @@ export default function DriveQueuePanel() {
                         <td className="px-3 py-2">
                           <div className="flex items-center gap-1">
                             <QueueActionButton
-                              label={`Move ${queueEntryKey(entry)} up`}
+                              label={`Move ${entryRef(entry)} up`}
                               disabledReason="Already first in view"
                               onClick={() => handleMove(entry, 'up')}
                               disabled={!canMoveUp}
@@ -418,7 +427,7 @@ export default function DriveQueuePanel() {
                               ▲
                             </QueueActionButton>
                             <QueueActionButton
-                              label={`Move ${queueEntryKey(entry)} down`}
+                              label={`Move ${entryRef(entry)} down`}
                               disabledReason="Already last in view"
                               onClick={() => handleMove(entry, 'down')}
                               disabled={!canMoveDown}
@@ -427,7 +436,7 @@ export default function DriveQueuePanel() {
                               ▼
                             </QueueActionButton>
                             <QueueActionButton
-                              label={`Unblock ${queueEntryKey(entry)}`}
+                              label={`Unblock ${entryRef(entry)}`}
                               disabledReason={`Only a blocked row can be unblocked (state: ${entry.state || QUEUE_EMPTY_CELL})`}
                               onClick={() => handleUnblock(entry)}
                               disabled={!canUnblock}
@@ -436,7 +445,7 @@ export default function DriveQueuePanel() {
                               Unblock
                             </QueueActionButton>
                             <QueueActionButton
-                              label={`Release ${queueEntryKey(entry)}'s gate`}
+                              label={`Release ${entryRef(entry)}'s gate`}
                               disabledReason="Only a fired gate can be released"
                               onClick={() => handleReleaseGate(entry)}
                               disabled={!canRelease}

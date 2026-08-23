@@ -27,13 +27,15 @@ function makeSession(overrides: Partial<SessionInfo> = {}): SessionInfo {
 }
 
 describe('SessionCard', () => {
-  it('renders issue title, repo, issue number, and machine', () => {
+  it('renders issue title, aliased repo#issue ref (#46), and machine', () => {
     render(<SessionCard session={makeSession()} onClick={() => undefined} />)
 
     const card = screen.getByRole('button')
     expect(card).toHaveTextContent('Fix the thing')
-    expect(card).toHaveTextContent('#42')
-    expect(card).toHaveTextContent('myrepo')
+    // 'myrepo' aliases to 'M' -- the ref renders as one 'M#42' unit, never
+    // 'myrepo #42' or 'myrepo#42'.
+    expect(card).toHaveTextContent('M#42')
+    expect(card).not.toHaveTextContent('myrepo')
     expect(card).toHaveTextContent('laptop')
   })
 

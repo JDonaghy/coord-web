@@ -62,17 +62,17 @@ test.describe('Queue panel exit gate (#9 QW-5)', () => {
 
     // Repo-scope dropdown: "All repos" plus one option per repo the seeded
     // queue actually has an active row in. `exact: true` -- a fuzzy substring
-    // match on "Repo" also catches every "repo-alpha#…" row action's
-    // aria-label (e.g. "Move repo-alpha#9101 up"), not just this control.
+    // match on "Repo" also catches every "RA#…" row action's
+    // aria-label (e.g. "Move RA#9101 up"), not just this control.
     const repoSelect = page.getByLabel('Repo', { exact: true })
     const options = await repoSelect.locator('option').allTextContents()
     expect(options).toEqual(['All repos', 'repo-alpha', 'repo-beta'])
 
     // Switch scope to repo-alpha: only that repo's two rows are visible.
     await repoSelect.selectOption('repo-alpha')
-    await expect(page.getByText('repo-alpha#9101')).toBeVisible()
-    await expect(page.getByText('repo-alpha#9102')).toBeVisible()
-    await expect(page.getByText('repo-beta#9201')).toHaveCount(0)
+    await expect(page.getByText('RA#9101')).toBeVisible()
+    await expect(page.getByText('RA#9102')).toBeVisible()
+    await expect(page.getByText('RB#9201')).toHaveCount(0)
 
     // Reorder: #9102 (position 1) moves up, swapping with #9101 (position 0).
     // The rendered swap is necessarily transient against this real server --
@@ -86,12 +86,12 @@ test.describe('Queue panel exit gate (#9 QW-5)', () => {
     // payload -- `DriveQueuePanel.test.tsx`'s mocked-`api/client` unit test
     // already covers the optimistic-swap rendering in isolation.
     const table = page.getByRole('table')
-    await expect(table.getByRole('row').nth(1)).toContainText('repo-alpha#9101')
+    await expect(table.getByRole('row').nth(1)).toContainText('RA#9101')
     const [moveRequest] = await Promise.all([
       page.waitForRequest(
         (req) => req.url().includes('/api/drive-queue/action') && req.method() === 'POST',
       ),
-      page.getByRole('button', { name: 'Move repo-alpha#9102 up' }).click(),
+      page.getByRole('button', { name: 'Move RA#9102 up' }).click(),
     ])
     expect(moveRequest.postDataJSON()).toEqual({
       repo_name: 'repo-alpha',
@@ -105,7 +105,7 @@ test.describe('Queue panel exit gate (#9 QW-5)', () => {
     // reaches the real POST /api/drive-queue/action handler, which reports
     // success (recorded, not executed, in fixture mode).
     await repoSelect.selectOption('repo-beta')
-    const unblockBtn = page.getByRole('button', { name: 'Unblock repo-beta#9201' })
+    const unblockBtn = page.getByRole('button', { name: 'Unblock RB#9201' })
     await expect(unblockBtn).toBeEnabled()
     await unblockBtn.click()
     await expect(page.getByText('Unblocked')).toBeVisible()
@@ -115,14 +115,14 @@ test.describe('Queue panel exit gate (#9 QW-5)', () => {
     // detail page, not Detail's own not-found state.
     await repoSelect.selectOption('repo-alpha')
     // `exact: true` -- otherwise this also matches the new-tab affordance's
-    // own "Open repo-alpha#9101 in a new tab" accessible name.
-    const issueLink = page.getByRole('link', { name: 'repo-alpha#9101', exact: true })
+    // own "Open RA#9101 in a new tab" accessible name.
+    const issueLink = page.getByRole('link', { name: 'RA#9101', exact: true })
     await expect(issueLink).toHaveAttribute('href', '/pipeline/repo-alpha/9101')
     // No explicit target -- in-app SPA nav; ctrl/cmd-click still opens a new
     // tab for free via plain <Link> semantics.
     await expect(issueLink).not.toHaveAttribute('target')
 
-    const newTabLink = page.getByRole('link', { name: 'Open repo-alpha#9101 in a new tab' })
+    const newTabLink = page.getByRole('link', { name: 'Open RA#9101 in a new tab' })
     await expect(newTabLink).toBeVisible()
     await expect(newTabLink).toHaveAttribute('href', '/pipeline/repo-alpha/9101')
     await expect(newTabLink).toHaveAttribute('target', '_blank')

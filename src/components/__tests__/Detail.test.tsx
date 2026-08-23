@@ -170,15 +170,17 @@ describe('Detail — loading states', () => {
 // ── Header ────────────────────────────────────────────────────────────────────
 
 describe('Detail — header', () => {
-  it('renders repo, issue number, title, and machine after data loads', async () => {
+  it('renders the aliased repo#issue ref (#46), title, and machine after data loads', async () => {
     renderDetail()
 
     await waitFor(() => {
       expect(screen.getByText('Fix the thing')).toBeInTheDocument()
     })
 
-    expect(screen.getByText(/myrepo/)).toBeInTheDocument()
-    expect(screen.getByText(/#42/)).toBeInTheDocument()
+    // 'myrepo' aliases to 'M' -- rendered as a single 'M#42' unit, never
+    // 'myrepo #42' or 'myrepo#42'.
+    expect(screen.getByText('M#42')).toBeInTheDocument()
+    expect(screen.queryByText(/myrepo/)).not.toBeInTheDocument()
     expect(screen.getByText(/laptop/)).toBeInTheDocument()
   })
 

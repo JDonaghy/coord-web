@@ -44,6 +44,7 @@ import {
   PENDING_CHIP_TEXT_CLASS,
   PENDING_CHIP_DOT_CLASS,
 } from '@/lib/pipeline'
+import { issueRef } from '@/lib/repoRef'
 import { paths } from '@/routes/paths'
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
@@ -378,9 +379,7 @@ export default function Detail() {
         </header>
         <p className="text-sm text-muted-foreground">
           Issue{' '}
-          <span className="font-mono">
-            {repo}#{issue}
-          </span>{' '}
+          <span className="font-mono">{issueRef(repo ?? '', issue ?? '')}</span>{' '}
           not found in the pipeline.
         </p>
       </div>
@@ -435,8 +434,7 @@ export default function Detail() {
           </button>
           <div className="min-w-0 flex-1">
             <p className="text-xs text-muted-foreground">
-              <span className="font-mono">{view.repo_name}</span>{' '}
-              <span className="font-mono">#{view.issue_number}</span>
+              <span className="font-mono">{issueRef(view.repo_name, view.issue_number)}</span>
               {' · '}
               <span className="font-mono">{view.machine_name}</span>
             </p>
