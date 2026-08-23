@@ -1,0 +1,74 @@
+# Acceptance manifest fragment for #22 (RPT-3: light up the remaining five
+# reports — issue-activity, completed, decisions, usage, queue-outcomes) —
+# milestone ms-2 "Reports panel", tracking issue #26.
+#
+# Per #2543, this file belongs to #22 alone; no other ms-2 slice writes here.
+#
+# Driver: web-playwright
+#   npm run test:acceptance -- ms-2
+#
+# Test-ids are the exact shape coord.acceptance_drivers.parse_playwright_json_report
+# derives from Playwright's built-in json reporter:
+#   "[{project}] {file} › {describe path} › {test title}"
+# `{file}` is relative to the report's rootDir (tests/acceptance/), hence the
+# `ms-2/` prefix. Copied verbatim from a real
+# `npm run test:acceptance -- ms-2 --reporter=json` run parsed by that same
+# function — not hand-composed.
+#
+# Contract: tests/acceptance/ms-2/contract.md §3b/§4b (five new catalogue
+# entries + the `since` choice param), §6b (`money` kind), §6d (`decisions`
+# `options` column — #22's specifically named risk).
+# Mocks: mocks/reports-row-nav.html (issue-activity), mocks/reports-completed.html
+# (completed), mocks/reports-decisions.html (decisions). No mock exists for
+# `usage` (contract.md §0's inventory table) or for queue-outcomes' own GRID
+# in isolation from its chart (that chart is RPT-6/#25's own slice) — see the
+# spec file's own header/TODO for both. Fixture: fixtures/reports-ms2.json
+# (shared across the whole ms-2 milestone), extended by this slice with
+# `report_results` for all five reports plus a `since`/"Time range" param on
+# issue-activity's/completed's catalogue entries — see that file's own header
+# comment for the full rationale.
+#
+# Deliberately NOT covered here (left for their own issues' slices, per
+# contract.md's own issue table): Export CSV (§5, #24), row_identity Links on
+# issue-activity/completed/decisions (§7, #23 — this slice's fixture keeps
+# every identifying column a single `text`-kind string precisely so it stays
+# agnostic to whether a `<Link>` wraps it), chart rendering/Degrade on
+# queue-outcomes (§8, #25 — this slice's queue-outcomes fixture row ships
+# `chart: null` so no chart region is expected here either way).
+#
+# expected_red (#2543/#1965): this milestone's #21 (RPT-2) slice already
+# shipped a fully generic, catalogue-driven picker/param-bar/grid — so most
+# of what #22's own issue body asks for ("near-zero new rendering code")
+# already works against the CURRENT (pre-#22) implementation once the
+# fixture simply supplies `report_results` for the five additional reports:
+# every "running <report> shows a header count..." case, the money-kind
+# formatting case, and the issue-activity Time range param case all observed
+# PASS in the step-4 run below. That is NOT a vacuous slice (#1965 is about
+# a slice with ZERO observed failures) — exactly one test observed FAIL, and
+# it is #22's own specifically-named risk (§6d): the `decisions` `options`
+# column is a list of `{label, command_or_action, recommended}` dicts, not
+# scalars, and the current generic `list`-kind renderer has no dict-aware
+# case for it (no `data-testid="reports-options-cell-N"` element is found —
+# see the spec's own inline comments). Observed via
+# `npm run test:acceptance -- ms-2 --reporter=json`, the exact driver
+# command, parsed with `parse_playwright_json_report` (NOT a narrower
+# per-file Playwright CLI filter — that changes `process.argv`'s shape and
+# silently falls back to the repo-wide default fixture per
+# playwright.acceptance.config.ts's `resolveFixturePath`, which very
+# convincingly LOOKS like every case is red for the wrong reason: the real,
+# un-overridden backend registry. Always invoke the bare `ms-2` filter this
+# driver actually uses.).
+
+tests:
+  "[chromium] ms-2/rpt-3-remaining-reports.spec.ts › ms-2 Reports panel — RPT-3 remaining reports (#22) › running issue-activity shows a header count of 3 rows and the expected columns": 22
+  "[chromium] ms-2/rpt-3-remaining-reports.spec.ts › ms-2 Reports panel — RPT-3 remaining reports (#22) › running completed shows a header count of 3 rows and the expected columns": 22
+  "[chromium] ms-2/rpt-3-remaining-reports.spec.ts › ms-2 Reports panel — RPT-3 remaining reports (#22) › running decisions shows a header count of 2 rows and the expected columns": 22
+  "[chromium] ms-2/rpt-3-remaining-reports.spec.ts › ms-2 Reports panel — RPT-3 remaining reports (#22) › running usage shows a header count of 2 rows and the expected columns": 22
+  "[chromium] ms-2/rpt-3-remaining-reports.spec.ts › ms-2 Reports panel — RPT-3 remaining reports (#22) › running queue-outcomes shows a header count of 4 rows and the expected columns": 22
+  "[chromium] ms-2/rpt-3-remaining-reports.spec.ts › ms-2 Reports panel — RPT-3 remaining reports (#22) › completed's money column renders $X.XXXX and a zero total as an em-dash": 22
+  "[chromium] ms-2/rpt-3-remaining-reports.spec.ts › ms-2 Reports panel — RPT-3 remaining reports (#22) › decisions options column renders label + recommended star + sr-only text, command in title only": 22
+  "[chromium] ms-2/rpt-3-remaining-reports.spec.ts › ms-2 Reports panel — RPT-3 remaining reports (#22) › issue-activity exposes a Time range select alongside Repo": 22
+
+expected_red:
+  22:
+    - "[chromium] ms-2/rpt-3-remaining-reports.spec.ts › ms-2 Reports panel — RPT-3 remaining reports (#22) › decisions options column renders label + recommended star + sr-only text, command in title only"
