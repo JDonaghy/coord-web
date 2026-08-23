@@ -4,10 +4,20 @@ The Phone/Web Control Center for [claude-coordinator](https://github.com/JDonagh
 
 This repo was split out of `claude-coordinator`'s `coord/dashboard/webapp/` with history preserved (claude-coordinator#2005, epic #2002) — `git log --follow` on any file reaches its pre-split commits. Full product context (what the app does, the terminal takeover feature, the API surface, the deploy mechanism) lives in claude-coordinator's [`docs/PHONE_WEBAPP.md`](https://github.com/JDonaghy/code-coordinator/blob/main/docs/PHONE_WEBAPP.md) — read that first for anything beyond "how do I build/test this repo."
 
-## Two open cross-repo questions — do not improvise answers to these here
+## One open cross-repo question — do not improvise an answer to it here
 
 - **Generated API types drift silently.** `src/api/generated.ts` and `src/api/client.ts`'s wire types are meant to be generated from claude-coordinator's OpenAPI spec (`coord.dashboard.server.openapi_spec()`), but the generator (`scripts/codegen.py`) and the spec it reads both live in claude-coordinator. This repo's CI has **no drift check** for it right now — see claude-coordinator#2258. If a PR here changes a wire type by hand, double check it still matches what the coordinator actually serves; don't assume CI would have caught a mismatch.
-- **Where the sealed acceptance suite (`tests/acceptance/ms-51`, the oracle-loop suite) lives post-split is undecided** — claude-coordinator#2007 (UX-5). It has not moved here. Don't add to it in this repo or assume `coord acceptance run` is wired against this checkout.
+
+## The sealed acceptance suite — settled, and it lives here
+
+`tests/acceptance/ms-51` (the oracle-loop suite) **is in this repo**, grafted with full history by `git subtree` in #16. claude-coordinator#2007 (UX-5) settled where it belongs and is closed; the reasoning is in claude-coordinator's [`docs/ADR_COORD_WEB_ACCEPTANCE_SUITE.md`](https://github.com/JDonaghy/code-coordinator/blob/main/docs/ADR_COORD_WEB_ACCEPTANCE_SUITE.md).
+
+What follows from that, and matters while working here:
+
+- **Sealing is path-based, not a repo boundary.** `tests/acceptance/**` is sealed by `AcceptanceConfig.sealed_paths()` and enforced by the adversarial reviewer, exactly as it was before the move — living in the same repo as the code it pins changes nothing. (`coord/` and `tui/tests/acceptance.rs` already seal the repos they live in.) **Any `type="work"` diff touching `tests/acceptance/**` is an unconditional `request-changes`.** Write your own unit tests (`src/**/__tests__/`) and Playwright specs (`e2e/`) instead.
+- **`coord acceptance run` is wired against this checkout.** `acceptance.drivers.coord-web` is registered in `coordinator.yml` — `kind: web-playwright`, `capability: browser`, `run: npm run test:acceptance -- {ms}`.
+- **CI runs it** as the `acceptance` job (`.github/workflows/ci.yml`), so a red slice is caught rather than sitting unnoticed (the failure mode of claude-coordinator#1950).
+- **Changing what the suite asserts means amending the contract first.** `tests/acceptance/ms-NN/contract.md` is the spec the specs derive from; a worker cannot edit either. Amend the contract (coordinator work), let a `type="test-author"` leg re-derive the specs, and record the interim red in `manifest.yml`'s `expected_red:`.
 
 ## Build & test
 
