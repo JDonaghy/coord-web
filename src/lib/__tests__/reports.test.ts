@@ -142,6 +142,15 @@ describe('reportCellText', () => {
     expect(reportCellText(4.821, 'money')).toBe('$4.8210')
   })
 
+  it('money: a missing cell value renders the empty cell, not "$NaN.0000"', () => {
+    // Regression: `Number(undefined)` is `NaN`, which `formatReportMoney`
+    // doesn't special-case (only a literal `0` or `null`/`undefined` are
+    // "empty" there) -- the dispatcher itself must catch a missing value
+    // before it ever reaches that coercion.
+    expect(reportCellText(undefined, 'money')).toBe(REPORT_EMPTY_CELL)
+    expect(reportCellText(null, 'money')).toBe(REPORT_EMPTY_CELL)
+  })
+
   it('an unrecognised kind falls back to plain stringification rather than throwing', () => {
     expect(reportCellText('mystery', 'future-kind')).toBe('mystery')
   })
