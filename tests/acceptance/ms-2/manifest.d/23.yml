@@ -70,8 +70,3 @@ tests:
   "[chromium] ms-2/rpt-4-row-nav.spec.ts › ms-2 Reports panel — RPT-4 row navigation via row_identity (#23) › completed: every row Issue cell is a Link + open-in-new-tab affordance": 23
   "[chromium] ms-2/rpt-4-row-nav.spec.ts › ms-2 Reports panel — RPT-4 row navigation via row_identity (#23) › drive-queue-status (no row_identity): Issue column has no Link": 23
 
-expected_red:
-  23:
-    - "[chromium] ms-2/rpt-4-row-nav.spec.ts › ms-2 Reports panel — RPT-4 row navigation via row_identity (#23) › issue-activity: every row Issue cell is a Link + open-in-new-tab affordance"
-    - "[chromium] ms-2/rpt-4-row-nav.spec.ts › ms-2 Reports panel — RPT-4 row navigation via row_identity (#23) › decisions: every row Issue cell is a Link + open-in-new-tab affordance"
-    - "[chromium] ms-2/rpt-4-row-nav.spec.ts › ms-2 Reports panel — RPT-4 row navigation via row_identity (#23) › completed: every row Issue cell is a Link + open-in-new-tab affordance"
