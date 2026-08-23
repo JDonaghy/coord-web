@@ -1,0 +1,68 @@
+# Acceptance manifest fragment for #25 (RPT-6: chart rendering for
+# chart-declaring reports, ChartPlan's None/Render/Degrade contract ported
+# from tui/src/app/reports.rs) — milestone ms-2 "Reports panel", tracking
+# issue #26.
+#
+# Per #2543, this file belongs to #25 alone; no other ms-2 slice writes here.
+#
+# Driver: web-playwright
+#   npm run test:acceptance -- ms-2
+#
+# Test-ids are the exact shape coord.acceptance_drivers.parse_playwright_json_report
+# derives from Playwright's built-in json reporter:
+#   "[{project}] {file} › {describe path} › {test title}"
+# `{file}` is relative to the report's rootDir (tests/acceptance/), hence the
+# `ms-2/` prefix. Copied verbatim from a real
+# `npm run test:acceptance -- ms-2 --reporter=json` run parsed by that same
+# function — not hand-composed. As every prior ms-2 slice's own manifest
+# fragment already flags: the driver's positional filter must be the bare
+# `ms-2` token, or playwright.acceptance.config.ts's `resolveFixturePath`
+# silently falls back to the repo-wide default fixture.
+#
+# Contract: tests/acceptance/ms-2/contract.md §8 (§8a-§8e).
+# Mocks: mocks/reports-chart.html (Render), mocks/reports-chart-degraded.html
+# (Degrade). The third outcome, None, has no dedicated mock — it is exactly
+# what mocks/reports-grid.html / reports-row-nav.html / reports-decisions.html
+# already show (contract §0/§8e).
+# Fixture: fixtures/reports-ms2.json (shared across the whole ms-2
+# milestone), extended by this slice with a `chart` key on two existing
+# report_results (`queue-outcomes` → Render, `usage` → Degrade via an
+# unsupported chart `kind`) — see that file's own header comment and this
+# spec's own header comment for the full reasoning, especially why the two
+# outcomes had to land on two different reports (FixtureServer.report_result
+# keys purely off report_id, never varying by params, so one report can only
+# ever demonstrate one outcome in this shared fixture).
+#
+# Deliberately NOT covered here (left for their own issues' slices, per
+# contract.md's own issue table): the rail/picker/param-bar/grid shell
+# (#21), the five additional reports' own rendering incl. the `decisions`
+# options column and `money`-kind formatting (#22), row_identity Links (#23),
+# Export CSV (#24).
+#
+# expected_red observed via `npm run test:acceptance -- ms-2 --reporter=json`
+# (the exact driver command, bare `ms-2` filter). Stats: 28 expected
+# (passing — includes this slice's own §8e None-outcome control, which
+# already passes today by simple omission since no chart feature exists yet,
+# and all 24 already-shipped ms-2 tests from #21-#24), 5 unexpected (failing
+# — every non-control case this slice adds), 0 flaky. Confirmed by grep: no
+# `chart`/`Chart` reference anywhere in src/components/ReportsPanel.tsx
+# beyond its own "Chart rendering (RPT-6, #25) — no `chart` region ...
+# out of scope here" doc-comment note, and no charting library dependency in
+# package.json — so every failure below reflects #25's own missing feature,
+# not a wiring/fixture regression from this slice's edits.
+
+tests:
+  "[chromium] ms-2/rpt-6-chart.spec.ts › ms-2 Reports panel — RPT-6 chart rendering (#25) › a chart-declaring report renders a chart region above the grid (§8a)": 25
+  "[chromium] ms-2/rpt-6-chart.spec.ts › ms-2 Reports panel — RPT-6 chart rendering (#25) › the chart region carries a full-text aria-label summarizing every category and value (§8a)": 25
+  "[chromium] ms-2/rpt-6-chart.spec.ts › ms-2 Reports panel — RPT-6 chart rendering (#25) › every mark carries a direct, visible value label — never colour alone (§8c)": 25
+  "[chromium] ms-2/rpt-6-chart.spec.ts › ms-2 Reports panel — RPT-6 chart rendering (#25) › each category's mark colour is reused from the grid's own status badge for the identical value, never a fresh hue (§8b)": 25
+  "[chromium] ms-2/rpt-6-chart.spec.ts › ms-2 Reports panel — RPT-6 chart rendering (#25) › an unrenderable chart degrades to a one-line reason, and the grid still renders in full — ChartPlan::Degrade (§8d)": 25
+  "[chromium] ms-2/rpt-6-chart.spec.ts › ms-2 Reports panel — RPT-6 chart rendering (#25) › a report with no chart declaration renders neither a chart nor a degrade notice — ChartPlan::None (§8e)": 25
+
+expected_red:
+  25:
+    - "[chromium] ms-2/rpt-6-chart.spec.ts › ms-2 Reports panel — RPT-6 chart rendering (#25) › a chart-declaring report renders a chart region above the grid (§8a)"
+    - "[chromium] ms-2/rpt-6-chart.spec.ts › ms-2 Reports panel — RPT-6 chart rendering (#25) › the chart region carries a full-text aria-label summarizing every category and value (§8a)"
+    - "[chromium] ms-2/rpt-6-chart.spec.ts › ms-2 Reports panel — RPT-6 chart rendering (#25) › every mark carries a direct, visible value label — never colour alone (§8c)"
+    - "[chromium] ms-2/rpt-6-chart.spec.ts › ms-2 Reports panel — RPT-6 chart rendering (#25) › each category's mark colour is reused from the grid's own status badge for the identical value, never a fresh hue (§8b)"
+    - "[chromium] ms-2/rpt-6-chart.spec.ts › ms-2 Reports panel — RPT-6 chart rendering (#25) › an unrenderable chart degrades to a one-line reason, and the grid still renders in full — ChartPlan::Degrade (§8d)"

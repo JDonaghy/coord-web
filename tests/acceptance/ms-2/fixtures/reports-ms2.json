@@ -133,7 +133,36 @@
     "author): if a future contract amendment gives `completed` a real bare",
     "`issue` value (e.g. by decoupling the sort key from the display/",
     "identity column), tighten this fixture and drop the special-cased",
-    "assertion."
+    "assertion.",
+    "",
+    "Extended by the #25 (RPT-6) test-author: added a real `chart`",
+    "(`coord.reports.ChartSpec.to_dict()` shape) to two existing report_",
+    "results, contract.md §8's Render/Degrade outcomes. `FixtureServer.",
+    "report_result` (coord/dashboard/fixture.py) keys purely off `report_id`",
+    "-- it does not vary a result by the params a client sends -- so a single",
+    "report can only ever demonstrate ONE of Render/Degrade within this one",
+    "shared fixture file, never both. `queue-outcomes` gets the RENDER chart",
+    "(kind: 'bar', series: [{column: 'count'}], x: 'outcome'), matching",
+    "mocks/reports-chart.html's own 4-row shape exactly byte-for-byte (same",
+    "outcome/count/share values already seeded by #22) -- the most faithful",
+    "match available since it is the one report both chart mocks illustrate.",
+    "The DEGRADE outcome therefore has to live on a different report; `usage`",
+    "was free (no mock, no chart-related assertion from #21-#24, #22's own",
+    "money-column/column-count test for it is untouched by adding a `chart`",
+    "key). Its trigger is `kind: \"scatter\"` -- deliberately NOT the mock's",
+    "own illustrative reason ('fewer than two non-zero outcomes': contract",
+    "§8d's own mock-header comment explicitly disclaims that wording, only",
+    "the STRUCTURE, as contractual) but a condition read directly out of",
+    "`tui/src/app/reports.rs`'s `reports_chart_plan` -- the literal file #25's",
+    "own issue text names as the thing to port -- whose 'open-vocabulary",
+    "fallback, same rule as ColumnMeta.kind' branch degrades on any chart",
+    "`kind` the build doesn't recognise ('bar'/'line'/'sparkline' are the",
+    "only three understood), independent of row/series counts or any",
+    "quadraui#584 multi-series-bar feature flag this repo has no equivalent",
+    "of. This is the one Degrade branch that is unconditional and",
+    "implementation-agnostic enough to assert against without assuming how a",
+    "not-yet-chosen charting library counts 'non-zero categories'. See",
+    "rpt-6-chart.spec.ts's own header comment for the full reasoning."
   ],
   "now": 1787225000.0,
 
@@ -459,7 +488,15 @@
       ],
       "notes": [],
       "totals": null,
-      "chart": null
+      "chart": {
+        "kind": "scatter",
+        "series": [{ "label": "Total $", "column": "cost_total", "color": null }],
+        "x": "repo",
+        "group_by": null,
+        "stacked": false,
+        "title": "",
+        "y_label": ""
+      }
     },
 
     "queue-outcomes": {
@@ -480,7 +517,15 @@
       ],
       "notes": [],
       "totals": null,
-      "chart": null
+      "chart": {
+        "kind": "bar",
+        "series": [{ "label": "Count", "column": "count", "color": null }],
+        "x": "outcome",
+        "group_by": null,
+        "stacked": false,
+        "title": "",
+        "y_label": ""
+      }
     }
   }
 }
