@@ -1,0 +1,234 @@
+{
+  "_comment": [
+    "ms-2 'Reports panel' (tracking issue #26) — seeds `coord web --fixture`",
+    "for the whole milestone's acceptance suite. Schema: coord/dashboard/",
+    "fixture.py's module docstring. Per playwright.acceptance.config.ts's",
+    "resolveFixturePath, at most ONE *.json file is allowed under this",
+    "ms-2/fixtures/ directory — this is it, shared across every ms-2 issue",
+    "slice (#21-#25). Authored first by the #21 (RPT-2) test-author; later",
+    "slices (#22-#25) extend `report_results` (and, if a report's real",
+    "catalogue shape turns out to matter for their own contract section,",
+    "`report_catalogue`) rather than adding a second fixture file.",
+    "",
+    "`report_catalogue` is a DELIBERATE OVERRIDE of the real",
+    "`coord.reports.catalogue()` (confirmed present in the installed `coord`",
+    "CLI as of this writing — code-coordinator#2492/RPT-1 already shipped",
+    "upstream) rather than falling back to it. Three reasons, all specific",
+    "to what this suite needs to hold still across a WHOLE milestone of",
+    "independently-authored slices:",
+    "  1. contract.md §3b pins an exact SIX-TAB ORDER (drive-queue-status,",
+    "     issue-activity, completed, decisions, usage, queue-outcomes) that",
+    "     is NOT the real registry's order (`coord.reports.catalogue()`",
+    "     iterates `sorted(REPORTS)`, i.e. alphabetically — a different",
+    "     order). Overriding is the only way to pin the contractual order.",
+    "  2. contract.md §4b explicitly declines to pin an exact parameter set",
+    "     per report ('not pinned — no issue body enumerates it'), while",
+    "     still pinning the choice-→<select> / text-→<input> DISPATCH RULE",
+    "     as contractual. The real `drive-queue-status` ReportDef today",
+    "     declares exactly one `text`-kind param (`repo`) and no `choice`-",
+    "     kind param at all -- which would leave that dispatch rule's",
+    "     `choice` branch completely unexercised by this milestone's own",
+    "     report. This fixture's catalogue instead mirrors",
+    "     mocks/reports-picker.html's/reports-grid.html's own param shape",
+    "     for drive-queue-status (Repo as `choice`, Search as `text`) so",
+    "     both branches of the one rule §4b DOES pin are exercised.",
+    "  3. `report_catalogue_raw`'s doc comment on FixtureServer names exactly",
+    "     this use case: 'a fixture overrides it only when a test wants a",
+    "     different catalogue than production's (e.g. a smaller one for a",
+    "     focused scenario)'.",
+    "`title` on every entry is set to this contract's own tab display copy",
+    "(§3b's table) directly, sidestepping the question of whether a client",
+    "renders `catalogue.title` verbatim or humanizes the key itself --",
+    "either implementation choice lands on the same rendered text this way.",
+    "`description` text is NOT contractual (§3d: 'this mock's placeholder",
+    "copy... only its presence, position and data-testid are contractual') --",
+    "the strings below just need to be non-empty and distinct per report so",
+    "a tab-switch test can observe the description actually swapping.",
+    "",
+    "`report_results.drive-queue-status` is the one seeded result this",
+    "milestone's #21 (RPT-2) slice proves end-to-end -- it mirrors",
+    "mocks/reports-grid.html's three rows/eight columns exactly enough to",
+    "assert every ColumnMeta.kind this milestone's grid dispatch needs",
+    "(text/int/enum/timestamp/duration/list; `money` is exercised by a",
+    "later slice's own `completed` row, once added). Timestamps are real",
+    "epoch seconds (2026-08-19/20, UTC) so a human diffing this file against",
+    "the mock can eyeball the correspondence, but the acceptance spec itself",
+    "asserts the timestamp cell's FORMAT SHAPE only (`YYYY-MM-DD HH:MM`), not",
+    "an exact clock reading -- contract.md's §6b pins the format, not a",
+    "timezone-conversion rule, and this suite has no way to pin the browser",
+    "process's local timezone from inside tests/acceptance/ms-NN/**."
+  ],
+  "now": 1787225000.0,
+
+  "board": { "assignments": [], "round_number": 0 },
+
+  "report_catalogue": {
+    "reports": [
+      {
+        "id": "drive-queue-status",
+        "title": "Drive queue status",
+        "description": "Drive queue entries and their current state.",
+        "params": [
+          {
+            "id": "repo",
+            "label": "Repo",
+            "kind": "choice",
+            "choices": ["", "api", "coord-web"],
+            "default": "",
+            "help": "Restrict to one repo. Empty means all repos.",
+            "free_form": false
+          },
+          {
+            "id": "search",
+            "label": "Search",
+            "kind": "text",
+            "choices": [],
+            "default": "",
+            "help": "Filter by title or reason.",
+            "free_form": false
+          }
+        ],
+        "row_identity": null
+      },
+      {
+        "id": "issue-activity",
+        "title": "Issue activity",
+        "description": "Per-issue timeline of drive activity over a time window.",
+        "params": [
+          {
+            "id": "repo",
+            "label": "Repo",
+            "kind": "text",
+            "choices": [],
+            "default": "",
+            "help": "Restrict to one repo. Empty means all repos.",
+            "free_form": false
+          }
+        ],
+        "row_identity": { "repo_column": "repo", "issue_column": "issue" }
+      },
+      {
+        "id": "completed",
+        "title": "Completed",
+        "description": "Issues that finished driving, with cost and outcome.",
+        "params": [
+          {
+            "id": "repo",
+            "label": "Repo",
+            "kind": "text",
+            "choices": [],
+            "default": "",
+            "help": "Restrict to one repo. Empty means all repos.",
+            "free_form": false
+          }
+        ],
+        "row_identity": { "repo_column": "repo", "issue_column": "issue" }
+      },
+      {
+        "id": "decisions",
+        "title": "Decisions",
+        "description": "Why the fleet is stuck, as option-based cards.",
+        "params": [
+          {
+            "id": "repo",
+            "label": "Repo",
+            "kind": "text",
+            "choices": [],
+            "default": "",
+            "help": "Restrict to one repo. Empty means all repos.",
+            "free_form": false
+          }
+        ],
+        "row_identity": { "repo_column": "repo", "issue_column": "issue" }
+      },
+      {
+        "id": "usage",
+        "title": "Usage",
+        "description": "Cost and token spend for a time window.",
+        "params": [
+          {
+            "id": "repo",
+            "label": "Repo",
+            "kind": "text",
+            "choices": [],
+            "default": "",
+            "help": "Restrict to one repo. Empty means all repos.",
+            "free_form": false
+          }
+        ],
+        "row_identity": null
+      },
+      {
+        "id": "queue-outcomes",
+        "title": "Queue outcomes",
+        "description": "Per-period drive queue outcomes, completed vs held vs blocked vs abandoned.",
+        "params": [
+          {
+            "id": "window",
+            "label": "Window",
+            "kind": "choice",
+            "choices": ["24h", "7d", "4w"],
+            "default": "24h",
+            "help": "How far back to look.",
+            "free_form": false
+          }
+        ],
+        "row_identity": null
+      }
+    ]
+  },
+
+  "report_results": {
+    "drive-queue-status": {
+      "report_id": "drive-queue-status",
+      "generated_at": 1787225000.0,
+      "window": [1787225000.0, 1787225000.0],
+      "columns": ["position", "issue", "title", "state", "tries", "age", "updated", "after"],
+      "column_meta": [
+        { "id": "position", "label": "#", "kind": "int", "align": "right", "weight": 1.0 },
+        { "id": "issue", "label": "Issue", "kind": "text", "align": "left", "weight": 1.0 },
+        { "id": "title", "label": "Title", "kind": "text", "align": "left", "weight": 2.0 },
+        { "id": "state", "label": "State", "kind": "enum", "align": "left", "weight": 1.0 },
+        { "id": "tries", "label": "Tries", "kind": "int", "align": "right", "weight": 1.0 },
+        { "id": "age", "label": "Age", "kind": "duration", "align": "left", "weight": 1.0 },
+        { "id": "updated", "label": "Updated", "kind": "timestamp", "align": "left", "weight": 1.0 },
+        { "id": "after", "label": "After", "kind": "list", "align": "left", "weight": 1.0 }
+      ],
+      "rows": [
+        {
+          "position": 1,
+          "issue": "api#42",
+          "title": "Fix the dashboard rendering",
+          "state": "running",
+          "tries": 1,
+          "age": 11520,
+          "updated": 1787211060.0,
+          "after": []
+        },
+        {
+          "position": 2,
+          "issue": "api#40",
+          "title": "Refactor merge queue",
+          "state": "blocked",
+          "tries": 3,
+          "age": 100800,
+          "updated": 1787133720.0,
+          "after": []
+        },
+        {
+          "position": 3,
+          "issue": "coord-web#9",
+          "title": "Queue panel issue hyperlink",
+          "state": "waiting",
+          "tries": 0,
+          "age": 720,
+          "updated": 1787221140.0,
+          "after": ["api#42", "api#40"]
+        }
+      ],
+      "notes": [],
+      "totals": null,
+      "chart": null
+    }
+  }
+}
