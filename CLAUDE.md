@@ -10,7 +10,7 @@ This repo was split out of `claude-coordinator`'s `coord/dashboard/webapp/` with
 
 ## The sealed acceptance suite — settled, and it lives here
 
-`tests/acceptance/ms-51` (the oracle-loop suite) **is in this repo**, grafted with full history by `git subtree` in #16. claude-coordinator#2007 (UX-5) settled where it belongs and is closed; the reasoning is in claude-coordinator's [`docs/ADR_COORD_WEB_ACCEPTANCE_SUITE.md`](https://github.com/JDonaghy/code-coordinator/blob/main/docs/ADR_COORD_WEB_ACCEPTANCE_SUITE.md).
+`tests/acceptance/ms-3` (the oracle-loop suite) **is in this repo**, grafted with full history by `git subtree` in #16. claude-coordinator#2007 (UX-5) settled where it belongs and is closed; the reasoning is in claude-coordinator's [`docs/ADR_COORD_WEB_ACCEPTANCE_SUITE.md`](https://github.com/JDonaghy/code-coordinator/blob/main/docs/ADR_COORD_WEB_ACCEPTANCE_SUITE.md).
 
 What follows from that, and matters while working here:
 

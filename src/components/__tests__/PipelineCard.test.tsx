@@ -178,7 +178,7 @@ describe('PipelineCard — stage-chip verdict awareness (#28)', () => {
   })
 
   // CI fix (issue #28 follow-up): the `ring-*` utility above is a box-shadow
-  // only — invisible to ms-51's sealed acceptance `chipStyle` helper, which
+  // only — invisible to ms-3's sealed acceptance `chipStyle` helper, which
   // samples color/backgroundColor/borderColor/opacity/fontWeight and nothing
   // else. Before this, a currently-in-flight `pending` chip and a merely
   // `waiting` `pending` chip shared the exact same border/text classes, so

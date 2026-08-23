@@ -1,9 +1,9 @@
 /**
- * ms-51 sealed acceptance slice, part 2 — contract clauses the first slice
+ * ms-3 sealed acceptance slice, part 2 — contract clauses the first slice
  * left unpinned (#1544, M-W0 exit gate).
  *
- * Contract: tests/acceptance/ms-51/contract.md
- * Mock:     tests/acceptance/ms-51/mocks/home-active.html
+ * Contract: tests/acceptance/ms-3/contract.md
+ * Mock:     tests/acceptance/ms-3/mocks/home-active.html
  *
  * Authored by an INDEPENDENT test-author session from the contract + mock
  * alone. Every assertion cites the clause it encodes; nothing here was
@@ -27,14 +27,14 @@
  *        inequality the first slice asserts
  *
  * Run (the declared web-playwright driver command):
- *   cd coord/dashboard/webapp && npm run test:acceptance -- ms-51
+ *   npm run test:acceptance -- ms-3
  *
- * Seeding: ms-51 is the one milestone deliberately left on `page.route()`
+ * Seeding: ms-3 is the one milestone deliberately left on `page.route()`
  * rather than a `fixtures/*.json` seed — see `playwright.acceptance.config.ts`
- * ("ms-51 (#1544's proving rig) is deliberately left on `page.route()` ...
+ * ("ms-3 (#1544's proving rig) is deliberately left on `page.route()` ...
  * ms-52 onward is where a slice is expected to declare its own
- * `fixtures/*.json`") and #1818's "recommend leaving ms-51 alone". Declaring a
- * fixture here would re-seed the webServer for the WHOLE ms-51 run, putting
+ * `fixtures/*.json`") and #1818's "recommend leaving ms-3 alone". Declaring a
+ * fixture here would re-seed the webServer for the WHOLE ms-3 run, putting
  * #1544's proving rig behind a fixture this milestone was explicitly exempted
  * from. This file therefore matches the sibling slice's interception style.
  */
@@ -235,7 +235,7 @@ function escapeRe(s: string): string {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-test.describe('ms-51 Home Active tab, extended (#1544)', () => {
+test.describe('ms-3 Home Active tab, extended (#1544)', () => {
   test.describe('seeded board — no item needs attention', () => {
     test.beforeEach(async ({ page }) => {
       await seedApi(page, SEEDED_PIPELINE)

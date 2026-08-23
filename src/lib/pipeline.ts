@@ -104,7 +104,7 @@ export const STAGE_CHIP_RING_CLASS = 'ring-2 ring-ring ring-offset-1 ring-offset
  * `STAGE_CHIP_RING_CLASS` above is a box-shadow-only `ring-*` utility — a
  * real, visible affordance in the browser, but invisible to anything that
  * only inspects `color`/`backgroundColor`/`borderColor`/`opacity`/
- * `fontWeight`. ms-51's sealed acceptance spec does exactly that on purpose
+ * `fontWeight`. ms-3's sealed acceptance spec does exactly that on purpose
  * (`chipStyle`'s own doc comment: the contract forbids pinning a colour or
  * class name, only comparing two renderings for sameness), so a card's
  * currently-in-flight stage and a stage still waiting behind it both landed

@@ -65,12 +65,12 @@
  * `e2e/fixtureServer.ts` uses, vendored there post-#2005 split) — harmless
  * for a slice that seeds itself another way.
  *
- * ms-51 (#1544's proving rig) is deliberately left on `page.route()` — see
- * that slice's own header comment and #1818's "recommend leaving ms-51
+ * ms-3 (#1544's proving rig) is deliberately left on `page.route()` — see
+ * that slice's own header comment and #1818's "recommend leaving ms-3
  * alone" — so it falls back to the default fixture above and ignores
  * whatever it serves; ms-52 onward is where a slice is expected to declare
  * its own `fixtures/*.json` and drop `page.route()` entirely. Known hazard
- * ms-51 no longer inherits from a dev server (worth stating precisely,
+ * ms-3 no longer inherits from a dev server (worth stating precisely,
  * since a stale hazard note is worse than none): React 18 StrictMode's
  * double-invoked effects were a *Vite dev mode* quirk, not a production
  * bundle one, so a fixture-backed slice authored from here on doesn't need
@@ -101,7 +101,7 @@ const DEFAULT_FIXTURE = path.join(here, 'e2e/fixtures/board-pipeline-basic.json'
  * Resolve which fixture JSON seeds `coord web --fixture` for this run.
  *
  * The driver's `run:` command passes the target milestone as a positional
- * filter (`npm run test:acceptance -- ms-51`), and Playwright forwards CLI
+ * filter (`npm run test:acceptance -- ms-3`), and Playwright forwards CLI
  * args through verbatim, so `process.argv` already carries the `ms-NN`
  * token this config needs — no second side-channel required. Falls back to
  * `DEFAULT_FIXTURE` when no `ms-NN` arg is present (a bare `npm run

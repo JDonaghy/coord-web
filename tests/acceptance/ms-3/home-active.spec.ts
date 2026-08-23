@@ -1,8 +1,8 @@
 /**
- * ms-51 sealed acceptance slice — Home, Active tab (#1544, M-W0 exit gate).
+ * ms-3 sealed acceptance slice — Home, Active tab (#1544, M-W0 exit gate).
  *
- * Contract: tests/acceptance/ms-51/contract.md
- * Mock:     tests/acceptance/ms-51/mocks/home-active.html
+ * Contract: tests/acceptance/ms-3/contract.md
+ * Mock:     tests/acceptance/ms-3/mocks/home-active.html
  *
  * Authored by an INDEPENDENT test-author session from the contract + mock
  * alone. Every assertion below cites the contract clause it encodes; nothing
@@ -16,7 +16,7 @@
  * comes later, at #1544's step 5, under the operator's control.
  *
  * Run (the declared web-playwright driver command):
- *   cd coord/dashboard/webapp && npm run test:acceptance -- ms-51
+ *   npm run test:acceptance -- ms-3
  *
  * Seeding: playwright.acceptance.config.ts boots the Vite dev server, so —
  * exactly as that config's docstring requires — this spec intercepts its own
@@ -193,7 +193,7 @@ function escapeRe(s: string): string {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-test.describe('ms-51 Home Active tab (#1544)', () => {
+test.describe('ms-3 Home Active tab (#1544)', () => {
   test.beforeEach(async ({ page }) => {
     await seedApi(page)
     await page.goto('/')

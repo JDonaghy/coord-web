@@ -1,6 +1,6 @@
-# ms-51 acceptance contract — Home, Active tab
+# ms-3 acceptance contract — Home, Active tab
 
-**Milestone ms-51 · "Web acceptance oracle (web-playwright)" · tracking issue #1537**
+**Milestone ms-3 · "Home / pipeline surface" · tracking issue #51**
 **Driver: `web-playwright` · mock: [`mocks/home-active.html`](mocks/home-active.html)**
 
 ## What this contract is for — read first
@@ -12,7 +12,7 @@ gate — can prove the web oracle composes end to end:
 > mock → independent `test-author` → sealed Playwright slice → `coord acceptance run`
 > → `coord acceptance record` → a **deliberate** red run → green again
 
-Every earlier ms-51 story landed one piece of that chain and none proved the pieces fit.
+Every earlier ms-3 story landed one piece of that chain and none proved the pieces fit.
 The failure this guards against is discovering during M-W2 — mid-programme, with workers
 dispatched — that the driver, the routing, the fixture server and the mock shape don't
 actually fit together.
@@ -149,7 +149,14 @@ Deliberately unpinned, so the proving run stays narrow:
 ## Amending
 
 This contract is versioned and amendable, not frozen — `coord acceptance mock
-claude-coordinator 1537 --amend "<correction>"` dispatches a targeted correction and the
+coord-web 51 --amend "<correction>"` dispatches a targeted correction and the
 test-author updates the affected slice. Do **not** hand-edit a merged contract without
 re-authoring the slice; the suite is the executable half of this document, and the two
 drifting apart is exactly what the oracle exists to prevent.
+
+The repo and tracking issue in that command are **coord-web 51**, not
+claude-coordinator's. `ms_dirname()` is `f"ms-{milestone_number}"` resolved against the
+repo the suite lives in, so this suite is milestone **3** of *this* repo. It was
+`ms-51` — claude-coordinator's milestone 51 — until #51 renumbered it; under that name
+neither `--amend` nor `coord acceptance author` could resolve a tracking issue here, and
+the contract could not be amended through the oracle loop at all.
