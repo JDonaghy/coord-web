@@ -49,6 +49,10 @@ export const paths = {
   queue: () => '/queue',
   audit: () => '/audit',
   spend: () => '/spend',
+  /** #21 RPT-2 — this contract's own choice (`tests/acceptance/ms-2/
+   * contract.md` §1b/§7.2), mirroring `paths.queue()`; no issue body names
+   * either the path or this builder. */
+  reports: () => '/reports',
   settings: () => '/settings',
 } as const
 
@@ -71,6 +75,7 @@ export const RAIL_VIEW_PATH: Partial<Record<ShellView, string>> = {
   queue: paths.queue(),
   audit: paths.audit(),
   spend: paths.spend(),
+  reports: paths.reports(),
   settings: paths.settings(),
 }
 

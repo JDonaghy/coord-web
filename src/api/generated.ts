@@ -234,3 +234,102 @@ export interface DriveQueueSummary {
   held: number
   fleet_held: number
 }
+
+// ── #2492 RPT-1 (claude-coordinator) / #21 RPT-2 (coord-web) ────────────────
+//
+// Hand-added ahead of the next real `scripts/codegen.py` regeneration — that
+// script and the OpenAPI spec it reads both live in claude-coordinator, not
+// here (see this repo's CLAUDE.md "Generated API types drift silently"
+// note), so nothing in this checkout can actually run it. Same posture as
+// `BoardDriveQueueEntry` above: field-for-field transcription of what
+// `coord.dashboard.server.openapi_spec()` serves today for `GET /api/report`
+// and `GET /api/report/{report_id}` (`coord/dashboard/server.py`'s
+// `_openapi_spec`, mirroring `coord/reports.py`'s dataclasses' own
+// `to_dict()`). Re-diff against the real generated.ts output next time it's
+// regenerated and replace this block wholesale if it drifted.
+
+/** One parameter of a report — rich enough that a client builds its input
+ * form from the catalogue alone, never a hardcoded per-report field list. */
+export interface ReportParam {
+  id: string
+  label: string
+  /** Open vocabulary — "choice" (render a `<select>` over `choices`) or
+   * "text" (a free-text `<input>`) today. */
+  kind: string
+  choices: string[]
+  default: string
+  help: string
+  /** `choices` are presets, not a whitelist, when true. */
+  free_form: boolean
+}
+
+/** #2454 — which two `ReportResult.columns` name the `(repo, issue)` a row
+ * is about. `null` on a `ReportDef` means its rows have no single owning
+ * issue (an aggregate report). */
+export interface RowIdentity {
+  repo_column: string
+  issue_column: string
+}
+
+/** A catalogue entry — everything a client needs to render a report's tab,
+ * description and parameter form, minus the server-side `run` callable. */
+export interface ReportDef {
+  id: string
+  title: string
+  description: string
+  params: ReportParam[]
+  row_identity: RowIdentity | null
+}
+
+export interface ReportCatalogue {
+  reports: ReportDef[]
+}
+
+/** #1760 — display metadata for one `ReportResult.columns` entry, zipped by
+ * array position (`id` also matches the corresponding `columns[]` entry). */
+export interface ColumnMeta {
+  id: string
+  label: string
+  /** Open vocabulary — a client meeting a `kind` it predates falls back to
+   * plain stringification: "text" | "int" | "timestamp" | "list" | "enum" |
+   * "duration" | "money" today. */
+  kind: string
+  align: string
+  weight: number
+}
+
+/** #2271 — one series of a `ChartSpec`, reading its y-values off an existing
+ * `ReportResult.columns` id (carries no numbers of its own). */
+export interface ChartSeries {
+  label: string
+  column: string
+  color: string | null
+}
+
+/** #2271 — an optional declaration that a `ReportResult` also reads as a
+ * chart. A client that doesn't understand this block (or meets a `kind` it
+ * predates) renders the table and ignores it. */
+export interface ChartSpec {
+  kind: string
+  series: ChartSeries[]
+  x: string | null
+  group_by: string | null
+  stacked: boolean
+  title: string
+  y_label: string
+}
+
+/** `GET /api/report/{report_id}`'s response shape. */
+export interface ReportResult {
+  report_id: string
+  generated_at: number
+  window: [number, number]
+  columns: string[]
+  column_meta: ColumnMeta[]
+  rows: Array<Record<string, unknown>>
+  notes: string[]
+  /** #1763 — optional grand-total row keyed by the same column ids as
+   * `rows`; `null` for reports with no meaningful sum. */
+  totals: Record<string, unknown> | null
+  chart: ChartSpec | null
+}

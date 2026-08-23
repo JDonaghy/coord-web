@@ -89,6 +89,7 @@ function NavItem({
       // `cursor-default` keep it inert to a mouse.
       aria-disabled={soon || undefined}
       aria-current={selected ? 'page' : undefined}
+      data-testid={item.testId}
       title={item.hint ?? item.label}
       onClick={soon ? undefined : () => onSelect(item.id)}
       className={cn(
