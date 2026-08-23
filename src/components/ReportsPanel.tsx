@@ -29,11 +29,22 @@
  * column id — so the branch below applies to any future dict-shaped `list`
  * column too, not just this one.
  *
+ * #24 (RPT-5) adds `reports-export-action`: disabled-with-tooltip until a
+ * report has run this session (same posture `reports_export_action`/
+ * `DriveQueuePanel`'s row-action guards already use), then a real `<a
+ * download>` hitting `GET /api/report/{id}?...&format=csv` directly —
+ * code-coordinator#2492's server sets `Content-Disposition`, so there is
+ * deliberately no client-side CSV generation here (contract.md §5c). The
+ * href is built from the *params the running report actually used*
+ * (`exportParams`, captured at the moment `handleRun` resolves), not
+ * whatever is currently sitting in the param inputs — otherwise editing a
+ * param after a run without re-running would silently export a result the
+ * grid never actually showed.
+ *
  * Explicitly out of scope here (each is its own later RPT-N issue, see
  * `tests/acceptance/ms-2/contract.md`'s issue table):
  *  - Row navigation via `row_identity` (RPT-4, #23) — every cell here is
  *    still plain text/options, never a `<Link>`.
- *  - CSV export (RPT-5, #24) — no `reports-export-action` control yet.
  *  - Chart rendering (RPT-6, #25) — no `chart` region; `ReportResult.chart`
  *    is read by nothing here, matching the "additive, ignorable" contract
  *    `ChartSpec`'s own doc comment states for a client that doesn't render it.
@@ -67,6 +78,23 @@ interface SortState {
   direction: SortDirection
 }
 
+/**
+ * `GET /api/report/{id}` (`fetchReport`'s own route, `src/api/client.ts`)
+ * with `format=csv` appended — never a separate base path, and never a
+ * `fetch()`/blob/`URL.createObjectURL` construction (contract §5c: a plain
+ * same-origin `<a download>` navigation, server-rendered file). Mirrors
+ * `fetchReport`'s own query-building rule: an empty/absent param value is
+ * omitted so the server falls back to that param's own default.
+ */
+function reportExportHref(reportId: string, params: Readonly<Record<string, string>>): string {
+  const query = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value) query.set(key, value)
+  }
+  query.set('format', 'csv')
+  return `/api/report/${encodeURIComponent(reportId)}?${query.toString()}`
+}
+
 export default function ReportsPanel() {
   const {
     data: catalogue,
@@ -85,6 +113,12 @@ export default function ReportsPanel() {
   const [hasRun, setHasRun] = useState(false)
   const [running, setRunning] = useState(false)
   const [sort, setSort] = useState<SortState | null>(null)
+  // The param values a successful run actually used (#24 RPT-5) -- distinct
+  // from the live `paramValues` state, which the user may keep editing
+  // after a run without hitting Run report again. The export link must
+  // always match what the grid is currently showing, not the param bar's
+  // current (possibly since-edited) contents.
+  const [exportParams, setExportParams] = useState<Record<string, string> | null>(null)
 
   // Staleness guard for `handleRun` below: a monotonically-increasing token,
   // bumped on every run *and* every tab switch. A resolved `fetchReport`
@@ -122,6 +156,7 @@ export default function ReportsPanel() {
     setHasRun(false)
     setSort(null)
     setRunning(false)
+    setExportParams(null)
   }
 
   const handleParamChange = (paramId: string, value: string) => {
@@ -142,6 +177,7 @@ export default function ReportsPanel() {
       if (runTokenRef.current !== runToken) return
       setResult(next)
       setHasRun(true)
+      setExportParams({ ...paramValues })
       setSort(next.column_meta[0] ? { columnId: next.column_meta[0].id, direction: 'ascending' } : null)
     } catch (e) {
       if (runTokenRef.current !== runToken) return
@@ -287,6 +323,34 @@ export default function ReportsPanel() {
                 >
                   Run report
                 </button>
+                {/* #24 RPT-5: disabled-with-tooltip until a report has run
+                    this session, same posture DriveQueuePanel's row-action
+                    guards use, then a real download link -- never a second
+                    interactive element swapped for a different one, an `<a>`
+                    replacing a `<button>` under the same data-testid and
+                    accessible name (contract §5a/§5b). */}
+                {hasRun && result && exportParams ? (
+                  <a
+                    href={reportExportHref(selectedReport.id, exportParams)}
+                    download
+                    data-testid="reports-export-action"
+                    aria-label="Export CSV"
+                    className="rounded-md border border-border px-3.5 py-1.5 text-xs font-medium text-foreground hover:bg-secondary"
+                  >
+                    Export CSV
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    disabled
+                    data-testid="reports-export-action"
+                    aria-label="Export CSV"
+                    title="Run a report to enable CSV export"
+                    className="rounded-md border border-border px-3.5 py-1.5 text-xs font-medium text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Export CSV
+                  </button>
+                )}
               </form>
             </>
           )}
