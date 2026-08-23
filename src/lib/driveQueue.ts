@@ -34,6 +34,7 @@
  * stays in the component; everything here is pure.
  */
 import type { BoardDriveQueueEntry, DriveQueueSummary, PipelineView } from '@/api/client'
+import { aliasIssueRef } from './repoRef'
 
 /** Mirrors `coord/drive_queue.py`'s terminal `state` wire value. `done` rows
  * are set in place rather than deleted -- `coord/dao.py` applies no
@@ -167,9 +168,14 @@ export function queueMachineCell(entry: BoardDriveQueueEntry): string {
   return entry.machine || QUEUE_EMPTY_CELL
 }
 
-/** The `After` cell -- pre-req keys, comma-joined. */
+/** The `After` cell -- pre-req keys, comma-joined, each aliased for display
+ * (#46) via `aliasIssueRef` -- `entry.after_json` itself stays the raw
+ * `repo#N` wire format `queueEntryKey` produces, only the rendered cell text
+ * is aliased. */
 export function queueAfterCell(entry: BoardDriveQueueEntry): string {
-  return entry.after_json.length > 0 ? entry.after_json.join(', ') : QUEUE_EMPTY_CELL
+  return entry.after_json.length > 0
+    ? entry.after_json.map(aliasIssueRef).join(', ')
+    : QUEUE_EMPTY_CELL
 }
 
 /**

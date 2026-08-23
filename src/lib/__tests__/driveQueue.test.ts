@@ -263,9 +263,9 @@ describe('queueStateCell / queueMachineCell / queueAfterCell', () => {
     expect(queueMachineCell(makeEntry({ machine: 'laptop' }))).toBe('laptop')
   })
 
-  it('dashes out an empty after_json and joins a populated one', () => {
+  it('dashes out an empty after_json and joins a populated one, each key aliased for display (#46)', () => {
     expect(queueAfterCell(makeEntry({ after_json: [] }))).toBe(QUEUE_EMPTY_CELL)
-    expect(queueAfterCell(makeEntry({ after_json: ['repo#1', 'repo#2'] }))).toBe('repo#1, repo#2')
+    expect(queueAfterCell(makeEntry({ after_json: ['repo-a#1', 'repo-b#2'] }))).toBe('RA#1, RB#2')
   })
 })
 

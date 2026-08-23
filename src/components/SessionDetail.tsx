@@ -17,6 +17,7 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchSessions, type SessionInfo } from '@/api/client'
 import { paths } from '@/routes/paths'
 import { cn } from '@/lib/utils'
+import { issueRef } from '@/lib/repoRef'
 
 const detailShellClass = 'mx-auto w-full max-w-3xl px-4 py-5 md:px-6'
 
@@ -105,8 +106,11 @@ export default function SessionDetail() {
           </button>
           <div className="min-w-0 flex-1">
             <p className="text-xs text-muted-foreground">
-              {session.repo && <span className="font-mono">{session.repo}</span>}
-              {session.issue !== null && <span className="font-mono"> #{session.issue}</span>}
+              {session.repo && session.issue !== null ? (
+                <span className="font-mono">{issueRef(session.repo, session.issue)}</span>
+              ) : (
+                session.repo && <span className="font-mono">{session.repo}</span>
+              )}
               {(session.repo || session.issue !== null) && session.machine && ' · '}
               {session.machine && <span className="font-mono">{session.machine}</span>}
             </p>

@@ -4,6 +4,7 @@
  * `/terminal/:sessionId` take-over view (#1065's `/ws/terminal/{id}` bridge).
  */
 import { cn } from '@/lib/utils'
+import { issueRef } from '@/lib/repoRef'
 import { type SessionInfo } from '@/api/client'
 
 interface StatusInfo {
@@ -83,12 +84,14 @@ export function SessionCard({ session, onClick }: SessionCardProps) {
         </div>
       </div>
 
-      {/* Second row: repo#N + machine, when the session maps to a tracked assignment */}
+      {/* Second row: aliased issue ref (#46, e.g. "CC#2639") + machine, when
+          the session maps to a tracked assignment */}
       {(session.repo || session.machine) && (
         <p className="mt-1 text-xs text-muted-foreground">
-          {session.repo}
-          {session.issue !== null && (
-            <span className="font-mono"> #{session.issue}</span>
+          {session.repo && session.issue !== null ? (
+            <span className="font-mono">{issueRef(session.repo, session.issue)}</span>
+          ) : (
+            session.repo
           )}
           {session.repo && session.machine && ' · '}
           {session.machine}
