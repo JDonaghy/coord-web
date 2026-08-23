@@ -95,9 +95,22 @@ Tailwind utility, which are refactor noise.
 For the seeded item `#42`:
 
 - **§4a** The issue title `Fix the dashboard rendering` is visible.
-- **§4b** The repo name `api`, the issue number `#42`, and the machine name `laptop` are
-  all visible on the card. The issue number is rendered in a monospace element —
-  monospace means "a value the machine owns".
+- **§4b** *(Amended — coord-web#47, see also #46.)* The card shows a single issue
+  **reference**: the repo's alias joined directly to the issue number, with **no
+  space** — `A#42`. (`A #42` does not conform.) The alias is derived by
+  `src/lib/repoRef.ts`'s `repoAlias()`, mirroring `repo_alias()` in
+  claude-coordinator's `tui/src/app/drive_queue.rs`: strip any `owner/` prefix,
+  split the basename on `-`, take each non-empty segment's first character,
+  uppercase, concatenate — so the seeded fixture's repo `api` becomes `A` (for
+  reference, `claude-coordinator` becomes `CC`, `coord-web` becomes `CW`).
+  - The issue reference `A#42` is visible on the card.
+  - The machine name `laptop` is visible on the card.
+  - The issue reference is rendered in a **single** monospace element — one
+    element, because the alias and the number are one identifier, not two facts
+    that happen to sit adjacent. Monospace still means "a value the machine owns".
+  - The repo name is **no longer required** to appear spelled out anywhere on the
+    card. This is the substantive change: an assertion that the literal text `api`
+    is present on the card must not survive this amendment.
 - **§4c** A status badge with the text `running`.
 - **§4d** **Four** stage chips, labelled `work`, `review`, `test`, `merge` — **in that
   order**. The labels are display names, not the API's stage names: the API emits
