@@ -41,16 +41,27 @@
  * flagged this as deliberately left for this slice to resolve). For
  * issue-activity/decisions the `issue` field itself was also cleaned up
  * from a combined `"api#42"`-shaped string to a bare `"42"`, producing a
- * clean `/pipeline/api/42`-shaped href exactly matching reports-row-nav.
- * html's/reports-decisions.html's own pins — safe because no #21/#22
- * assertion reads that cell's content. `completed`'s `issue` value is
- * DELIBERATELY left as the original combined string (`"api#51"`) because
- * #22's own money-column test depends on that exact column's default
- * ascending-sort order (`rows.nth(0)`/`nth(1)`/`nth(2)`); this slice's own
- * `completed` test computes its expected href from that same unchanged
- * value rather than asserting a "clean" number it cannot actually produce
- * without regressing #22 — see the fixture's own header comment for the
- * full reasoning.
+ * clean `/pipeline/api/42`-shaped href AND a clean `api#42`-shaped display
+ * key exactly matching reports-row-nav.html's/reports-decisions.html's own
+ * pins — safe because no #21/#22 assertion reads that cell's content.
+ * `completed`'s `issue` value is DELIBERATELY left as the original combined
+ * string (`"api#51"`) because #22's own money-column test depends on that
+ * exact column's default ascending-sort order (`rows.nth(0)`/`nth(1)`/
+ * `nth(2)`). This slice applies the SAME `${repo}#${issue}` composition
+ * rule to `completed`'s identity cell as it does to the other two reports
+ * — the only internally-consistent choice, matching the already-shipped
+ * `DriveQueuePanel`/`queueEntryKey` pattern this slice models itself on,
+ * which always composes from separate repo/issue fields and never reuses
+ * an already-combined string verbatim. Applied to `completed`'s unchanged,
+ * already-combined `issue` value, that rule necessarily yields a visibly
+ * double-prefixed display key (`"api#api#51"`, not `"api#51"`) and an href
+ * that embeds the whole combined string as the URL's issue segment
+ * (`/pipeline/api/api%2351`) — ugly, but the only output a uniformly-
+ * composing #23 implementation can actually produce from this fixture
+ * without special-casing `completed`. See the fixture's own header comment
+ * for the full reasoning on why `completed`'s `issue` value can't be
+ * cleaned up without regressing #22, and this file's own `completed` test
+ * block below for the concrete expected values.
  *
  * Explicitly OUT of this slice (left for other issues' test-authors):
  *   - Everything about picker/grid/params/export/chart rendering — RPT-2/3/
@@ -180,13 +191,23 @@ test.describe('ms-2 Reports panel — RPT-4 row navigation via row_identity (#23
    * the money-kind em-dash rule coexist on the same row without either
    * breaking the other.
    *
-   * The expected href here is deliberately NOT the "clean"
-   * `/pipeline/<repo>/<bare-issue>` shape the other two reports get — see
-   * this file's own header comment and fixtures/reports-ms2.json's: this
-   * report's `issue` column value is pinned to the unchanged, combined
-   * `"api#51"`-shaped string (#22's default-sort dependency), so a
-   * spec-compliant `paths.pipelineItem(row.repo, row.issue)` call
-   * necessarily embeds that whole string as the URL's issue segment.
+   * Neither the expected display key NOR the expected href here is the
+   * "clean" `repo#bare-issue` / `/pipeline/<repo>/<bare-issue>` shape the
+   * other two reports get — see this file's own header comment and
+   * fixtures/reports-ms2.json's: this report's `issue` column value is
+   * pinned to the unchanged, already-combined `"api#51"`-shaped string
+   * (#22's default-sort dependency). Applying the SAME `${repo}#${issue}`
+   * composition this slice's other two subtests require (the only
+   * internally-consistent rule — it's what DriveQueuePanel's own
+   * `queueEntryKey` pattern this slice models itself on already does) to
+   * that already-combined value necessarily double-prefixes the display
+   * key (`"api#api#51"`, not `"api#51"`), and `paths.pipelineItem(row.repo,
+   * row.issue)` likewise embeds the whole combined string as the URL's
+   * issue segment (`/pipeline/api/api%2351`). Ugly, but the only value a
+   * uniformly-composing #23 implementation can actually produce from this
+   * fixture without special-casing `completed` — see
+   * fixtures/reports-ms2.json's own TODO for the follow-up that would let
+   * this go away.
    */
   test('completed: every row Issue cell is a Link + open-in-new-tab affordance', async ({
     page,
@@ -199,7 +220,7 @@ test.describe('ms-2 Reports panel — RPT-4 row navigation via row_identity (#23
       ['Issue hyperlink e2e exit gate', 'coord-web', 'coord-web#9'],
     ] as const) {
       const row = await rowContaining(page, stableText)
-      await expectIdentityLink(row, issue, pipelineItemHref(repo, issue))
+      await expectIdentityLink(row, `${repo}#${issue}`, pipelineItemHref(repo, issue))
     }
   })
 
