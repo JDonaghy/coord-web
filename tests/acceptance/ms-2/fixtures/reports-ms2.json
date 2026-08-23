@@ -411,7 +411,7 @@
         { "id": "cost_total", "label": "Total $", "kind": "money", "align": "right", "weight": 1.0 }
       ],
       "rows": [
-        { "repo": "api", "legs": 6, "tokens_in": 120400, "tokens_out": 8210, "cost_total": 12.4050 },
+        { "repo": "api", "legs": 6, "tokens_in": 120400, "tokens_out": 8210, "cost_total": 12.405 },
         { "repo": "coord-web", "legs": 3, "tokens_in": 40210, "tokens_out": 3005, "cost_total": 4.115 }
       ],
       "notes": [],
