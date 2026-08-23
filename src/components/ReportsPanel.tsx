@@ -41,25 +41,39 @@
  * param after a run without re-running would silently export a result the
  * grid never actually showed.
  *
+ * #23 (RPT-4) adds row navigation: on a `row_identity`-declaring report
+ * (`issue-activity`, `completed`, `decisions` today — contract §7a), the
+ * identifying cell (the column named by `RowIdentity.issue_column`) renders
+ * as a `<Link to={paths.pipelineItem(repo, issue)}>` plus the same
+ * secondary open-in-new-tab `<a target="_blank">` affordance
+ * `DriveQueuePanel`'s own Issue column already uses (#9) — `reports.ts`'s
+ * `isReportRowIdentityColumn`/`reportRowIdentityKey`/
+ * `reportRowIdentityRepoIssue` do the (structural, catalogue-driven, never
+ * report-id-keyed) detection and composition. A report with no
+ * `row_identity` (§7c — `usage`, `queue-outcomes`, and, per §7.1,
+ * `drive-queue-status` today) renders every cell exactly as before.
+ *
  * Explicitly out of scope here (each is its own later RPT-N issue, see
  * `tests/acceptance/ms-2/contract.md`'s issue table):
- *  - Row navigation via `row_identity` (RPT-4, #23) — every cell here is
- *    still plain text/options, never a `<Link>`.
  *  - Chart rendering (RPT-6, #25) — no `chart` region; `ReportResult.chart`
  *    is read by nothing here, matching the "additive, ignorable" contract
  *    `ChartSpec`'s own doc comment states for a client that doesn't render it.
  */
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { ExternalLink } from 'lucide-react'
+import { Link } from 'react-router-dom'
 
 import { fetchReport, fetchReportCatalogue, type ReportDef, type ReportResult } from '@/api/client'
 import { Badge } from '@/components/ui/badge'
 import { PanelHeader } from '@/components/PanelHeader'
 import { toast } from '@/components/ui/use-toast'
+import { paths } from '@/routes/paths'
 import { cn } from '@/lib/utils'
 import {
   buildReportParamDefaults,
   defaultSelectedReportId,
+  isReportRowIdentityColumn,
   reportCellAlign,
   reportCellIsMono,
   reportCellText,
@@ -68,6 +82,9 @@ import {
   reportListOptions,
   reportParamIsChoice,
   reportRowCountLabel,
+  reportRowIdentityFor,
+  reportRowIdentityKey,
+  reportRowIdentityRepoIssue,
   sortReportRows,
   toggleSortDirection,
   type SortDirection,
@@ -190,6 +207,15 @@ export default function ReportsPanel() {
       if (runTokenRef.current === runToken) setRunning(false)
     }
   }
+
+  // #23 RPT-4 — the RowIdentity of the report `result` came from, looked up
+  // by `result.report_id` rather than trusting `selectedReport` (which can
+  // momentarily lag a just-landed result during the tab-switch race
+  // `runTokenRef` guards above). `null` for most reports (contract §7c).
+  const rowIdentity = useMemo(
+    () => (result ? reportRowIdentityFor(reports, result.report_id) : null),
+    [result, reports],
+  )
 
   const sortedRows = useMemo(() => {
     if (!result) return []
@@ -402,6 +428,19 @@ export default function ReportsPanel() {
                           // comma-join path every other `list` column uses.
                           const options = meta.kind === 'list' ? reportListOptions(cellValue) : null
                           const text = reportCellText(cellValue, meta.kind)
+                          // #23 RPT-4 — this report's identifying cell (the
+                          // one column `RowIdentity.issue_column` names, §7b)
+                          // renders as a Link + open-in-new-tab affordance
+                          // instead of plain text. `null` on every other
+                          // column, and on every column of a report with no
+                          // `row_identity` at all (§7c).
+                          const isIdentityCell = isReportRowIdentityColumn(meta.id, rowIdentity)
+                          const identityKey =
+                            isIdentityCell && rowIdentity ? reportRowIdentityKey(row, rowIdentity) : null
+                          const identityRepoIssue =
+                            isIdentityCell && rowIdentity
+                              ? reportRowIdentityRepoIssue(row, rowIdentity)
+                              : null
                           return (
                             <td
                               key={meta.id}
@@ -409,10 +448,29 @@ export default function ReportsPanel() {
                               className={cn(
                                 'px-3 py-2',
                                 align === 'right' && 'text-right',
-                                reportCellIsMono(meta.kind) && !options && 'font-mono',
+                                (reportCellIsMono(meta.kind) || isIdentityCell) && !options && 'font-mono',
                               )}
                             >
-                              {options ? (
+                              {identityKey && identityRepoIssue ? (
+                                <div className="flex items-center gap-1">
+                                  <Link
+                                    to={paths.pipelineItem(identityRepoIssue.repo, identityRepoIssue.issue)}
+                                    className="hover:underline"
+                                  >
+                                    {identityKey}
+                                  </Link>
+                                  <a
+                                    href={paths.pipelineItem(identityRepoIssue.repo, identityRepoIssue.issue)}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    aria-label={`Open ${identityKey} in a new tab`}
+                                    title="Open in new tab"
+                                    className="text-muted-foreground hover:text-foreground"
+                                  >
+                                    <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                                  </a>
+                                </div>
+                              ) : options ? (
                                 <ul className="flex flex-col gap-1">
                                   {options.map((opt, optIndex) => (
                                     <li
