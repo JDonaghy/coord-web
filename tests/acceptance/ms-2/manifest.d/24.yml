@@ -1,0 +1,53 @@
+# Acceptance manifest fragment for #24 (RPT-5: CSV export for reports) —
+# milestone ms-2 "Reports panel", tracking issue #26.
+#
+# Per #2543, this file belongs to #24 alone; no other ms-2 slice writes here.
+#
+# Driver: web-playwright
+#   npm run test:acceptance -- ms-2
+#
+# Test-ids are the exact shape coord.acceptance_drivers.parse_playwright_json_report
+# derives from Playwright's built-in json reporter:
+#   "[{project}] {file} › {describe path} › {test title}"
+# `{file}` is relative to the report's rootDir (tests/acceptance/), hence the
+# `ms-2/` prefix. Copied verbatim from a real
+# `npm run test:acceptance -- ms-2 --reporter=json` run parsed by that same
+# function — not hand-composed.
+#
+# Contract: tests/acceptance/ms-2/contract.md §5a/§5b/§5c.
+# Mocks: mocks/reports-picker.html (cold load — disabled control),
+# mocks/reports-grid.html (after Run report — enabled `<a download>`).
+# Fixture: fixtures/reports-ms2.json (shared across the whole ms-2 milestone,
+# already extended by #21/#22's own slices) — this slice reuses the existing
+# `drive-queue-status` seeded result rather than adding a new fixture file
+# (at most one is allowed per ms-NN directory, #1818).
+#
+# Deliberately NOT covered here (left for their own issues' slices, per
+# contract.md's own issue table): the rail/picker/param-bar/grid shell
+# (#21), the five additional reports' own rendering (#22), row_identity
+# Links (#23), chart rendering/Degrade (#25). Also NOT covered (see the spec
+# file's own TODO comment): whether Export CSV's enabled state persists
+# across a tab switch to a not-yet-run report once ANY report has run this
+# session — contract.md §5a/§5b's "this session" wording is suggestive but
+# neither mock (each a single static screen) nor any ms-2 issue body pins
+# that transition, so this slice only asserts the two states each mock
+# actually shows.
+#
+# expected_red observed via `npm run test:acceptance -- ms-2 --reporter=json`
+# (the exact driver command), parsed with parse_playwright_json_report — all
+# three of this slice's tests failed with "element(s) not found" for
+# `getByTestId('reports-export-action')` (no implementation exists yet for
+# #24), while every other ms-2 test already in the suite (#21, #22) stayed
+# green, confirming this run reflects only #24's own missing feature, not a
+# wiring/config regression.
+
+tests:
+  "[chromium] ms-2/rpt-5-export-csv.spec.ts › ms-2 Reports panel — RPT-5 export CSV (#24) › Export CSV is disabled with an explanatory tooltip before any report has run": 24
+  "[chromium] ms-2/rpt-5-export-csv.spec.ts › ms-2 Reports panel — RPT-5 export CSV (#24) › running a report swaps Export CSV to an enabled download link carrying format=csv": 24
+  "[chromium] ms-2/rpt-5-export-csv.spec.ts › ms-2 Reports panel — RPT-5 export CSV (#24) › the enabled Export CSV link is a plain download href, never a client-built blob/data URI": 24
+
+expected_red:
+  24:
+    - "[chromium] ms-2/rpt-5-export-csv.spec.ts › ms-2 Reports panel — RPT-5 export CSV (#24) › Export CSV is disabled with an explanatory tooltip before any report has run"
+    - "[chromium] ms-2/rpt-5-export-csv.spec.ts › ms-2 Reports panel — RPT-5 export CSV (#24) › running a report swaps Export CSV to an enabled download link carrying format=csv"
+    - "[chromium] ms-2/rpt-5-export-csv.spec.ts › ms-2 Reports panel — RPT-5 export CSV (#24) › the enabled Export CSV link is a plain download href, never a client-built blob/data URI"
