@@ -114,7 +114,7 @@ export const RAIL_ITEMS: readonly RailItem[] = [
     // same story — 'ready', not another placeholder.
     status: 'ready',
     group: 'Insight',
-    hint: 'Reports',
+    hint: 'Report catalogue + drive-queue-status grid — RPT-2',
     testId: 'rail-item-reports',
   },
 ] as const

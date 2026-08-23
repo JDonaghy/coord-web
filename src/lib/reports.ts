@@ -113,8 +113,16 @@ export function reportCellText(value: unknown, kind: string): string {
     }
     case 'list':
       return formatReportList(value)
-    case 'money':
+    case 'money': {
+      // Same "value == null -> empty cell" short-circuit every other kind
+      // above takes, checked BEFORE the `Number()` coercion below — a
+      // missing cell must never fall through to `Number(undefined)` (`NaN`),
+      // which `formatReportMoney` doesn't special-case (it only treats a
+      // literal `0` and `null`/`undefined` as empty) and would otherwise
+      // render as the literal string `"$NaN.0000"`.
+      if (value == null) return REPORT_EMPTY_CELL
       return formatReportMoney(typeof value === 'number' ? value : Number(value))
+    }
     case 'enum':
     case 'text':
     default:
