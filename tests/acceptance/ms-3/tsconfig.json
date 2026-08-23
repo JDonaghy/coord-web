@@ -1,8 +1,8 @@
 {
   "//": [
-    "Module resolution for the SEALED acceptance tree (ms-51, #1544).",
+    "Module resolution for the SEALED acceptance tree (ms-3, #1544).",
     "",
-    "The slice lives at repo-root `tests/acceptance/ms-51/`, while the only",
+    "The slice lives at repo-root `tests/acceptance/ms-3/`, while the only",
     "`node_modules` in the repo is under `coord/dashboard/webapp/`. Node's",
     "resolver walks UP from the importing file, and nothing above",
     "`tests/acceptance/` has a `node_modules`, so a bare",

@@ -8,7 +8,7 @@
 This is **Gate A**: the pre-work architecture gate, authored before any of
 #21-#25 (RPT-2..RPT-6) exist in this repo. As of this writing there is no
 `report` reference anywhere in `src/api/client.ts` or `src/api/generated.ts`
-— confirmed by grep, not assumed. Unlike `tests/acceptance/ms-51` (which
+— confirmed by grep, not assumed. Unlike `tests/acceptance/ms-3` (which
 pinned already-shipped Home/Active behaviour), **every mock here is a
 proposed design**, not a screenshot of running code. Nothing in this
 contract should be read as "the app already does this."
@@ -92,7 +92,7 @@ being one of the three reports #23 names as row_identity-bearing. See
   conventions elsewhere in the app which this report never reuses). No issue
   body says whether a large result set can be paginated/truncated such that
   this count would ever differ from the visible row count (contrast
-  ms-51's Pipeline-tab count, which deliberately *does* diverge from its
+  ms-3's Pipeline-tab count, which deliberately *does* diverge from its
   visible cards) — this contract assumes N always equals rendered rows and
   flags pagination as unaddressed rather than guessing at a scheme.
 
