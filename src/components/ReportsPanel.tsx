@@ -53,15 +53,26 @@
  * `row_identity` (§7c — `usage`, `queue-outcomes`, and, per §7.1,
  * `drive-queue-status` today) renders every cell exactly as before.
  *
- * Explicitly out of scope here (each is its own later RPT-N issue, see
- * `tests/acceptance/ms-2/contract.md`'s issue table):
- *  - Chart rendering (RPT-6, #25) — no `chart` region; `ReportResult.chart`
- *    is read by nothing here, matching the "additive, ignorable" contract
- *    `ChartSpec`'s own doc comment states for a client that doesn't render it.
+ * #25 (RPT-6) adds chart rendering: when the running report's result
+ * declares a `chart` this build understands (`ChartSpec.kind === 'bar'`
+ * today), a `reports-chart` region — plain-HTML bars, no charting library
+ * added (`package.json` unchanged) — renders above the grid, direct-labelled
+ * and reusing the grid's own status-badge colours (contract §8a-§8c).
+ * `reportChartPlan` (`src/lib/reports.ts`, a port of `ChartPlan`/
+ * `reports_chart_plan` from `tui/src/app/reports.rs`) resolves every
+ * declaration to exactly one of three outcomes before this component ever
+ * renders anything: `'none'` (nothing declared, or an empty result — no
+ * chart region at all, byte-identical to a client with no chart feature),
+ * `'render'`, or `'degrade'` (a declaration this build can't honour — a
+ * one-line `reports-chart-degraded` reason instead, contract §8d — never a
+ * half-drawn chart, and the grid renders in full either way). See
+ * `reports.ts`'s own "chart rendering" section header for the full
+ * three-outcome contract and where this web port deliberately diverges from
+ * the Rust source.
  */
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ExternalLink } from 'lucide-react'
+import { AlertTriangle, ExternalLink } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { fetchReport, fetchReportCatalogue, type ReportDef, type ReportResult } from '@/api/client'
@@ -71,12 +82,16 @@ import { toast } from '@/components/ui/use-toast'
 import { paths } from '@/routes/paths'
 import { cn } from '@/lib/utils'
 import {
+  buildReportChartAriaLabel,
   buildReportParamDefaults,
   defaultSelectedReportId,
+  formatReportChartValue,
   isReportRowIdentityColumn,
   reportCellAlign,
   reportCellIsMono,
   reportCellText,
+  reportChartCategoryColorClass,
+  reportChartPlan,
   reportChoiceOptions,
   reportEnumBadgeVariant,
   reportListOptions,
@@ -87,6 +102,7 @@ import {
   reportRowIdentityRepoIssue,
   sortReportRows,
   toggleSortDirection,
+  type ReportChartPlan,
   type SortDirection,
 } from '@/lib/reports'
 
@@ -110,6 +126,87 @@ function reportExportHref(reportId: string, params: Readonly<Record<string, stri
   }
   query.set('format', 'csv')
   return `/api/report/${encodeURIComponent(reportId)}?${query.toString()}`
+}
+
+/**
+ * The chart region (contract §8) — renders one of `ReportChartPlan`'s three
+ * outcomes: nothing (`'none'`), a direct-labelled bar chart (`'render'`), or
+ * a one-line degrade notice (`'degrade'`). See `reports.ts`'s "chart
+ * rendering" section for the full port this reads from.
+ */
+function ReportChartRegion({ plan }: { plan: ReportChartPlan }) {
+  if (plan.status === 'none') return null
+
+  if (plan.status === 'degrade') {
+    return (
+      <div
+        data-testid="reports-chart-degraded"
+        role="status"
+        className="mb-4 flex items-center gap-2 rounded-lg border border-border bg-attn-wash px-3.5 py-2.5 text-xs text-attn"
+      >
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <span data-testid="reports-chart-degraded-reason">{plan.reason}</span>
+      </div>
+    )
+  }
+
+  // §8c: every mark carries a direct, visible value label -- colour is
+  // never the sole carrier of the count. Bar height is relative to the
+  // largest value across every series so the tallest bar always reaches the
+  // same cap regardless of how small a report's own numbers run.
+  const max = Math.max(1, ...plan.series.flatMap((s) => s.data))
+  const ariaLabel = buildReportChartAriaLabel(plan)
+
+  return (
+    <div
+      data-testid="reports-chart"
+      role="img"
+      aria-label={ariaLabel}
+      className="mb-4 rounded-lg border border-border bg-secondary/20 px-3.5 pb-2.5 pt-3.5"
+    >
+      {plan.title && (
+        <p className="mb-2.5 text-xs font-medium text-foreground">
+          {plan.title}
+          {' '}
+        </p>
+      )}
+      <div className="flex items-end gap-3 overflow-x-auto">
+        {plan.categories.map((category, i) => {
+          const colorClass = reportChartCategoryColorClass(category, plan.categoryColumnKind, i)
+          return (
+            <div key={i} className="flex min-w-[52px] flex-1 flex-col items-center gap-1">
+              <div className="flex h-[104px] w-full items-end justify-center gap-1">
+                {plan.series.map((s, si) => {
+                  const value = s.data[i] ?? 0
+                  const heightPx = Math.max(4, (value / max) * 96)
+                  return (
+                    <div key={si} className="flex h-full w-full flex-col items-center justify-end gap-0.5">
+                      <span className="font-mono text-[11px] text-foreground">{formatReportChartValue(value)}</span>
+                      {' '}
+                      <div
+                        className={cn('w-full max-w-[28px] rounded-t-sm', colorClass)}
+                        style={{ height: `${heightPx}px` }}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+              <span className="text-center text-[11px] text-muted-foreground">{category}</span>
+              {' '}
+            </div>
+          )
+        })}
+      </div>
+      {/* No colour-swatch legend: every mark's colour is keyed to its
+          CATEGORY (badge-colour reuse, §8b), not to its series, so a
+          series-labelled swatch would claim a colour mapping that doesn't
+          exist. A plain caption is enough for the (untested by this
+          milestone's own fixtures) multi-series case. */}
+      {plan.series.length > 1 && (
+        <p className="mt-2.5 text-[11px] text-muted-foreground">{plan.series.map((s) => s.label).join(' · ')}</p>
+      )}
+    </div>
+  )
 }
 
 export default function ReportsPanel() {
@@ -224,6 +321,14 @@ export default function ReportsPanel() {
     if (!meta) return result.rows
     return sortReportRows(result.rows, sort.columnId, meta.kind, sort.direction)
   }, [result, sort])
+
+  // #25 RPT-6 -- resolved once per result, not per render of the grid below
+  // it: `reportChartPlan` is a pure function of `result` alone (contract §8
+  // never varies by sort order or param-bar edits since a run).
+  const chartPlan = useMemo<ReportChartPlan>(
+    () => (result ? reportChartPlan(result) : { status: 'none' }),
+    [result],
+  )
 
   const handleHeaderClick = (columnId: string) => {
     setSort((prev) =>
@@ -380,6 +485,12 @@ export default function ReportsPanel() {
               </form>
             </>
           )}
+
+          {/* §8a: chart above the grid, never in its place -- costs exactly
+              zero DOM when the plan resolves to 'none'. A sibling
+              expression, not wrapped around the ternary below, so that
+              ternary's own branches keep their original indentation. */}
+          {hasRun && result && <ReportChartRegion plan={chartPlan} />}
 
           {hasRun && result ? (
             sortedRows.length > 0 ? (

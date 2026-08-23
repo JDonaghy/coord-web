@@ -239,3 +239,106 @@ describe('ReportsPanel — list-of-dicts cell rendering', () => {
     expect(screen.queryByTestId('reports-options-cell-0')).not.toBeInTheDocument()
   })
 })
+
+// ── chart rendering (#25 RPT-6, contract §8) ────────────────────────────────
+//
+// `reportChartPlan`'s own unit tests (`src/lib/__tests__/reports.test.ts`)
+// cover the ChartPlan port itself in isolation; these drive it through the
+// real component tree the way `tests/acceptance/ms-2/rpt-6-chart.spec.ts`
+// does against a live fixture server, so the wiring itself (not just the
+// pure function) has vitest-level coverage independent of that Playwright
+// slice.
+
+function makeQueueOutcomesResult(chart: ReportResult['chart']): ReportResult {
+  return makeResult({
+    report_id: 'queue-outcomes',
+    columns: ['outcome', 'count'],
+    column_meta: [
+      { id: 'outcome', label: 'Outcome', kind: 'enum', align: 'left', weight: 1 },
+      { id: 'count', label: 'Count', kind: 'int', align: 'right', weight: 1 },
+    ],
+    rows: [
+      { outcome: 'completed', count: 128 },
+      { outcome: 'held', count: 9 },
+    ],
+    chart,
+  })
+}
+
+describe('ReportsPanel — chart rendering (§8)', () => {
+  it('§8a/§8c: a chart-declaring result renders a labelled chart region above the grid', async () => {
+    const queueOutcomes = makeReportDef({ id: 'queue-outcomes', title: 'Queue outcomes' })
+    vi.mocked(fetchReportCatalogue).mockResolvedValue(makeCatalogue([queueOutcomes]))
+    vi.mocked(fetchReport).mockResolvedValue(
+      makeQueueOutcomesResult({
+        kind: 'bar',
+        series: [{ label: 'Count', column: 'count', color: null }],
+        x: 'outcome',
+        group_by: null,
+        stacked: false,
+        title: '',
+        y_label: '',
+      }),
+    )
+
+    renderPanel()
+    await screen.findByTestId('reports-tab-queue-outcomes')
+    await userEvent.click(screen.getByTestId('reports-run-button'))
+
+    const chart = await screen.findByTestId('reports-chart')
+    expect(chart).toHaveAttribute('role', 'img')
+    expect(chart.getAttribute('aria-label')).toMatch(/completed[^0-9]*128/i)
+    expect(chart.getAttribute('aria-label')).toMatch(/held[^0-9]*9/i)
+    expect(chart.textContent ?? '').toMatch(/\b128\b/)
+    expect(chart.textContent ?? '').toMatch(/\b9\b/)
+    expect(screen.queryByTestId('reports-chart-degraded')).not.toBeInTheDocument()
+    // Above the grid, never in place of it.
+    expect(await screen.findByTestId('reports-grid')).toBeInTheDocument()
+  })
+
+  it('§8d: a chart kind this build does not understand degrades to a one-line reason, grid unaffected', async () => {
+    const usage = makeReportDef({ id: 'usage', title: 'Usage' })
+    vi.mocked(fetchReportCatalogue).mockResolvedValue(makeCatalogue([usage]))
+    vi.mocked(fetchReport).mockResolvedValue(
+      makeQueueOutcomesResult({
+        kind: 'scatter',
+        series: [{ label: 'Count', column: 'count', color: null }],
+        x: 'outcome',
+        group_by: null,
+        stacked: false,
+        title: '',
+        y_label: '',
+      }),
+    )
+
+    renderPanel()
+    await screen.findByTestId('reports-tab-usage')
+    await userEvent.click(screen.getByTestId('reports-run-button'))
+
+    const degraded = await screen.findByTestId('reports-chart-degraded')
+    expect(degraded).toHaveAttribute('role', 'status')
+    const reason = screen.getByTestId('reports-chart-degraded-reason').textContent ?? ''
+    expect(reason.length).toBeGreaterThan(0)
+    expect(reason).not.toMatch(/\n/)
+    expect(screen.queryByTestId('reports-chart')).not.toBeInTheDocument()
+
+    // The grid still renders in full underneath.
+    const grid = await screen.findByTestId('reports-grid')
+    expect(grid).toBeInTheDocument()
+    expect(grid.querySelectorAll('tbody tr')).toHaveLength(2)
+  })
+
+  it('§8e: a report with no chart declared renders neither a chart nor a degrade notice', async () => {
+    const driveQueue = makeReportDef({ id: 'drive-queue-status', title: 'Drive queue status' })
+    vi.mocked(fetchReportCatalogue).mockResolvedValue(makeCatalogue([driveQueue]))
+    vi.mocked(fetchReport).mockResolvedValue(makeResult({ chart: null }))
+
+    renderPanel()
+    await screen.findByTestId('reports-tab-drive-queue-status')
+    await userEvent.click(screen.getByTestId('reports-run-button'))
+
+    await screen.findByTestId('reports-grid')
+    expect(screen.queryByTestId('reports-chart')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('reports-chart-degraded')).not.toBeInTheDocument()
+  })
+})

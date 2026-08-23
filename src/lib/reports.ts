@@ -27,7 +27,7 @@
  *   doc comment) and lexicographic (via `reportCellText`, so a `list` sorts
  *   on its comma-joined rendering) for everything else.
  */
-import type { ColumnMeta, ReportDef, ReportParam, RowIdentity } from '@/api/client'
+import type { ChartSpec, ColumnMeta, ReportDef, ReportParam, ReportResult, RowIdentity } from '@/api/client'
 import type { BadgeProps } from '@/components/ui/badge'
 
 // ── cell formatting (contract §6b) ──────────────────────────────────────────
@@ -386,4 +386,340 @@ export function reportRowIdentityRepoIssue(
   const repo = row[rowIdentity.repo_column]
   const issue = row[rowIdentity.issue_column]
   return { repo: repo == null ? '' : String(repo), issue: issue == null ? '' : String(issue) }
+}
+
+// ── chart rendering (contract §8, RPT-6 #25) ────────────────────────────────
+//
+// `reportChartPlan` is a port of `ChartPlan`/`reports_chart_plan` from
+// `tui/src/app/reports.rs` (the file #25's own issue text names, verbatim,
+// as the thing to port) — the three-outcome compatibility rule that keeps a
+// chart-bearing report readable on a client that predates the field, or
+// meets a declared `kind` it doesn't understand:
+//
+//  - `{ status: 'none' }` — no `chart` declared, or nothing worth plotting
+//    (an empty result: the empty-window message already owns the panel, an
+//    empty axis over it would read as a measured zero, same reasoning as
+//    the Rust source). Render exactly as before: no chart, no reserved
+//    space, no explanatory line.
+//  - `{ status: 'degrade', reason }` — a declaration this build can't
+//    honour. One subdued line says why; the grid renders in full,
+//    unaffected. Never a half-drawn chart, and never a chart that silently
+//    vanishes with no indication anything was skipped.
+//  - `{ status: 'render', ... }` — draw it above the grid; both stay
+//    visible.
+//
+// Deliberate differences from the Rust source, both because this is a
+// fresh web renderer rather than a byte-exact port of quadraui's terminal
+// `Chart` widget:
+//
+//  1. **Only `kind: "bar"` renders here.** `reports_chart_plan` understands
+//     "bar"/"line"/"sparkline"; this initial web port draws bars only (the
+//     one shape both contract mocks, `reports-chart.html`/
+//     `reports-chart-degraded.html`, illustrate, and the only kind any
+//     ms-2 fixture exercises). `line`/`sparkline` degrade the same as any
+//     other kind this build doesn't understand yet — the open-vocabulary
+//     fallback rule the Rust source itself documents ("same rule as
+//     `ColumnMeta.kind`: a kind this binary predates renders the table,
+//     not an error") already covers that without a special case.
+//  2. **No `multi_series_bars`/quadraui#584 gate.** That check exists
+//     because quadraui's terminal bar-chart widget predating #584 drew only
+//     `series[0]` and silently dropped the rest. This web renderer draws
+//     every series directly (plain HTML columns, no such limitation), so
+//     there is no equivalent constraint to port — a multi-series bar chart
+//     here is never partially drawn.
+//  3. **`categories` is computed for the (more common) no-`group_by`
+//     branch too.** `reports_chart_series` only builds per-row axis text
+//     inside its `group_by` pivot branch; the terminal `Chart` widget
+//     apparently sources its non-pivoted x-axis some other way internal to
+//     quadraui. A web bar chart needs a visible, direct category label
+//     under every bar regardless (contract §8a/§8c), so this port derives
+//     `categories` the same way in both branches: each row's (or each pivot
+//     group's) axis text, via `reportCellText` keyed on the axis column's
+//     own `ColumnMeta.kind` — exactly `reports_chart_axis_text`'s own
+//     formatting rule, just applied one branch wider.
+//
+// No charting library was added for this (`package.json` unchanged) — the
+// dataviz skill's own house style is to build a chart's pieces directly in
+// markup from the design system's existing tokens rather than reach for a
+// framework, which is also exactly what both contract mocks do (hand-drawn
+// SVG bars, no library). It also happens to be the only way to *guarantee*
+// contract §8b ("category colours are the same colours the grid's own
+// badges already use for the identical value") rather than merely
+// approximate it: `reportChartCategoryColorClass` below reuses the exact
+// same `reportEnumBadgeVariant` → Tailwind-class mapping the grid's own
+// `<Badge>` cells resolve through, so a chart mark's computed colour is
+// byte-identical to its row's badge, by construction, on both themes.
+
+/** Rows a legend can label in one line before it stops meaning anything —
+ * port of `REPORTS_MAX_CHART_SERIES` (12) in `tui/src/app/reports.rs`. Past
+ * this many series the declaration degrades to the grid rather than drawing
+ * a chart whose colours no longer map to anything (this repo's "no silent
+ * caps" rule: say why instead of quietly plotting a subset). */
+const REPORT_CHART_MAX_SERIES = 12
+
+/** One resolved series' data, aligned index-for-index with `categories`. */
+export interface ReportChartSeriesData {
+  label: string
+  data: number[]
+}
+
+/** `ChartPlan::Render` — draw a chart above the grid. */
+export interface ReportChartRenderPlan {
+  status: 'render'
+  /** The declaration's own caption (`ChartSpec.title`), `null` when it
+   * declared none. */
+  title: string | null
+  xLabel: string | null
+  yLabel: string | null
+  series: ReportChartSeriesData[]
+  categories: string[]
+  /** `ColumnMeta.kind` of whichever column produced `categories` (`x`, or
+   * `group_by` when the declaration pivots) — `'text'` when neither names a
+   * real column. See `reportChartCategoryColorClass`'s own doc comment for
+   * why this is the thing that decides badge-colour reuse vs. a plain
+   * categorical fallback. */
+  categoryColumnKind: string
+}
+
+/** `ChartPlan::Degrade` — table only, plus one line saying why. */
+export interface ReportChartDegradePlan {
+  status: 'degrade'
+  reason: string
+}
+
+/** `ChartPlan::None` — nothing declared, or nothing worth plotting. */
+export interface ReportChartNonePlan {
+  status: 'none'
+}
+
+export type ReportChartPlan = ReportChartRenderPlan | ReportChartDegradePlan | ReportChartNonePlan
+
+/** One row's value for a chart series' column, as a number — port of
+ * `reports_chart_value`. Looked up by column name, same as a grid cell,
+ * since `rows` may carry keys beyond `columns`. A non-numeric cell yields
+ * `null` ("no contribution"), never `0` — the difference is what lets a
+ * series with no numeric data at all be dropped instead of plotted as a
+ * flat zero line. */
+function reportChartValue(row: Record<string, unknown>, column: string): number | null {
+  const value = row[column]
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (typeof value === 'boolean') return value ? 1 : 0
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (trimmed === '') return null
+    const parsed = Number(trimmed)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+function reportColumnKind(result: ReportResult, columnId: string): string {
+  return result.column_meta.find((m) => m.id === columnId)?.kind ?? 'text'
+}
+
+/** The text identity of a row's (or pivot group's) value in an axis/group
+ * column — port of `reports_chart_axis_text`. Rendered through the column's
+ * own declared `kind` via `reportCellText`, the same formatting the grid
+ * itself uses, so e.g. a `timestamp` axis reads as a time rather than raw
+ * epoch seconds. An empty column id (or one no row carries) collapses to a
+ * single `''` bucket — a legitimate degenerate answer, not an error. */
+function reportChartAxisText(result: ReportResult, row: Record<string, unknown>, column: string): string {
+  if (!column) return ''
+  return reportCellText(row[column], reportColumnKind(result, column))
+}
+
+interface ReportChartSeriesResult {
+  series: ReportChartSeriesData[]
+  categories: string[]
+  categoryColumnKind: string
+}
+
+/** Resolve a declaration's series against the result's own rows — port of
+ * `reports_chart_series`. Two shapes, exactly as `coord/reports.py`'s
+ * `ChartSpec` documents: no `group_by` (one data point per row, in the
+ * report's own canonical order) or `group_by` set (a pivot: the x-axis is
+ * the distinct `x` values in first-appearance order, one output series per
+ * distinct group value, rows landing in the same `(group, x)` cell summed).
+ * A declared series whose column yields no numeric value in ANY row is
+ * dropped rather than plotted as a flat zero line — a mistyped column id
+ * must look like a missing series, not like a real run of zeros. */
+function reportChartSeries(result: ReportResult, spec: ChartSpec): ReportChartSeriesResult {
+  const declared = spec.series.filter(
+    (s) => s.column !== '' && result.rows.some((row) => reportChartValue(row, s.column) !== null),
+  )
+  if (declared.length === 0) return { series: [], categories: [], categoryColumnKind: 'text' }
+
+  const xColumn = spec.x ?? ''
+  const groupColumn = spec.group_by && spec.group_by !== '' ? spec.group_by : null
+
+  if (!groupColumn) {
+    const categories = result.rows.map((row) => reportChartAxisText(result, row, xColumn))
+    const series = declared.map((s) => ({
+      label: s.label,
+      data: result.rows.map((row) => reportChartValue(row, s.column) ?? 0),
+    }))
+    return { series, categories, categoryColumnKind: reportColumnKind(result, xColumn) }
+  }
+
+  // The pivot. `x` absent (or naming a column no row carries) collapses
+  // every row into a single x slot — a legitimate degenerate answer (one
+  // bar per group), not an error.
+  const xKeys: string[] = []
+  const groupKeys: string[] = []
+  const cells: Map<string, number>[] = declared.map(() => new Map())
+  for (const row of result.rows) {
+    const xText = reportChartAxisText(result, row, xColumn)
+    let xIdx = xKeys.indexOf(xText)
+    if (xIdx === -1) {
+      xKeys.push(xText)
+      xIdx = xKeys.length - 1
+    }
+    const groupText = reportChartAxisText(result, row, groupColumn)
+    let groupIdx = groupKeys.indexOf(groupText)
+    if (groupIdx === -1) {
+      groupKeys.push(groupText)
+      groupIdx = groupKeys.length - 1
+    }
+    declared.forEach((s, si) => {
+      const value = reportChartValue(row, s.column)
+      if (value === null) return
+      const key = `${groupIdx}:${xIdx}`
+      cells[si].set(key, (cells[si].get(key) ?? 0) + value)
+    })
+  }
+
+  const multi = declared.length > 1
+  const series: ReportChartSeriesData[] = []
+  groupKeys.forEach((group, gi) => {
+    declared.forEach((s, si) => {
+      series.push({
+        label: multi ? `${group} · ${s.label}` : group,
+        data: xKeys.map((_, xi) => cells[si].get(`${gi}:${xi}`) ?? 0),
+      })
+    })
+  })
+  return { series, categories: xKeys, categoryColumnKind: reportColumnKind(result, groupColumn) }
+}
+
+/**
+ * Decide what to do with `result`'s chart declaration — port of
+ * `reports_chart_plan`. See this section's own header comment for the three
+ * outcomes and where this deliberately diverges from the Rust source.
+ */
+export function reportChartPlan(result: ReportResult): ReportChartPlan {
+  const spec = result.chart
+  if (!spec) return { status: 'none' }
+  if (result.rows.length === 0) return { status: 'none' }
+
+  // The open-vocabulary fallback, same rule as `ColumnMeta.kind`: a kind
+  // this build predates (or never supported) renders the grid, not an
+  // error. Only "bar" is understood today — see this section's header
+  // comment, deviation 1.
+  if (spec.kind !== 'bar') {
+    return {
+      status: 'degrade',
+      reason: `Chart not shown: this build does not understand chart kind '${spec.kind}'. The table below carries the same numbers.`,
+    }
+  }
+
+  const { series, categories, categoryColumnKind } = reportChartSeries(result, spec)
+  if (series.length === 0) {
+    return {
+      status: 'degrade',
+      reason: 'Chart not shown: the declared series name no numeric column in this result.',
+    }
+  }
+  if (series.length > REPORT_CHART_MAX_SERIES) {
+    return {
+      status: 'degrade',
+      reason: `Chart not shown: ${series.length} series is more than a one-row legend can label. The table below has all of them.`,
+    }
+  }
+
+  const xColumnMeta = spec.x ? (result.column_meta.find((m) => m.id === spec.x) ?? null) : null
+  return {
+    status: 'render',
+    title: spec.title !== '' ? spec.title : null,
+    xLabel: spec.x ? (xColumnMeta?.label || spec.x) : null,
+    yLabel: spec.y_label !== '' ? spec.y_label : null,
+    series,
+    categories,
+    categoryColumnKind,
+  }
+}
+
+/** `128` -> `"128"`, `4.821` -> `"4.82"` — a chart mark's direct value
+ * label (contract §8c: "every mark carries a direct, visible value label —
+ * never colour alone"). Not a port of `format_money`/`formatReportDuration`
+ * (a chart series can read any numeric column, not just one `kind`); this
+ * is deliberately simpler than the grid's own per-`kind` cell formatting. */
+export function formatReportChartValue(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2)
+}
+
+/** Fixed Tailwind-class fallback for a category whose column isn't
+ * `enum`-kind (so there is no grid status badge to reuse a colour from) —
+ * existing design tokens, reused in a fixed order, never a freshly
+ * generated hue (dataviz house style). Cycles only past `brand`/`pass`/
+ * `attn`/`fail`/`idle`'s own five slots, which no ms-2 report's chart
+ * comes close to exercising. */
+const REPORT_CHART_CATEGORICAL_FALLBACK = ['bg-brand', 'bg-pass', 'bg-attn', 'bg-fail', 'bg-idle'] as const
+
+/** `reportEnumBadgeVariant`'s own four variants, mapped to the matching
+ * solid-fill Tailwind class — `bg-pass`/`bg-attn`/`bg-fail`/`bg-idle`
+ * resolve their `background-color` against the exact same `--pass`/
+ * `--attn`/`--fail`/`--idle` custom properties the grid's own `<Badge
+ * variant="success">`/etc. resolve their `color` against (`badge.tsx`'s
+ * `text-pass`/`text-attn`/`text-fail`), so the two elements' computed
+ * colours are byte-identical strings in the DOM — never merely "the same
+ * intended colour", literally the same resolved value. */
+const REPORT_CHART_BADGE_FILL_CLASS: Record<NonNullable<BadgeProps['variant']>, string> = {
+  default: 'bg-brand',
+  secondary: 'bg-brand',
+  outline: 'bg-idle',
+  success: 'bg-pass',
+  warning: 'bg-attn',
+  destructive: 'bg-fail',
+}
+
+/**
+ * The Tailwind class a chart mark for `category` (at position `index` among
+ * `categories`) should carry, given the axis column's own `kind`
+ * (`categoryColumnKind` from a `ReportChartRenderPlan`).
+ *
+ * Contract §8b: category colours are the same status colours the grid's
+ * own badges already use for the identical semantic value — never a
+ * freshly generated categorical hue for a value that is really a status.
+ * That only applies when the axis column IS the grid's `enum`-kind status
+ * column (the one the grid itself renders through `<Badge
+ * variant={reportEnumBadgeVariant(...)}>`); for any other column kind there
+ * is no badge to reuse, so this falls back to a plain fixed-order
+ * categorical palette instead.
+ */
+export function reportChartCategoryColorClass(category: string, categoryColumnKind: string, index: number): string {
+  if (categoryColumnKind === 'enum') {
+    return REPORT_CHART_BADGE_FILL_CLASS[reportEnumBadgeVariant(category) ?? 'outline']
+  }
+  return REPORT_CHART_CATEGORICAL_FALLBACK[index % REPORT_CHART_CATEGORICAL_FALLBACK.length]
+}
+
+/**
+ * The chart region's full-text `aria-label` (contract §8a: "a full-text
+ * `aria-label` summarizing every category and value" — the accessibility
+ * fallback for a hand-drawn chart with no native table semantics). Every
+ * category's own name is followed by its value(s) with plain whitespace
+ * between them (never glued, same reasoning as the grid's own per-cell
+ * trailing-space convention) so a screen reader — and a test's regex —
+ * reads each category/value pair distinctly.
+ */
+export function buildReportChartAriaLabel(plan: ReportChartRenderPlan): string {
+  const multi = plan.series.length > 1
+  const parts = plan.categories.map((category, i) => {
+    const values = plan.series
+      .map((s) => `${multi ? `${s.label} ` : ''}${formatReportChartValue(s.data[i] ?? 0)}`)
+      .join(', ')
+    return `${category} ${values}`
+  })
+  const heading = plan.title || `${plan.series.length === 1 ? plan.series[0].label : 'Values'} by ${plan.xLabel ?? 'category'}`
+  return `${heading}: ${parts.join(', ')}`
 }
