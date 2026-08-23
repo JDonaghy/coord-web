@@ -40,17 +40,3 @@ tests:
   "[chromium] ms-2/rpt-2-drive-queue-status.spec.ts › ms-2 Reports panel — RPT-2 drive-queue-status (#21) › drive-queue-status Issue column has no row-nav link": 21
   "[chromium] ms-2/rpt-2-drive-queue-status.spec.ts › ms-2 Reports panel — RPT-2 drive-queue-status (#21) › the # column is sorted ascending by default, and clicking toggles the sort": 21
 
-expected_red:
-  21:
-    - "[chromium] ms-2/rpt-2-drive-queue-status.spec.ts › ms-2 Reports panel — RPT-2 drive-queue-status (#21) › Reports rail entry is a ready, selected member of the Insight group"
-    - "[chromium] ms-2/rpt-2-drive-queue-status.spec.ts › ms-2 Reports panel — RPT-2 drive-queue-status (#21) › report picker lists exactly six tabs in the pinned order"
-    - "[chromium] ms-2/rpt-2-drive-queue-status.spec.ts › ms-2 Reports panel — RPT-2 drive-queue-status (#21) › drive-queue-status tab is selected on cold load, the other five are not"
-    - "[chromium] ms-2/rpt-2-drive-queue-status.spec.ts › ms-2 Reports panel — RPT-2 drive-queue-status (#21) › activating another tab moves the tablist selection"
-    - "[chromium] ms-2/rpt-2-drive-queue-status.spec.ts › ms-2 Reports panel — RPT-2 drive-queue-status (#21) › a description paragraph sits directly under the tablist"
-    - "[chromium] ms-2/rpt-2-drive-queue-status.spec.ts › ms-2 Reports panel — RPT-2 drive-queue-status (#21) › parameter bar renders a choice param as a select and a text param as an input"
-    - "[chromium] ms-2/rpt-2-drive-queue-status.spec.ts › ms-2 Reports panel — RPT-2 drive-queue-status (#21) › cold load shows the Reports header with no count and an empty-state placeholder"
-    - "[chromium] ms-2/rpt-2-drive-queue-status.spec.ts › ms-2 Reports panel — RPT-2 drive-queue-status (#21) › running drive-queue-status shows a header count of 3 rows"
-    - "[chromium] ms-2/rpt-2-drive-queue-status.spec.ts › ms-2 Reports panel — RPT-2 drive-queue-status (#21) › grid renders one header per column and one row per result"
-    - "[chromium] ms-2/rpt-2-drive-queue-status.spec.ts › ms-2 Reports panel — RPT-2 drive-queue-status (#21) › grid formats each row correctly per its ColumnMeta.kind"
-    - "[chromium] ms-2/rpt-2-drive-queue-status.spec.ts › ms-2 Reports panel — RPT-2 drive-queue-status (#21) › drive-queue-status Issue column has no row-nav link"
-    - "[chromium] ms-2/rpt-2-drive-queue-status.spec.ts › ms-2 Reports panel — RPT-2 drive-queue-status (#21) › the # column is sorted ascending by default, and clicking toggles the sort"
