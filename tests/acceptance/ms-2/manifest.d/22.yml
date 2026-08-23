@@ -69,6 +69,3 @@ tests:
   "[chromium] ms-2/rpt-3-remaining-reports.spec.ts › ms-2 Reports panel — RPT-3 remaining reports (#22) › decisions options column renders label + recommended star + sr-only text, command in title only": 22
   "[chromium] ms-2/rpt-3-remaining-reports.spec.ts › ms-2 Reports panel — RPT-3 remaining reports (#22) › issue-activity exposes a Time range select alongside Repo": 22
 
-expected_red:
-  22:
-    - "[chromium] ms-2/rpt-3-remaining-reports.spec.ts › ms-2 Reports panel — RPT-3 remaining reports (#22) › decisions options column renders label + recommended star + sr-only text, command in title only"
