@@ -143,17 +143,38 @@ test.describe('ms-2 Reports panel — RPT-3 remaining reports (#22)', () => {
    *     never printed inline;
    *   - a non-recommended option gets neither the glyph nor the sr-only
    *     span.
+   *
+   * NOTE on cell lookup: `ReportsPanel.tsx` (already shipped by #21)
+   * unconditionally applies an ascending sort on the FIRST `column_meta`
+   * column (here, `issue`, `kind: text`) immediately after every `Run` —
+   * so the DOM row order is NOT this fixture's declared array order.
+   * `"api#33".localeCompare("api#40")` sorts `api#33` first, meaning
+   * whichever of `reports-options-cell-1` / `-2` ends up first in the DOM
+   * depends on that sort, not on which row this fixture happened to list
+   * first. Rather than hardcode a cell-N -> row mapping (fragile, and wrong
+   * once sorted), each row is located by its own stable `decision` text and
+   * the options cell is read out of THAT row — this assertion holds
+   * regardless of sort order.
    */
   test('decisions options column renders label + recommended star + sr-only text, command in title only', async ({
     page,
   }) => {
     await runReport(page, 'decisions')
-    const firstCell = page.getByTestId('reports-options-cell-1')
-    await expect(firstCell).toBeVisible()
 
-    // Two options seeded for row 1: "Release gate" (recommended) and
+    async function optionsCellForRow(rowText: string): Promise<Locator> {
+      const row = reportsGrid(page).locator('tbody tr').filter({ hasText: rowText })
+      await expect(row).toHaveCount(1)
+      const cell = row.locator('[data-testid^="reports-options-cell-"]')
+      await expect(cell).toHaveCount(1)
+      return cell
+    }
+
+    // api#40's row: two options seeded, "Release gate" (recommended) and
     // "Extend hold" (not recommended).
-    const options = firstCell.locator('li, [role="listitem"]')
+    const gateCell = await optionsCellForRow('Gate fired, awaiting release')
+    await expect(gateCell).toBeVisible()
+
+    const options = gateCell.locator('li, [role="listitem"]')
     await expect(options).toHaveCount(2)
 
     const recommendedOption = options.filter({ hasText: 'Release gate' })
@@ -170,19 +191,19 @@ test.describe('ms-2 Reports panel — RPT-3 remaining reports (#22)', () => {
     await expect(plainOption.getByText('(recommended)')).toHaveCount(0)
     await expect(plainOption).toHaveAttribute('title', 'coord drive hold --issue 40 --extend 1h')
 
-    // Second row (three options, one recommended) — same shape, different
+    // api#33's row (three options, one recommended) — same shape, different
     // cardinality, to guard against a hard-coded "exactly two options"
     // assumption leaking into the rendering.
-    const secondCell = page.getByTestId('reports-options-cell-2')
-    const secondOptions = secondCell.locator('li, [role="listitem"]')
-    await expect(secondOptions).toHaveCount(3)
-    await expect(secondOptions.filter({ hasText: 'Retry' })).toContainText('★')
-    await expect(secondOptions.filter({ hasText: 'Skip' })).not.toContainText('★')
-    await expect(secondOptions.filter({ hasText: 'Unblock manually' })).not.toContainText('★')
+    const smokeCell = await optionsCellForRow('Repeated smoke failure')
+    const smokeOptions = smokeCell.locator('li, [role="listitem"]')
+    await expect(smokeOptions).toHaveCount(3)
+    await expect(smokeOptions.filter({ hasText: 'Retry' })).toContainText('★')
+    await expect(smokeOptions.filter({ hasText: 'Skip' })).not.toContainText('★')
+    await expect(smokeOptions.filter({ hasText: 'Unblock manually' })).not.toContainText('★')
 
     // §6d's explicit negative assertion: no raw JSON / stringified dict in
     // either options cell, under any circumstances.
-    for (const cell of [firstCell, secondCell]) {
+    for (const cell of [gateCell, smokeCell]) {
       const text = (await cell.textContent()) ?? ''
       expect(text).not.toMatch(/[{}[\]]/)
       expect(text).not.toContain('command_or_action')
