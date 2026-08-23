@@ -167,3 +167,75 @@ describe('ReportsPanel — stale run guard', () => {
     await waitFor(() => expect(screen.getByText('api#99')).toBeInTheDocument())
   })
 })
+
+// ── decisions' options column (#22 RPT-3, contract §6d) ─────────────────────
+
+describe('ReportsPanel — list-of-dicts cell rendering', () => {
+  it('renders a {label, command_or_action, recommended} list as its own option list, never raw JSON', async () => {
+    const decisions = makeReportDef({ id: 'decisions', title: 'Decisions' })
+    vi.mocked(fetchReportCatalogue).mockResolvedValue(makeCatalogue([decisions]))
+    vi.mocked(fetchReport).mockResolvedValue(
+      makeResult({
+        report_id: 'decisions',
+        columns: ['issue', 'decision', 'options'],
+        column_meta: [
+          { id: 'issue', label: 'Issue', kind: 'text', align: '', weight: 0 },
+          { id: 'decision', label: 'Decision', kind: 'text', align: '', weight: 0 },
+          { id: 'options', label: 'Options', kind: 'list', align: '', weight: 0 },
+        ],
+        rows: [
+          {
+            issue: 'api#40',
+            decision: 'Gate fired, awaiting release',
+            options: [
+              { label: 'Release gate', command_or_action: 'coord drive release --issue 40', recommended: true },
+              { label: 'Extend hold', command_or_action: 'coord drive hold --issue 40 --extend 1h', recommended: false },
+            ],
+          },
+        ],
+      }),
+    )
+
+    renderPanel()
+    await screen.findByTestId('reports-tab-decisions')
+    await userEvent.click(screen.getByTestId('reports-run-button'))
+
+    const cell = await screen.findByTestId('reports-options-cell-0')
+    const recommended = screen.getByText('Release gate').closest('li')
+    const plain = screen.getByText('Extend hold').closest('li')
+
+    // Visible label + recommended star + sr-only text on the recommended
+    // option only; command_or_action lives in `title`, never printed inline.
+    expect(recommended).toHaveAttribute('title', 'coord drive release --issue 40')
+    expect(recommended).toHaveTextContent('★')
+    expect(recommended?.querySelector('.sr-only')).toHaveTextContent('(recommended)')
+
+    expect(plain).toHaveAttribute('title', 'coord drive hold --issue 40 --extend 1h')
+    expect(plain).not.toHaveTextContent('★')
+    expect(plain?.querySelector('.sr-only')).toBeNull()
+
+    // The negative assertion #22 explicitly asks for: no raw JSON / dict
+    // stringification anywhere in the cell.
+    expect(cell.textContent ?? '').not.toMatch(/[{}[\]]/)
+    expect(cell.textContent ?? '').not.toContain('command_or_action')
+  })
+
+  it('a plain scalar list column (no label field) still renders as comma-joined text', async () => {
+    const driveQueue = makeReportDef({ id: 'drive-queue-status', title: 'Drive queue status' })
+    vi.mocked(fetchReportCatalogue).mockResolvedValue(makeCatalogue([driveQueue]))
+    vi.mocked(fetchReport).mockResolvedValue(
+      makeResult({
+        columns: ['after'],
+        column_meta: [{ id: 'after', label: 'After', kind: 'list', align: '', weight: 0 }],
+        rows: [{ after: ['api#42', 'api#40'] }],
+      }),
+    )
+
+    renderPanel()
+    await screen.findByTestId('reports-tab-drive-queue-status')
+    await userEvent.click(screen.getByTestId('reports-run-button'))
+
+    await screen.findByText(/api#42, api#40/)
+    expect(screen.queryByTestId('reports-options-cell-0')).not.toBeInTheDocument()
+  })
+})

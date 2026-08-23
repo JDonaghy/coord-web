@@ -85,10 +85,55 @@ export function formatReportMoney(value: number | null | undefined): string {
 
 /** `["api#42", "api#40"]` → `"api#42, api#40"`; `[]`/absent → the empty
  * cell. Non-array values (a client meeting bad data) coerce to a
- * single-element list rather than throwing. */
+ * single-element list rather than throwing. A `list`-kind cell whose
+ * items are `{label, ...}` dicts (see `reportListOptions` below) joins on
+ * each option's `label` rather than stringifying the dict — this is the
+ * plain-text fallback path (client-side sort, an aria label), so it must
+ * never read `[object Object]` any more than the rendered cell may read
+ * raw JSON (contract §6d). */
 export function formatReportList(value: unknown): string {
+  const options = reportListOptions(value)
+  if (options) return options.map((o) => o.label).join(', ')
   const arr = Array.isArray(value) ? value : value == null ? [] : [value]
   return arr.length > 0 ? arr.map((v) => String(v)).join(', ') : REPORT_EMPTY_CELL
+}
+
+/** A single option in a `decisions`-shaped `options` cell — `label` is
+ * always shown, `command_or_action` is machine-facing (surfaced via
+ * `title`, never printed inline), `recommended` drives the ★ affordance.
+ * Port of the shape `reports_list_item_text` reads in
+ * `tui/src/app/reports.rs`. */
+export interface ReportListOption {
+  label: string
+  command_or_action?: string
+  recommended: boolean
+}
+
+/**
+ * Structural (not report-id-keyed) detector: does a `list`-kind cell hold
+ * `{label, command_or_action, recommended}`-shaped dicts (contract §6d,
+ * `decisions`' `options` column) rather than plain scalars? Returns `null`
+ * for anything else — an empty array, a list of strings/numbers, or a
+ * non-array value — so a caller can `??`/ternary straight into the plain
+ * `formatReportList` path.
+ *
+ * Deliberately keyed off the VALUE's own shape rather than `columnId ===
+ * 'options'` or the selected report's id: RPT-2's picker is catalogue-
+ * driven precisely so a report needing bespoke handling is a signal the
+ * abstraction leaked (#22's own framing) — any future `list` column on any
+ * report whose items happen to carry a `label` gets this same rendering
+ * for free, with zero new branches in `ReportsPanel`.
+ */
+export function reportListOptions(value: unknown): ReportListOption[] | null {
+  if (!Array.isArray(value) || value.length === 0) return null
+  const isOptionDict = (v: unknown): v is Record<string, unknown> =>
+    v !== null && typeof v === 'object' && !Array.isArray(v) && 'label' in v
+  if (!value.every(isOptionDict)) return null
+  return (value as Record<string, unknown>[]).map((opt) => ({
+    label: String(opt.label),
+    command_or_action: typeof opt.command_or_action === 'string' ? opt.command_or_action : undefined,
+    recommended: opt.recommended === true,
+  }))
 }
 
 /**
