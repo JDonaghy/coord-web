@@ -6,6 +6,7 @@
  */
 import { cn } from '@/lib/utils'
 import { type PipelineView, type PipelineStage } from '@/api/client'
+import { issueRef } from '@/lib/repoRef'
 import {
   FAILED_STAGES,
   stageChipVisual,
@@ -183,7 +184,7 @@ export function PipelineCard({ view, onClick, selected, finishedAt }: PipelineCa
 
       {/* Second row: repo#N + machine + (optionally) relative finish time */}
       <p className="mt-1 text-xs text-muted-foreground">
-        {view.repo_name} <span className="font-mono">#{view.issue_number}</span>
+        <span className="font-mono">{issueRef(view.repo_name, view.issue_number)}</span>
         {' · '}
         {view.machine_name}
         {typeof finishedAt === 'number' && (

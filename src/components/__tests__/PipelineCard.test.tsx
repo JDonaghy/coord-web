@@ -9,6 +9,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { PipelineCard } from '@/components/PipelineCard'
 import { type PipelineView } from '@/api/client'
+import { issueRef } from '@/lib/repoRef'
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
 
@@ -46,15 +47,39 @@ function makeView(overrides: Partial<PipelineView> = {}): PipelineView {
 // ── PipelineCard rendering ────────────────────────────────────────────────────
 
 describe('PipelineCard', () => {
-  it('renders issue title, repo, issue number, and machine', () => {
+  it('renders issue title, aliased issue ref, and machine', () => {
     render(<PipelineCard view={makeView()} onClick={() => undefined} />)
 
     // The card is a button — scope assertions to it to avoid ambiguity
     const card = screen.getByRole('button')
     expect(card).toHaveTextContent('Fix the thing')
-    expect(card).toHaveTextContent('#42')
-    expect(card).toHaveTextContent('myrepo')
+    expect(card).toHaveTextContent('M#42')
     expect(card).toHaveTextContent('laptop')
+  })
+
+  // #47: the issue ref renders as the repo alias joined directly to the
+  // number (`A#42`), as a single monospace element — never `api #42` or
+  // `api` and `#42` as separate nodes. Mirrors the sealed acceptance
+  // suite's three assertions (text present, bare repo name absent, single
+  // mono element).
+  it('renders the issue ref as the repo alias joined to the number, not the bare repo name (#47)', () => {
+    render(
+      <PipelineCard
+        view={makeView({ repo_name: 'api', issue_number: 42 })}
+        onClick={() => undefined}
+      />,
+    )
+
+    const card = screen.getByRole('button')
+    expect(card).toHaveTextContent(issueRef('api', 42))
+
+    // The bare repo name must not appear anywhere in the card's text.
+    expect(card.textContent ?? '').not.toMatch(/\bapi\b/)
+
+    // The ref is one element, not split across a repo node and a number node.
+    const refNode = screen.getByText('A#42', { exact: true })
+    expect(refNode.tagName).toBe('SPAN')
+    expect(refNode).toHaveClass('font-mono')
   })
 
   it('renders stage chips with display names (coding→work, smoke→test)', () => {
