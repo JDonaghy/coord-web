@@ -28,7 +28,3 @@ tests:
 # src/components/PipelineCard.tsx:186. Both ids below FAILED in that run;
 # every other test in the ms-3 suite (13 others) stayed green, confirming the
 # amendment's blast radius is exactly these two assertions.
-expected_red:
-  47:
-    - "[chromium] ms-3/home-active.spec.ts › ms-3 Home Active tab (#1544) › pipeline card for issue 42 shows title, repo, number, machine and status"
-    - "[chromium] ms-3/home-active.spec.ts › ms-3 Home Active tab (#1544) › issue number is rendered in a monospace element"
