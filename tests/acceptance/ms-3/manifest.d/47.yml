@@ -1,0 +1,34 @@
+# Acceptance manifest fragment for coord-web#47 ("PipelineCard: alias its
+# issue ref, amending ms-3 §4b to match").
+#
+# Per #2543, this fragment belongs solely to issue #47 — no other slice
+# writes here, and this file does not touch the shared manifest.yml (which
+# still lists these same two test ids against #1544, the exit-gate slice
+# that originally authored them; #47's contract amendment (docs(#53), commit
+# 2737916) changed what those two assertions require without renaming the
+# tests, so ownership of the *content* of these two ids now also belongs to
+# #47's amendment).
+#
+# Driver: web-playwright — npm run test:acceptance -- ms-3
+#
+# Both ids below were copied verbatim from a real `npm run test:acceptance --
+# ms-3` run (see expected_red), matching
+# coord.acceptance_drivers.parse_playwright_json_report's
+# "[{project}] {file} › {describe path} › {test title}" shape.
+tests:
+  # §4b — card shows the single combined issue reference `A#42` (no bare
+  # `api` anywhere on the card) and the machine name `laptop`.
+  "[chromium] ms-3/home-active.spec.ts › ms-3 Home Active tab (#1544) › pipeline card for issue 42 shows title, repo, number, machine and status": 47
+  # §4b — the issue reference `A#42` renders as a single monospace element.
+  "[chromium] ms-3/home-active.spec.ts › ms-3 Home Active tab (#1544) › issue number is rendered in a monospace element": 47
+
+# Observed from a real `npm run test:acceptance -- ms-3` run against the
+# current (unamended) PipelineCard.tsx, which still renders `view.repo_name`
+# spelled out next to a bare `#{view.issue_number}` — see
+# src/components/PipelineCard.tsx:186. Both ids below FAILED in that run;
+# every other test in the ms-3 suite (13 others) stayed green, confirming the
+# amendment's blast radius is exactly these two assertions.
+expected_red:
+  47:
+    - "[chromium] ms-3/home-active.spec.ts › ms-3 Home Active tab (#1544) › pipeline card for issue 42 shows title, repo, number, machine and status"
+    - "[chromium] ms-3/home-active.spec.ts › ms-3 Home Active tab (#1544) › issue number is rendered in a monospace element"

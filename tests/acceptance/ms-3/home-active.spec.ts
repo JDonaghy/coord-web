@@ -305,7 +305,9 @@ test.describe('ms-3 Home Active tab (#1544)', () => {
 
   /**
    * §4a — the issue title.
-   * §4b — the repo name, the issue number and the machine name.
+   * §4b — (Amended, coord-web#47.) the combined issue reference `A#42` and the
+   * machine name. The bare repo name `api` must no longer appear anywhere on
+   * the card — that is the substantive change this amendment makes.
    * §4c — a status badge reading `running`.
    */
   test('pipeline card for issue 42 shows title, repo, number, machine and status', async ({ page }) => {
@@ -313,15 +315,21 @@ test.describe('ms-3 Home Active tab (#1544)', () => {
     await expect(c).toBeVisible()
 
     await expect(c.getByText('Fix the dashboard rendering')).toBeVisible()   // §4a
-    await expect(c).toContainText('api')                                     // §4b
-    await expect(c).toContainText('#42')                                     // §4b
+    await expect(c).toContainText('A#42')                                   // §4b
     await expect(c).toContainText('laptop')                                  // §4b
     await expect(c.getByText('running', { exact: true })).toBeVisible()      // §4c
+
+    // §4b — the bare repo name must not survive the amendment: the card no
+    // longer spells out `api` anywhere, only the alias joined to the number.
+    const cardText = await c.innerText()
+    expect(cardText).not.toMatch(/\bapi\b/)
   })
 
   /**
-   * §4b — the issue number is rendered in a monospace element ("monospace
-   * means a value the machine owns").
+   * §4b — the issue reference `A#42` — the repo's 2-letter alias joined
+   * directly to the issue number, no space — is rendered as a SINGLE
+   * monospace element ("monospace means a value the machine owns"). `A #42`
+   * (with a space, or split across two elements) does not conform.
    *
    * TODO(test-author): this is the one place the contract pins something the
    * "Not in scope: any visual property ... font" clause would otherwise
@@ -329,10 +337,10 @@ test.describe('ms-3 Home Active tab (#1544)', () => {
    * asserted — but on the computed font-family only, never on a class name.
    */
   test('issue number is rendered in a monospace element', async ({ page }) => {
-    const number = card(page, 'Fix the dashboard rendering').getByText('#42', { exact: true })
-    await expect(number).toBeVisible()
+    const ref = card(page, 'Fix the dashboard rendering').getByText('A#42', { exact: true })
+    await expect(ref).toBeVisible()
 
-    const fontFamily = await number.evaluate(el => getComputedStyle(el).fontFamily)
+    const fontFamily = await ref.evaluate(el => getComputedStyle(el).fontFamily)
     expect(fontFamily.toLowerCase()).toMatch(/mono/)
   })
 
