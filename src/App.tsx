@@ -55,6 +55,12 @@ const Gallery = lazy(() => import('@/components/Gallery'))
  *                                        slot, same `element={null}` posture
  *                                        as /queue -- no detail view for a
  *                                        report result yet
+ *   /answers                         -> AnswersPanel (#59) in the list slot,
+ *                                        same `element={null}` posture as
+ *                                        /queue and /reports -- the composer
+ *                                        for one submission's answer is
+ *                                        inline in the list itself, no
+ *                                        detail view needed
  *   *  (inside the shell)            -> RouteNotFound -- a real not-found
  *                                        state for a genuinely unknown path,
  *                                        rendered inside the shell (rail,
@@ -126,6 +132,12 @@ export default function App() {
                 `ShellLayout`, same as `/queue` above — no detail-slot
                 content for a report result yet. */}
             <Route path="/reports" element={null} />
+
+            {/* The list slot's `AnswersPanel` (#59) is wired in
+                `ShellLayout`, same posture as `/queue`/`/reports` above — no
+                detail-slot content for one submission's answer flow, the
+                composer lives inline in the list itself. */}
+            <Route path="/answers" element={null} />
 
             {/* Genuinely unknown path under the shell -- a typo'd URL, or a
                 link to a feature that no longer exists. `ShellLayout` puts

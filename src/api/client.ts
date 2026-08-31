@@ -284,6 +284,118 @@ export async function driveQueueAction(
   return data
 }
 
+// ── GET /api/portal/needs-input, POST /api/portal/answer (#59) ─────────────
+
+/**
+ * One submission sitting in `needs-input`, with its currently open
+ * (unanswered) question attached — `GET /api/portal/needs-input`'s response
+ * shape.
+ *
+ * Hand-written, same convention as `SessionInfo` above: issue #59
+ * (claude-coordinator#2990) documents this endpoint's existence, and gives
+ * `POST /api/portal/answer`'s request body verbatim, but not this GET's
+ * response schema. The fields below are the minimum this screen needs — an
+ * id to answer against, the open question's text (shown in full, never
+ * truncated), and the `revision` that must round-trip unchanged into the
+ * POST (a stale one is a 409, not a silent overwrite — see
+ * `submitPortalAnswer`). The rest are optional display context a richer
+ * server response may or may not carry; treat an absent one as "unknown",
+ * never as a reason to hide the row. Confirm this still matches
+ * `coord/dashboard/server.py`'s actual response before relying on a field
+ * not listed here (see this file's own header re: generated-type drift).
+ */
+export interface PortalNeedsInputItem {
+  submission_id: string
+  /** The open question's text — rendered in full on this screen. */
+  question: string
+  /** The `question_revision` this answer must be paired to. */
+  revision: number
+  /** Display context, when the server has it. */
+  repo_name?: string | null
+  issue_number?: number | null
+  title?: string | null
+  /** ISO 8601 timestamp the question was opened, when known. */
+  opened_at?: string | null
+}
+
+/** The provenance an operator-recorded answer must carry — mandatory on
+ * every `POST /api/portal/answer` (issue #59's acceptance bar: "an answer
+ * with no stated provenance cannot be submitted"). */
+export type PortalAnswerSource = 'verbal' | 'phone' | 'email'
+
+/** `POST /api/portal/answer`'s request body, given verbatim by issue #59 —
+ * see `src/lib/portal.ts` for why there is no separate client-supplied
+ * "date" field: the landed contract doesn't have one, and this screen is a
+ * thin client over exactly this shape, not a second contract. */
+export interface PortalAnswerRequest {
+  submission_id: string
+  text: string
+  source: PortalAnswerSource
+  revision: number
+  actor?: string
+}
+
+/** The recorded portal ledger entry — `POST /api/portal/answer`'s `200` body
+ * is `{ entry: PortalLedgerEntry }`. Hand-written like `PortalNeedsInputItem`
+ * above: issue #59 confirms this exists and wraps it, not its full shape. */
+export interface PortalLedgerEntry {
+  submission_id: string
+  text: string
+  source: PortalAnswerSource
+  revision: number
+  [key: string]: unknown
+}
+
+export interface PortalAnswerResult {
+  ok: boolean
+  entry?: PortalLedgerEntry
+  /** Human-readable failure detail; set only when `ok` is `false`. */
+  error?: string
+  /** The response's HTTP status, so a caller can tell a `409` (the question
+   * moved on since it was listed — issue #59: "surface as a re-read prompt,
+   * not a generic error") apart from a `400`/`404`, without re-parsing
+   * `error` text. */
+  status?: number
+}
+
+/** Fetch the submissions currently sitting in `needs-input`, each with its
+ * open question attached (#59). */
+export async function fetchPortalNeedsInput(): Promise<PortalNeedsInputItem[]> {
+  return apiFetch<PortalNeedsInputItem[]>('/api/portal/needs-input')
+}
+
+/**
+ * Record an out-of-band client answer against a submission's open question
+ * (#59). Never throws on a non-2xx response — mirrors `pipelineAction`/
+ * `driveQueueAction` above: the caller (`AnswersPanel`) needs the structured
+ * `{ok, status, error}` shape to tell a `409` (stale revision) apart from a
+ * `400`/`404`, which a thrown `Error` (`apiFetch`'s posture) would collapse
+ * into one generic failure string.
+ *
+ * A `200` on an exact duplicate retry (double-submit) is the server's own
+ * idempotent-convergence behaviour (`portal_store.answer_question`) — this
+ * function does no client-side dedupe of its own, per issue #59's explicit
+ * instruction not to second-guess it.
+ */
+export async function submitPortalAnswer(body: PortalAnswerRequest): Promise<PortalAnswerResult> {
+  const res = await fetch(`${API_BASE}/api/portal/answer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  let data: { entry?: PortalLedgerEntry; error?: string } = {}
+  try {
+    data = await res.json()
+  } catch {
+    // No/invalid JSON body — fall through with an empty `data`, the status
+    // code alone is still enough to report failure below.
+  }
+  if (!res.ok) {
+    return { ok: false, status: res.status, error: data.error ?? `HTTP ${res.status}` }
+  }
+  return { ok: true, status: res.status, entry: data.entry }
+}
+
 // ── WS /ws/terminal/{session_id} ────────────────────────────────────────────
 
 /**

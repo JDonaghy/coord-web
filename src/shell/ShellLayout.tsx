@@ -29,6 +29,7 @@ import Home from '@/components/Home'
 import SessionsList from '@/components/SessionsList'
 import DriveQueuePanel from '@/components/DriveQueuePanel'
 import ReportsPanel from '@/components/ReportsPanel'
+import AnswersPanel from '@/components/AnswersPanel'
 import { fetchPipeline, fetchSessions } from '@/api/client'
 import { isActive, needsMe, latestPerIssue } from '@/lib/pipeline'
 import { RAIL_VIEW_PATH, shellViewFromPath } from '@/routes/paths'
@@ -149,6 +150,13 @@ export function ShellLayout() {
     // `VIEWS_WITH_DETAIL_ROUTE`) and `AppShell` lets this list pane fill the
     // width that would otherwise sit empty next to it.
     list = <ReportsPanel />
+  } else if (currentView === 'answers') {
+    // #59: same posture as Queue/Reports above -- no detail view for one
+    // submission's answer flow (the composer is inline in the card itself),
+    // so `hasDetailRoute` stays `false` here (see `VIEWS_WITH_DETAIL_ROUTE`)
+    // and `AppShell` lets this list pane fill the width that would
+    // otherwise sit empty next to it.
+    list = <AnswersPanel />
   } else if (currentView === null) {
     list = <RouteNotFound />
   } else {
