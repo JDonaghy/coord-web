@@ -9,7 +9,7 @@
  * `<Toaster/>` so a call's toast can be asserted directly.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
@@ -158,9 +158,19 @@ describe('AnswersPanel — recording an answer', () => {
     expect(screen.getByTestId('answers-empty-state')).toBeInTheDocument()
   })
 
-  it('a double-submit still only ever sends one request per click -- server-side idempotency is trusted, not re-implemented', async () => {
+  it('a double-submit still only ever sends one request -- server-side idempotency is trusted, not re-implemented', async () => {
     vi.mocked(fetchPortalNeedsInput).mockResolvedValue([makeItem()])
-    vi.mocked(submitPortalAnswer).mockResolvedValue({ ok: true, status: 200 })
+    // Hold the first request open so a second, rapid submit lands while it's
+    // still in flight -- a single `user.click` can't distinguish "guarded
+    // against a real double-tap" from "only ever clicked once", so this
+    // fires two clicks before the request resolves at all.
+    let resolveSubmit: (value: PortalAnswerResult) => void = () => {}
+    vi.mocked(submitPortalAnswer).mockImplementation(
+      () =>
+        new Promise<PortalAnswerResult>((resolve) => {
+          resolveSubmit = resolve
+        }),
+    )
     const user = userEvent.setup()
 
     renderPanel()
@@ -168,12 +178,18 @@ describe('AnswersPanel — recording an answer', () => {
     await user.type(await screen.findByTestId('answer-text-input-sub-1'), 'Confirmed.')
     await user.selectOptions(screen.getByTestId('answer-source-select-sub-1'), 'verbal')
     const submit = screen.getByTestId('answer-submit-button-sub-1')
-    await user.click(submit)
-    // The button disables itself ("Recording…") the instant a submit is in
-    // flight -- a second click while it's still pending is a no-op on the
-    // client's side; the one call that does go out is what the server's own
-    // idempotent convergence (assert-not-reimplement, per the issue) covers.
-    await waitFor(() => expect(submitPortalAnswer).toHaveBeenCalledTimes(1))
+
+    // Two rapid submits, neither awaited in between -- the second while the
+    // first request is still pending. The button disables itself
+    // ("Recording…") the instant a submit is in flight, so this exercises
+    // the actual guard rather than trivially passing on a single click.
+    fireEvent.click(submit)
+    fireEvent.click(submit)
+
+    expect(submitPortalAnswer).toHaveBeenCalledTimes(1)
+
+    resolveSubmit({ ok: true, status: 200 })
+    expect(await screen.findByTestId('answer-recorded-sub-1')).toBeInTheDocument()
   })
 })
 

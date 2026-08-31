@@ -225,16 +225,26 @@ export default function AnswersPanel() {
   const queryClient = useQueryClient()
 
   const [composers, setComposers] = useState<Record<string, ComposerState>>({})
-  const [recordedIds, setRecordedIds] = useState<Set<string>>(new Set())
+  // Keyed by `${submission_id}:${revision}`, not `submission_id` alone: if
+  // the same submission legitimately reopens with a new question revision
+  // soon after being answered in this session (the answer prompts a
+  // follow-up rather than closing the loop outright), a submission_id-only
+  // key would leave the card stuck on "Answer recorded — leaving Needs
+  // input…" forever instead of showing the composer for the new question.
+  const [recordedKeys, setRecordedKeys] = useState<Set<string>>(new Set())
 
-  // Prune `recordedIds` to whatever the latest fetch still lists -- once a
+  const recordedKey = (id: string, revision: number) => `${id}:${revision}`
+
+  // Prune `recordedKeys` to whatever the latest fetch still lists -- once a
   // just-answered submission's card is gone (the invalidate below landed),
-  // there's nothing left for that flag to describe.
+  // there's nothing left for that flag to describe. A submission that
+  // reappears with a new revision naturally drops out here too, since its
+  // current key won't match the one we recorded.
   useEffect(() => {
     if (!data) return
-    const present = new Set(data.map((i) => i.submission_id))
-    setRecordedIds((prev) => {
-      const next = new Set([...prev].filter((id) => present.has(id)))
+    const present = new Set(data.map((i) => recordedKey(i.submission_id, i.revision)))
+    setRecordedKeys((prev) => {
+      const next = new Set([...prev].filter((key) => present.has(key)))
       return next.size === prev.size ? prev : next
     })
   }, [data])
@@ -242,7 +252,7 @@ export default function AnswersPanel() {
   const composerFor = (id: string): ComposerState => composers[id] ?? EMPTY_COMPOSER
 
   const patchComposer = (id: string, patch: Partial<ComposerState>) => {
-    setComposers((prev) => ({ ...prev, [id]: { ...composerFor(id), ...patch } }))
+    setComposers((prev) => ({ ...prev, [id]: { ...(prev[id] ?? EMPTY_COMPOSER), ...patch } }))
   }
 
   const handleSubmit = async (item: PortalNeedsInputItem) => {
@@ -264,7 +274,7 @@ export default function AnswersPanel() {
           title: 'Answer recorded',
           description: portalItemDisplayRef(item),
         })
-        setRecordedIds((prev) => new Set(prev).add(item.submission_id))
+        setRecordedKeys((prev) => new Set(prev).add(recordedKey(item.submission_id, item.revision)))
         setComposers((prev) => {
           const next = { ...prev }
           delete next[item.submission_id]
@@ -320,7 +330,7 @@ export default function AnswersPanel() {
               key={item.submission_id}
               item={item}
               composer={composerFor(item.submission_id)}
-              recorded={recordedIds.has(item.submission_id)}
+              recorded={recordedKeys.has(recordedKey(item.submission_id, item.revision))}
               onChange={(patch) => patchComposer(item.submission_id, patch)}
               onSubmit={() => void handleSubmit(item)}
             />
