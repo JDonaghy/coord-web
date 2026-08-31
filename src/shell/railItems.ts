@@ -19,6 +19,7 @@ import {
   LayoutDashboard,
   ListOrdered,
   Milestone,
+  PhoneCall,
   ScrollText,
   Server,
   SquareTerminal,
@@ -51,6 +52,19 @@ export const RAIL_ITEMS: readonly RailItem[] = [
   { id: 'pipeline', label: 'Pipeline', icon: Workflow, status: 'ready' },
   { id: 'board', label: 'Board', icon: LayoutDashboard, status: 'soon', hint: 'Board panel — M-W2' },
   { id: 'sessions', label: 'Sessions', icon: SquareTerminal, status: 'ready' },
+  {
+    // #59 — record an out-of-band client answer (in person, on a call, by
+    // email) against a `needs-input` submission's open question. Ungrouped,
+    // alongside Pipeline/Sessions rather than under Flow/Insight: the
+    // triggering event is a live phone call, so this needs the same
+    // one-tap-from-anywhere reach those two get, not the lower priority a
+    // grouped/collapsed entry implies.
+    id: 'answers',
+    label: 'Answers',
+    icon: PhoneCall,
+    status: 'ready',
+    hint: 'Record an out-of-band client answer — #59',
+  },
   {
     id: 'terminal',
     label: 'Terminal',

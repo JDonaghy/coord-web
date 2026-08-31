@@ -53,6 +53,11 @@ export const paths = {
    * contract.md` §1b/§7.2), mirroring `paths.queue()`; no issue body names
    * either the path or this builder. */
   reports: () => '/reports',
+  /** #59 — the Answers screen (record an out-of-band client answer against a
+   * `needs-input` submission's open question), same route-naming posture as
+   * `queue()`/`reports()` above: no issue body names the path, this is this
+   * story's own choice. */
+  answers: () => '/answers',
   settings: () => '/settings',
 } as const
 
@@ -76,6 +81,7 @@ export const RAIL_VIEW_PATH: Partial<Record<ShellView, string>> = {
   audit: paths.audit(),
   spend: paths.spend(),
   reports: paths.reports(),
+  answers: paths.answers(),
   settings: paths.settings(),
 }
 
