@@ -41,6 +41,7 @@ import {
   fetchMachineWorkStats,
   fetchMachines,
 } from '@/api/client'
+import MachineHealth from '@/components/MachineHealth'
 import { SeverityBadge } from '@/components/MachinesList'
 import { cn } from '@/lib/utils'
 import { issueRef } from '@/lib/repoRef'
@@ -337,17 +338,8 @@ export default function MachineDetail() {
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : healthQuery.data && !healthQuery.data.available ? (
           <UnavailableNote label="Health checks" />
-        ) : health && health.length > 0 ? (
-          <ul className="space-y-1">
-            {health.map((row) => (
-              <li key={row.check} className="flex items-center justify-between text-sm">
-                <span className="text-foreground">{row.check}</span>
-                <span className="font-mono text-xs text-muted-foreground">{row.status}</span>
-              </li>
-            ))}
-          </ul>
         ) : health ? (
-          <p className="text-sm text-muted-foreground">No health checks reported.</p>
+          <MachineHealth snapshot={health} />
         ) : (
           <p className="text-sm text-destructive">Failed to load health checks</p>
         )}

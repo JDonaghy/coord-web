@@ -26,7 +26,8 @@ import type {
   ColumnMeta,
   DriveQueueSummary,
   MachineActiveWorker,
-  MachineHealthRow,
+  MachineHealthCheckResult,
+  MachineHealthSnapshot,
   MachineJobHistoryEntry,
   MachineMetricPoint,
   MachineMetricsSeries,
@@ -54,7 +55,8 @@ export type {
   ColumnMeta,
   DriveQueueSummary,
   MachineActiveWorker,
-  MachineHealthRow,
+  MachineHealthCheckResult,
+  MachineHealthSnapshot,
   MachineJobHistoryEntry,
   MachineMetricPoint,
   MachineMetricsSeries,
@@ -293,11 +295,15 @@ export async function fetchMachineMetrics(
   )
 }
 
-/** Fetch a machine's current health-check rows. */
+/** Fetch a machine's current health-check snapshot (severity/stale +
+ * per-check results — see `MachineHealthSnapshot`'s doc comment for why
+ * both pairs travel together, #64). */
 export async function fetchMachineHealth(
   name: string,
-): Promise<MachineQueryResult<MachineHealthRow[]>> {
-  return apiFetchOptional<MachineHealthRow[]>(`/api/machines/${encodeURIComponent(name)}/health`)
+): Promise<MachineQueryResult<MachineHealthSnapshot>> {
+  return apiFetchOptional<MachineHealthSnapshot>(
+    `/api/machines/${encodeURIComponent(name)}/health`,
+  )
 }
 
 /** Fetch a machine's aggregate work-stats over the server's own trailing window. */

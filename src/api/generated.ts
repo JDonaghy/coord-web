@@ -477,16 +477,55 @@ export interface MachineMetricsSeries {
   points: MachineMetricPoint[]
 }
 
-/** `GET /api/machines/{name}/health` — one named health check's current
- * result. Open vocabulary on both `check` and `status`'s real value set;
- * `'unknown'` is this client's own fallback for a status string it doesn't
- * recognize, not necessarily a literal wire value. */
-export interface MachineHealthRow {
-  check: string
-  status: 'ok' | 'warn' | 'fail' | 'unknown'
-  detail: string | null
-  /** Epoch seconds, when the server has one. */
+/**
+ * `GET /api/machines/{name}/health` — this machine's health-check snapshot.
+ * Mirrors the wire shape coord-tui's `fleet_health.rs` already consumes for
+ * the identical data (`FleetMachineHealth`, itself
+ * `coord.health.fleet_snapshot`'s per-machine row in `/board`'s
+ * `fleet_health.machine_health[]`) rather than inventing a new one — one
+ * wire contract for "one machine's rolled-up health", read by both clients.
+ *
+ * `severity`/`stale` answer "trust this right now?"; `results`/`checked_at`
+ * answer "what did we last see?" — kept as two separate pairs on purpose
+ * (#1630, #64). A stale snapshot must render as "last measured OK, a while
+ * ago", never silently as "OK": `severity` is already stale-aware
+ * server-side (it becomes `'unknown'` once a machine hasn't reported in too
+ * long), but `stale`+`checked_at` are what let the UI say *why* rather than
+ * just rendering the downgraded verdict with no explanation.
+ */
+export interface MachineHealthSnapshot {
+  /** Rolled-up across `results`, computed server-side the same way
+   * `MachineState.severity` is — not re-derived on this side. */
+  severity: 'ok' | 'warn' | 'crit' | 'unknown'
+  /** True when this snapshot is too old to currently trust, per the
+   * server's own staleness rule (not a client-side age comparison). */
+  stale: boolean
+  /** Epoch seconds of the last actual measurement, or `null` when this
+   * machine has never reported health at all (old agent, or never polled). */
   checked_at: number | null
+  results: MachineHealthCheckResult[]
+}
+
+/**
+ * One already-rendered health-check row — the wire shape of
+ * `coord.health.models.CheckResult.to_dict()` (`coord/health/checks/`:
+ * disk, worktrees, toolchain, index_lock, spawned_coord, cargo_targets and
+ * the rest). `severity`/`headroom` are pre-decided by the probe that
+ * produced this row; nothing on this side may re-derive either from raw
+ * numbers — the same rule `coord-tui/src/app/fleet_health.rs`'s module doc
+ * comment spells out for the identical data. `headroom` is the load-bearing
+ * field: a short, already-formatted phrase such as `"86% used (22G free)"`,
+ * not a number this client formats itself. Open vocabulary on `check`.
+ */
+export interface MachineHealthCheckResult {
+  /** Stable identity for this row (`CheckResult.key`): `check_id`, or
+   * `"<check_id>:<subject>"` when the check has a subject. */
+  check: string
+  /** Display label, e.g. `"disk"` or `"worktrees: vimcode"`. */
+  label: string
+  severity: 'ok' | 'warn' | 'crit' | 'unknown'
+  headroom: string
+  detail: string | null
 }
 
 /** `GET /api/machines/{name}/work-stats` — aggregate assignment throughput
