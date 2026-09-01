@@ -33,13 +33,24 @@
  * touchable at ~390px, not merely not-broken") and excluded from `chromium`
  * via `testIgnore` so they don't triple-run; every other spec's breakpoint
  * coverage (if any) stays exactly where it already was, under `chromium`.
+ *
+ * `machines-responsive.spec.ts` (#67, M-4's exit gate) joins the same list
+ * for the same reason: the Machines panel's list/detail split and its theme
+ * toggle both need proving at both breakpoints, not just the default
+ * viewport `machines.spec.ts` (functional coverage, not breakpoint-specific)
+ * runs under.
  */
 
 import { defineConfig, devices } from '@playwright/test'
 
 const WIDE_VIEWPORT = { width: 1440, height: 900 }
 const NARROW_VIEWPORT = { width: 390, height: 844 }
-const BREAKPOINT_PROJECT_FILES = ['deep-link.spec.ts', 'theme.spec.ts', 'machine-charts.spec.ts']
+const BREAKPOINT_PROJECT_FILES = [
+  'deep-link.spec.ts',
+  'theme.spec.ts',
+  'machine-charts.spec.ts',
+  'machines-responsive.spec.ts',
+]
 
 export default defineConfig({
   testDir: './e2e',
