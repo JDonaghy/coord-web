@@ -334,7 +334,7 @@ export interface ReportResult {
   chart: ChartSpec | null
 }
 
-// ── Machines panel (coord-web#61) — blocked on claude-coordinator#3027 ──────
+// ── Machines panel (coord-web#61, #62, #63) — blocked on claude-coordinator#3027 ──
 //
 // Unlike `BoardDriveQueueEntry`/`ReportDef` above, these types are NOT a
 // transcription of a real, already-serving `coord.dashboard.server.
@@ -406,6 +406,58 @@ export interface MachineState {
   /** True while this machine is cordoned off from new work by an in-flight
    * release rollout, independent of quiet hours or a hand pause. */
   release_cordoned: boolean
+  /**
+   * Total on-disk size, in bytes, of this machine's git worktrees, or
+   * `null` when the daemon hasn't reported one. Added for #63 (machine
+   * detail's disk-footprint line) — same hand-authored, wholesale-
+   * replaceable posture as the rest of this block.
+   */
+  worktree_bytes: number | null
+  /**
+   * Max concurrent headless workers this machine will run at once (its
+   * concurrency ceiling), or `null` when the daemon hasn't reported one.
+   * Paired with `headless_workers` (the current count) so the detail panel
+   * can render "2 / 6" rather than the count alone (#63).
+   */
+  concurrency_limit: number | null
+}
+
+/**
+ * `GET /api/machines/{name}/workers` — one of this machine's currently
+ * active headless workers. `type` reuses `AssignmentType`'s real value set
+ * since a worker *is* a dispatched assignment. Parity reference: coord-tui's
+ * `machine_detail_list` ACTIVE WORKERS section (`app/mod.rs`). Same
+ * hand-authored, wholesale-replaceable posture as the rest of this block
+ * (#63) — see this section's header.
+ */
+export interface MachineActiveWorker {
+  id: string
+  issue: number | null
+  type: AssignmentType
+  repo: string | null
+  /** Epoch seconds the worker was dispatched -- the detail panel's age
+   * column is computed client-side from this. */
+  started_at: number
+}
+
+/**
+ * `GET /api/machines/{name}/jobs` — one entry in this machine's recent job
+ * history. `status` reuses `AssignmentStatus`'s real value set since a job
+ * history row *is* a (usually finished) assignment; the detail panel uses
+ * it to render failures visually distinct from the rest. Parity reference:
+ * coord-tui's `machine_detail_list` JOB HISTORY section (`app/mod.rs`).
+ * Same hand-authored, wholesale-replaceable posture as the rest of this
+ * block (#63).
+ */
+export interface MachineJobHistoryEntry {
+  id: string
+  issue: number | null
+  repo: string | null
+  status: AssignmentStatus
+  /** Epoch seconds the job finished, or `null` while it's still
+   * pending/running -- the detail panel renders those as "in progress"
+   * rather than a bogus age. */
+  finished_at: number | null
 }
 
 /** One sample of a `MachineMetricsSeries`. */

@@ -30,6 +30,8 @@ function makeMachine(overrides: Partial<MachineState> = {}): MachineState {
     quiet_hours_paused: false,
     hand_paused: false,
     release_cordoned: false,
+    worktree_bytes: null,
+    concurrency_limit: null,
     ...overrides,
   }
 }
