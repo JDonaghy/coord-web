@@ -7,6 +7,7 @@
 import { cn } from '@/lib/utils'
 import { type PipelineView, type PipelineStage } from '@/api/client'
 import { issueRef } from '@/lib/repoRef'
+import { formatRelativeTime } from '@/lib/time'
 import {
   FAILED_STAGES,
   stageChipVisual,
@@ -62,38 +63,6 @@ function stageChipClass(stage: PipelineStage, view: PipelineView): string {
             ) // 'pending'
 
   return cn(base, fillClass, ring && STAGE_CHIP_RING_CLASS)
-}
-
-// ── Relative-time label ───────────────────────────────────────────────────────
-
-/**
- * "3h ago" / "2d ago" style label for a `finished_at` epoch-seconds
- * timestamp (follow-up to #1218: the "Work done" section sorted by recency
- * but never showed a timestamp, so the ordering wasn't user-perceivable).
- *
- * `now` is injectable so tests don't depend on the real clock. Not exported:
- * eslint's react-refresh rule flags non-component exports from a component
- * file, so this stays module-private and is exercised through the rendered
- * `PipelineCard` output in tests instead.
- */
-const formatRelativeTime = (epochSeconds: number, now: number = Date.now()): string => {
-  const diffSec = Math.round((now - epochSeconds * 1000) / 1000)
-
-  if (diffSec < 60) return 'just now'
-
-  const diffMin = Math.round(diffSec / 60)
-  if (diffMin < 60) return `${diffMin}m ago`
-
-  const diffHour = Math.round(diffMin / 60)
-  if (diffHour < 24) return `${diffHour}h ago`
-
-  const diffDay = Math.round(diffHour / 24)
-  if (diffDay < 7) return `${diffDay}d ago`
-
-  return new Date(epochSeconds * 1000).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-  })
 }
 
 // ── Overall status badge ──────────────────────────────────────────────────────

@@ -25,7 +25,9 @@ import type {
   ChartSpec,
   ColumnMeta,
   DriveQueueSummary,
+  MachineActiveWorker,
   MachineHealthRow,
+  MachineJobHistoryEntry,
   MachineMetricPoint,
   MachineMetricsSeries,
   MachineState,
@@ -51,7 +53,9 @@ export type {
   ChartSpec,
   ColumnMeta,
   DriveQueueSummary,
+  MachineActiveWorker,
   MachineHealthRow,
+  MachineJobHistoryEntry,
   MachineMetricPoint,
   MachineMetricsSeries,
   MachineState,
@@ -258,11 +262,11 @@ export async function fetchSessions(): Promise<SessionInfo[]> {
   return apiFetch<SessionInfo[]>('/api/sessions')
 }
 
-// ── GET /api/machines* (forthcoming — claude-coordinator#3027, #61) ────────
+// ── GET /api/machines* (forthcoming — claude-coordinator#3027, #61, #63) ───
 //
 // Every function below hits a route that isn't registered on any coord
 // server yet — see `./generated.ts`'s "Machines panel" section header for
-// the full context. All four are built on `apiFetchOptional`, not
+// the full context. All seven are built on `apiFetchOptional`, not
 // `apiFetch`: a 404 is this milestone's *expected* steady state until #3027
 // lands, not a bug to throw over, and `MachinesPanel`/`MachineDetail` (M-4)
 // render `{available: false}` as an honest "unavailable" note per section
@@ -303,6 +307,24 @@ export async function fetchMachineWorkStats(
   return apiFetchOptional<MachineWorkStats>(
     `/api/machines/${encodeURIComponent(name)}/work-stats`,
   )
+}
+
+/** Fetch a machine's currently active headless workers (#63's ACTIVE WORKERS
+ * section — id/issue/type/repo/age per row). */
+export async function fetchMachineWorkers(
+  name: string,
+): Promise<MachineQueryResult<MachineActiveWorker[]>> {
+  return apiFetchOptional<MachineActiveWorker[]>(
+    `/api/machines/${encodeURIComponent(name)}/workers`,
+  )
+}
+
+/** Fetch a machine's recent job history (#63's JOB HISTORY section —
+ * status + age per row, most recent first). */
+export async function fetchMachineJobs(
+  name: string,
+): Promise<MachineQueryResult<MachineJobHistoryEntry[]>> {
+  return apiFetchOptional<MachineJobHistoryEntry[]>(`/api/machines/${encodeURIComponent(name)}/jobs`)
 }
 
 // ── GET /api/report, GET /api/report/{report_id} (#2492 RPT-1 / #21 RPT-2) ──

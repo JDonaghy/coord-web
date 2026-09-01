@@ -24,7 +24,7 @@
 import { cn } from '@/lib/utils'
 import type { MachineState } from '@/api/client'
 
-type Severity = MachineState['severity']
+export type Severity = MachineState['severity']
 
 const SEVERITY_INFO: Record<Severity, { label: string; className: string }> = {
   ok: { label: 'ok', className: 'bg-pass-wash text-pass' },
@@ -35,7 +35,10 @@ const SEVERITY_INFO: Record<Severity, { label: string; className: string }> = {
   unknown: { label: 'unknown', className: 'bg-idle-wash text-idle' },
 }
 
-function SeverityBadge({ severity }: { severity: Severity }) {
+/** Exported for `MachineDetail` (#63), which needs the identical severity
+ * badge in its own status line -- one visual vocabulary for "how healthy is
+ * this machine" across the list and detail views. */
+export function SeverityBadge({ severity }: { severity: Severity }) {
   const info = SEVERITY_INFO[severity]
   return (
     <span
