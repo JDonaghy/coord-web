@@ -1,0 +1,82 @@
+{
+  "_comment": [
+    "#67 (M-4 exit gate) — a minimal seeded board for `coord web --fixture`,",
+    "used ONLY to drive the real `GET /api/machines` wire shape end to end.",
+    "",
+    "Deliberately does NOT lean on claude-coordinator#3026's newer",
+    "`fleet_health`/`machine_metrics` fixture keys (added to `FixtureServer`",
+    "well after this repo's own `machines` key support) -- `machines` here is",
+    "the same top-level key `board-pipeline-basic.json` (#1538) already uses,",
+    "supported by every `code-coordinator[server]` release this suite has",
+    "ever run against. Keeping this fixture on that older, stable surface",
+    "means the one real-server test in machines.spec.ts that boots a genuine",
+    "`coord web --fixture` process doesn't depend on exactly which published",
+    "version CI's unpinned `pip install code-coordinator[server]` happens to",
+    "resolve to.",
+    "",
+    "The per-machine nested routes (`/api/machines/{name}/health`, `/metrics`,",
+    "`/work-stats`, `/workers`, `/jobs`) `src/api/client.ts` calls for",
+    "`MachineDetail` are NOT claude-coordinator#3026 -- they're",
+    "claude-coordinator#3027, still open, registered on no published coord",
+    "server as of this file's writing. `/machines/:name` cold-loaded against",
+    "this real process is exactly the auto-deploy-skew case #67 asks for: a",
+    "bundle newer than the API serving it, degrading (not crashing) rather",
+    "than rendering real data -- see `machines.spec.ts`'s own test for that",
+    "route for exactly what that degrade looks like today (a generic",
+    "'Failed to load ...' per section, not the nicer 'unavailable' copy --",
+    "the server's SPA catch-all answers 200 HTML for any unmatched path,",
+    "`/api/...` included, rather than a real 404; that test's comment has",
+    "the full explanation)."
+  ],
+  "now": 1750000000.0,
+
+  "board": {
+    "round_number": 1,
+    "assignments": [],
+    "plans": {},
+    "notifications": []
+  },
+
+  "machines": [
+    {
+      "name": "laptop",
+      "host": "laptop.tailnet.ts.net",
+      "reachable": true,
+      "last_seen": 1749999970.0,
+      "active_assignments": 1,
+      "headless_workers": 2,
+      "severity": "ok",
+      "agent_version": "1.4.0",
+      "is_local": true,
+      "quiet_hours_paused": false,
+      "hand_paused": false,
+      "release_cordoned": false,
+      "worktree_bytes": 2147483648,
+      "concurrency_limit": 6
+    },
+    {
+      "name": "dellserver",
+      "host": "dellserver.tailnet.ts.net",
+      "reachable": false,
+      "last_seen": 1749900000.0,
+      "active_assignments": 0,
+      "headless_workers": 0,
+      "severity": "unknown",
+      "agent_version": null,
+      "is_local": false,
+      "quiet_hours_paused": true,
+      "hand_paused": false,
+      "release_cordoned": false,
+      "worktree_bytes": null,
+      "concurrency_limit": null
+    }
+  ],
+
+  "events": [
+    {
+      "after": 0.05,
+      "type": "machine_connected",
+      "data": {"machine": "dellserver"}
+    }
+  ]
+}
