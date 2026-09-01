@@ -41,6 +41,7 @@ import {
   fetchMachineWorkStats,
   fetchMachines,
 } from '@/api/client'
+import MachineCharts from '@/components/MachineCharts'
 import MachineHealth from '@/components/MachineHealth'
 import { SeverityBadge } from '@/components/MachinesList'
 import { cn } from '@/lib/utils'
@@ -366,21 +367,13 @@ export default function MachineDetail() {
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : metricsQuery.data && !metricsQuery.data.available ? (
           <UnavailableNote label="Metrics" />
-        ) : metrics && metrics.length > 0 ? (
-          // Series listing only -- charting the points themselves is later
-          // M-4 scope (this story is the data plumbing, not the chart).
-          <ul className="space-y-1">
-            {metrics.map((series) => (
-              <li key={series.metric} className="flex items-center justify-between text-sm">
-                <span className="text-foreground">{series.metric}</span>
-                <span className="font-mono text-xs text-muted-foreground">
-                  {series.points.length} points
-                </span>
-              </li>
-            ))}
-          </ul>
         ) : metrics ? (
-          <p className="text-sm text-muted-foreground">No metrics reported.</p>
+          // CPU/memory/disk/throughput time-series charts (#65, M-4) --
+          // each degrades on its own (`MachineCharts`'s own per-metric
+          // `machineChartPlan`/`machineChartMultiPlan`) when this machine
+          // hasn't reported a given metric yet, rather than one panel-wide
+          // fallback.
+          <MachineCharts metrics={metrics} concurrencyLimit={state?.concurrency_limit ?? null} />
         ) : (
           <p className="text-sm text-destructive">Failed to load metrics</p>
         )}

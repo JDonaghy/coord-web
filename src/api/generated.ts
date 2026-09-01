@@ -460,17 +460,31 @@ export interface MachineJobHistoryEntry {
   finished_at: number | null
 }
 
-/** One sample of a `MachineMetricsSeries`. */
+/** One sample of a `MachineMetricsSeries`.
+ *
+ * `value: null` is a first-class, explicit "unknown" sample (#65) — a poll
+ * that failed or timed out, never a real reading. A client MUST render this
+ * as a gap in the series (never interpolate across it, never plot it as
+ * `0`) — plotting a failed poll as `0` would draw a dead agent as an
+ * idle-but-healthy one, exactly the dishonest reading this milestone's
+ * severity-verbatim / stale-labelled conventions (#62, #64) exist to rule
+ * out elsewhere in the Machines panel. */
 export interface MachineMetricPoint {
   /** Epoch seconds. */
   t: number
-  value: number
+  value: number | null
 }
 
 /** `GET /api/machines/{name}/metrics` — one named time series (e.g. load,
- * disk free) for a machine. A client meeting a `metric` it doesn't
+ * disk free) for a machine, over the daemon's retained window (~6h,
+ * claude-coordinator#3020). A client meeting a `metric` it doesn't
  * recognize renders it generically rather than dropping it — open
- * vocabulary, same posture `ColumnMeta.kind` documents. */
+ * vocabulary, same posture `ColumnMeta.kind` documents. `src/lib/
+ * machineCharts.ts`'s own doc comment lists the metric names this client
+ * currently knows how to chart (`cpu_pct`, `mem_pct`, `worktree_bytes`,
+ * `active_workers`, `jobs_completed`, `jobs_failed`) — hand-authored ahead
+ * of #3027 landing, same wholesale-replaceable posture as the rest of this
+ * block. */
 export interface MachineMetricsSeries {
   metric: string
   unit: string | null
