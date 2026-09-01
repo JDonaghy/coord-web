@@ -153,14 +153,29 @@ describe('MachineDetail', () => {
     vi.mocked(fetchMachineWorkStats).mockResolvedValue({ available: true, data: workStats })
     vi.mocked(fetchMachineMetrics).mockResolvedValue({
       available: true,
-      data: [{ metric: 'load1', unit: null, points: [{ t: 1, value: 0.5 }] }],
+      data: [
+        {
+          metric: 'cpu_pct',
+          unit: '%',
+          points: [
+            { t: 1_000, value: 40 },
+            { t: 2_000, value: 55 },
+          ],
+        },
+      ],
     })
 
     renderDetail()
 
     expect(await screen.findByText('4 completed · 1 failed')).toBeInTheDocument()
-    expect(await screen.findByText('load1')).toBeInTheDocument()
-    expect(screen.getByText('1 points')).toBeInTheDocument()
+    // The recognised `cpu_pct` series renders a real chart (#65) -- its
+    // always-visible value readout defaults to the latest known sample.
+    expect(await screen.findByTestId('machine-chart-cpu-value')).toHaveTextContent('55%')
+    // A metric this machine never reported (`mem_pct`) degrades with its
+    // own honest one-line reason, distinct from the CPU chart above it.
+    expect(screen.getByTestId('machine-chart-memory-degraded')).toHaveTextContent(
+      "This machine hasn't reported Memory yet.",
+    )
   })
 
   // ── #63: identity, active workers, job history ──────────────────────────
