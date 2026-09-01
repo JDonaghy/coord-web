@@ -140,7 +140,7 @@ describe('fetchMachineMetrics / fetchMachineHealth / fetchMachineWorkStats', () 
       stale: false,
       checked_at: 1_700_000_000,
       results: [
-        { check: 'disk', label: 'disk', severity: 'ok', headroom: '86% used (22G free)', detail: null },
+        { key: 'disk', label: 'disk', severity: 'ok', headroom: '86% used (22G free)', detail: '' },
       ],
     }
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify(health), { status: 200 }))
