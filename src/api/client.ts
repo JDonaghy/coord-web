@@ -25,6 +25,11 @@ import type {
   ChartSpec,
   ColumnMeta,
   DriveQueueSummary,
+  MachineHealthRow,
+  MachineMetricPoint,
+  MachineMetricsSeries,
+  MachineState,
+  MachineWorkStats,
   PipelineAction,
   PipelineGate,
   PipelineStage,
@@ -46,6 +51,11 @@ export type {
   ChartSpec,
   ColumnMeta,
   DriveQueueSummary,
+  MachineHealthRow,
+  MachineMetricPoint,
+  MachineMetricsSeries,
+  MachineState,
+  MachineWorkStats,
   PipelineAction,
   PipelineGate,
   PipelineStage,
@@ -182,6 +192,44 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
+/**
+ * The result of a query against an endpoint that may genuinely not exist on
+ * the coord server answering this request — as opposed to `apiFetch`'s
+ * posture (any non-2xx is a bug-shaped `Error`), used for endpoints where a
+ * 404 is an *expected*, honest outcome rather than a failure to surface as
+ * one. See `apiFetchOptional`'s doc comment for why this exists.
+ */
+export type MachineQueryResult<T> = { available: true; data: T } | { available: false }
+
+/**
+ * Like `apiFetch`, but a `404` resolves to `{available: false}` instead of
+ * throwing — the version-skew case this repo's CLAUDE.md calls out:
+ * `coord-web` auto-deploys to the live tool on its own timer, decoupled from
+ * any `claude-coordinator` release, so the bundle **will** at some point be
+ * newer than the API serving it. Every `fetchMachine*` function below is
+ * built on this rather than `apiFetch` for exactly that reason (issue #61:
+ * "must degrade to an honest 'unavailable' state when an endpoint 404s, not
+ * crash the panel or render an empty chart as zero") — today that 404 always
+ * fires, since the Machines API itself is still claude-coordinator#3027, not
+ * yet a registered route on any coord server; the same code path is what
+ * keeps this client working once #3027 lands on some hosts before others.
+ *
+ * Any other non-2xx is still a real error and still throws — a 404 here is
+ * "this route doesn't exist," not "the machine doesn't exist," a distinction
+ * a 5xx or a malformed request can't claim.
+ */
+async function apiFetchOptional<T>(path: string): Promise<MachineQueryResult<T>> {
+  const res = await fetch(`${API_BASE}${path}`)
+  if (res.status === 404) {
+    return { available: false }
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`GET ${path} → HTTP ${res.status}: ${text}`)
+  }
+  return { available: true, data: (await res.json()) as T }
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /** Fetch the full board state (active + last-20 completed assignments). */
@@ -208,6 +256,53 @@ export async function fetchDriveQueue(repo?: string): Promise<DriveQueueData> {
 /** Fetch live coord-* interactive sessions the phone can take over (#1066). */
 export async function fetchSessions(): Promise<SessionInfo[]> {
   return apiFetch<SessionInfo[]>('/api/sessions')
+}
+
+// ── GET /api/machines* (forthcoming — claude-coordinator#3027, #61) ────────
+//
+// Every function below hits a route that isn't registered on any coord
+// server yet — see `./generated.ts`'s "Machines panel" section header for
+// the full context. All four are built on `apiFetchOptional`, not
+// `apiFetch`: a 404 is this milestone's *expected* steady state until #3027
+// lands, not a bug to throw over, and `MachinesPanel`/`MachineDetail` (M-4)
+// render `{available: false}` as an honest "unavailable" note per section
+// rather than an empty list/chart that would misreport as "zero machines" /
+// "zero of this metric."
+
+/** Fetch the machine roster — every machine coord knows about. */
+export async function fetchMachines(): Promise<MachineQueryResult<MachineState[]>> {
+  return apiFetchOptional<MachineState[]>('/api/machines')
+}
+
+/** Fetch one machine's roster entry by name. */
+export async function fetchMachine(name: string): Promise<MachineQueryResult<MachineState>> {
+  return apiFetchOptional<MachineState>(`/api/machines/${encodeURIComponent(name)}`)
+}
+
+/** Fetch a machine's metrics series (load, disk free, etc — open vocabulary,
+ * see `MachineMetricsSeries`'s doc comment). */
+export async function fetchMachineMetrics(
+  name: string,
+): Promise<MachineQueryResult<MachineMetricsSeries[]>> {
+  return apiFetchOptional<MachineMetricsSeries[]>(
+    `/api/machines/${encodeURIComponent(name)}/metrics`,
+  )
+}
+
+/** Fetch a machine's current health-check rows. */
+export async function fetchMachineHealth(
+  name: string,
+): Promise<MachineQueryResult<MachineHealthRow[]>> {
+  return apiFetchOptional<MachineHealthRow[]>(`/api/machines/${encodeURIComponent(name)}/health`)
+}
+
+/** Fetch a machine's aggregate work-stats over the server's own trailing window. */
+export async function fetchMachineWorkStats(
+  name: string,
+): Promise<MachineQueryResult<MachineWorkStats>> {
+  return apiFetchOptional<MachineWorkStats>(
+    `/api/machines/${encodeURIComponent(name)}/work-stats`,
+  )
 }
 
 // ── GET /api/report, GET /api/report/{report_id} (#2492 RPT-1 / #21 RPT-2) ──

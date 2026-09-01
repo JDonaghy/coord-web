@@ -30,6 +30,7 @@ import SessionsList from '@/components/SessionsList'
 import DriveQueuePanel from '@/components/DriveQueuePanel'
 import ReportsPanel from '@/components/ReportsPanel'
 import AnswersPanel from '@/components/AnswersPanel'
+import MachinesPanel from '@/components/MachinesPanel'
 import { fetchPipeline, fetchSessions } from '@/api/client'
 import { isActive, needsMe, latestPerIssue } from '@/lib/pipeline'
 import { RAIL_VIEW_PATH, shellViewFromPath } from '@/routes/paths'
@@ -56,8 +57,16 @@ const ATTENTION_VIEWS: ReadonlySet<ShellView> = new Set<ShellView>(['pipeline'])
  * e.g. a `/queue/:issue`-shaped view for QW-4/QW-5 (#8/#9). At that point
  * Queue moves into this set and gets its list/detail split back, the same
  * way Pipeline and Sessions already have one.
+ *
+ * `machines` joins this set from #61 on — `/machines/:name` (`MachineDetail`)
+ * is real content shipped in that same story, not a later addition the way
+ * Queue/Reports/Answers' detail routes would be.
  */
-const VIEWS_WITH_DETAIL_ROUTE: ReadonlySet<ShellView> = new Set<ShellView>(['pipeline', 'sessions'])
+const VIEWS_WITH_DETAIL_ROUTE: ReadonlySet<ShellView> = new Set<ShellView>([
+  'pipeline',
+  'sessions',
+  'machines',
+])
 
 export function ShellLayout() {
   const mode = useShellMode()
@@ -80,7 +89,13 @@ export function ShellLayout() {
   const pipelineItemMatch = useMatch('/pipeline/:repo/:issue')
   const pipelineItemTabMatch = useMatch('/pipeline/:repo/:issue/:tab')
   const sessionItemMatch = useMatch('/sessions/:id')
-  const detailActive = !!(pipelineItemMatch || pipelineItemTabMatch || sessionItemMatch)
+  const machineItemMatch = useMatch('/machines/:name')
+  const detailActive = !!(
+    pipelineItemMatch ||
+    pipelineItemTabMatch ||
+    sessionItemMatch ||
+    machineItemMatch
+  )
 
   // Whether the current view's detail route is real content at all (see
   // `VIEWS_WITH_DETAIL_ROUTE` above) — independent of `detailActive`
@@ -135,6 +150,11 @@ export function ShellLayout() {
     list = <Home />
   } else if (currentView === 'sessions') {
     list = <SessionsList />
+  } else if (currentView === 'machines') {
+    // #61: the roster list, same list/detail split posture Pipeline and
+    // Sessions have (see `VIEWS_WITH_DETAIL_ROUTE` above) -- `machineItemMatch`
+    // drives `detailActive` when a specific machine is selected.
+    list = <MachinesPanel />
   } else if (currentView === 'queue') {
     // QW-2 was the rail entry + route; QW-3 is this line — the summary
     // block + repo-scope dropdown + nine-column grid itself. There is still

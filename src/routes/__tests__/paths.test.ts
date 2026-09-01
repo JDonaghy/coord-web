@@ -38,6 +38,16 @@ describe('paths.session / paths.terminal', () => {
   })
 })
 
+describe('paths.machineItem', () => {
+  it('builds the machine detail path', () => {
+    expect(paths.machineItem('laptop')).toBe('/machines/laptop')
+  })
+
+  it('encodes a machine name that needs escaping', () => {
+    expect(paths.machineItem('a b')).toBe('/machines/a%20b')
+  })
+})
+
 describe('isDetailTab', () => {
   it('accepts every member of the detail tab set', () => {
     for (const tab of ['overview', 'issue', 'log', 'findings', 'summary']) {
@@ -69,6 +79,7 @@ describe('shellViewFromPath', () => {
     expect(shellViewFromPath(paths.pipelineItem('myrepo', 42))).toBe('pipeline')
     expect(shellViewFromPath(paths.pipelineItem('myrepo', 42, 'log'))).toBe('pipeline')
     expect(shellViewFromPath(paths.session('sess-1'))).toBe('sessions')
+    expect(shellViewFromPath(paths.machineItem('laptop'))).toBe('machines')
   })
 
   it('does not let one view path prefix-match another', () => {

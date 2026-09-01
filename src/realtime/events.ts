@@ -66,6 +66,15 @@ export type QueryKey = readonly unknown[]
 const PIPELINE: QueryKey = ['pipeline']
 const SESSIONS: QueryKey = ['sessions']
 const DRIVE_QUEUE: QueryKey = ['drive-queue']
+// The Machines panel's roster list (#61) — `MachinesPanel` reads this key via
+// `fetchMachines()`. No per-machine key here, same posture the module doc
+// comment above already documents for `['pipeline']`/`['sessions']`:
+// `MachineDetail`'s own `['machine', name]`/`['machine-health', name]`/
+// `['machine-work-stats', name]` queries aren't invalidated by any event
+// below — react-query's default `refetchOnWindowFocus` is what keeps those
+// current today. Revisit alongside the pipeline/sessions TODO if a
+// per-machine key ever gets folded into SSE invalidation.
+const MACHINES: QueryKey = ['machines']
 
 /**
  * Event type -> the query keys it invalidates.
@@ -96,9 +105,11 @@ export const EVENT_QUERY_KEYS: Readonly<Record<string, readonly QueryKey[]>> = {
   [ASSIGNMENT_ADVISORY]: [PIPELINE, SESSIONS, DRIVE_QUEUE],
   [ASSIGNMENT_REFUSED_POLICY]: [PIPELINE, SESSIONS, DRIVE_QUEUE],
   [ASSIGNMENT_NEEDS_ATTENTION]: [PIPELINE],
-  [MACHINE_CONNECTED]: [SESSIONS],
-  [MACHINE_DISCONNECTED]: [SESSIONS],
-  [BOARD_UPDATED]: [PIPELINE, SESSIONS, DRIVE_QUEUE],
+  // A machine (dis)connecting is exactly what the Machines roster reflects
+  // (#61) as well as session reachability -- both invalidated together.
+  [MACHINE_CONNECTED]: [SESSIONS, MACHINES],
+  [MACHINE_DISCONNECTED]: [SESSIONS, MACHINES],
+  [BOARD_UPDATED]: [PIPELINE, SESSIONS, DRIVE_QUEUE, MACHINES],
 }
 
 /**
@@ -112,4 +123,4 @@ export const EVENT_QUERY_KEYS: Readonly<Record<string, readonly QueryKey[]>> = {
  * an explicit resync on recovery is what makes "live" mean "correct", not
  * just "the socket is open again".
  */
-export const RESYNC_QUERY_KEYS: readonly QueryKey[] = [PIPELINE, SESSIONS, DRIVE_QUEUE]
+export const RESYNC_QUERY_KEYS: readonly QueryKey[] = [PIPELINE, SESSIONS, DRIVE_QUEUE, MACHINES]

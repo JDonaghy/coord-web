@@ -333,3 +333,74 @@ export interface ReportResult {
   totals: Record<string, unknown> | null
   chart: ChartSpec | null
 }
+
+// ── Machines panel (coord-web#61) — blocked on claude-coordinator#3027 ──────
+//
+// Unlike `BoardDriveQueueEntry`/`ReportDef` above, these types are NOT a
+// transcription of a real, already-serving `coord.dashboard.server.
+// openapi_spec()` response — the Machines API itself (routes + OpenAPI
+// schema) is claude-coordinator#3027, still open at the time this landed.
+// Hand-authored ahead of that landing, same "(forthcoming)" convention
+// `PipelineAction`/`DriveQueueAction` (`./client.ts`) use for an action
+// defined ahead of its backend route: calling any of the `fetchMachine*`
+// functions in `../client.ts` against a coord server running today 404s,
+// every one of them, not just the ones documented "(forthcoming)" elsewhere
+// in this file. Replace this block wholesale — field names very much
+// included, none of them are load-bearing yet — the day #3027 lands and
+// `scripts/codegen.py` can regenerate a real one from the actual spec; do
+// not assume today's field names survive that landing.
+
+/** `GET /api/machines`/`GET /api/machines/{name}` — one machine coord's
+ * roster knows about. Field selection mirrors what `SessionInfo`
+ * (`./client.ts`, itself hand-written) already exposes per-session
+ * (`machine`/`host`) plus the roster-level facts a Machines panel needs that
+ * no existing endpoint carries. */
+export interface MachineState {
+  name: string
+  /** The machine's Tailscale host, same meaning as `SessionInfo.host`. */
+  host: string | null
+  reachable: boolean
+  /** Epoch seconds of the roster's last successful reachability probe. */
+  last_seen: number | null
+  active_assignments: number
+  headless_workers: number
+}
+
+/** One sample of a `MachineMetricsSeries`. */
+export interface MachineMetricPoint {
+  /** Epoch seconds. */
+  t: number
+  value: number
+}
+
+/** `GET /api/machines/{name}/metrics` — one named time series (e.g. load,
+ * disk free) for a machine. A client meeting a `metric` it doesn't
+ * recognize renders it generically rather than dropping it — open
+ * vocabulary, same posture `ColumnMeta.kind` documents. */
+export interface MachineMetricsSeries {
+  metric: string
+  unit: string | null
+  points: MachineMetricPoint[]
+}
+
+/** `GET /api/machines/{name}/health` — one named health check's current
+ * result. Open vocabulary on both `check` and `status`'s real value set;
+ * `'unknown'` is this client's own fallback for a status string it doesn't
+ * recognize, not necessarily a literal wire value. */
+export interface MachineHealthRow {
+  check: string
+  status: 'ok' | 'warn' | 'fail' | 'unknown'
+  detail: string | null
+  /** Epoch seconds, when the server has one. */
+  checked_at: number | null
+}
+
+/** `GET /api/machines/{name}/work-stats` — aggregate assignment throughput
+ * for one machine over a server-chosen trailing window. */
+export interface MachineWorkStats {
+  machine: string
+  window_seconds: number
+  assignments_completed: number
+  assignments_failed: number
+  cost_usd: number | null
+}

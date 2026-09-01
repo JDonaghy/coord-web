@@ -44,6 +44,10 @@ export const paths = {
   terminal: (sessionId: string) => `/terminal/${encodeURIComponent(sessionId)}`,
   board: () => '/board',
   machines: () => '/machines',
+  /** #61 — a single machine's detail view, same list -> detail addressing
+   * convention `session()` uses: every screen reachable and restorable from
+   * its own URL, per the route contract #1548 established. */
+  machineItem: (name: string) => `/machines/${encodeURIComponent(name)}`,
   mergeQueue: () => '/merge-queue',
   milestones: () => '/milestones',
   queue: () => '/queue',

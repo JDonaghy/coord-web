@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { BrowserRouter, Navigate, Routes, Route } from 'react-router-dom'
 import Detail from '@/components/Detail'
 import SessionDetail from '@/components/SessionDetail'
+import MachineDetail from '@/components/MachineDetail'
 import { ShellLayout } from '@/shell/ShellLayout'
 import { EmptyDetail } from '@/shell/EmptyDetail'
 import { paths } from '@/routes/paths'
@@ -40,7 +41,19 @@ const Gallery = lazy(() => import('@/components/Gallery'))
  *                                        today without changing what renders
  *   /sessions                        -> EmptyDetail
  *   /sessions/:id                    -> SessionDetail
- *   /board /machines /merge-queue
+ *   /machines                        -> EmptyDetail in the detail slot,
+ *                                        `MachinesPanel` (#61) in the list
+ *                                        slot (wired in `ShellLayout`) --
+ *                                        same list/detail split as
+ *                                        /pipeline and /sessions above, not
+ *                                        the list-only posture /queue,
+ *                                        /reports and /answers below have
+ *   /machines/:name                  -> MachineDetail (#61) -- state,
+ *                                        health, work-stats and metrics
+ *                                        each degrade independently to an
+ *                                        honest "unavailable" note until
+ *                                        claude-coordinator#3027 lands
+ *   /board /merge-queue
  *   /milestones /audit /spend
  *   /settings                        -> ComingSoon(view) -- placeholders for
  *                                        the M-W2+ panels, addressable today
@@ -105,13 +118,21 @@ export default function App() {
             <Route path="/sessions" element={<EmptyDetail />} />
             <Route path="/sessions/:id" element={<SessionDetail />} />
 
+            {/* #61 -- Machines gets the same list/detail split Pipeline and
+                Sessions have (`MachinesPanel` in the list slot, wired in
+                `ShellLayout`), not the list-only posture Queue/Reports/
+                Answers below use: a machine detail view (state/health/
+                work-stats/metrics) is real content this story ships, not a
+                later addition. */}
+            <Route path="/machines" element={<EmptyDetail />} />
+            <Route path="/machines/:name" element={<MachineDetail />} />
+
             {/* Placeholders for the M-W2+ panels (#1548) -- addressable now,
                 not a 404, so a bookmark or a pasted link survives the panel
                 shipping later. The rail marks each of these 'soon' and won't
                 navigate here on a click (railItems.ts); this is what a typed
                 or pasted link to one lands on in the meantime. */}
             <Route path="/board" element={null} />
-            <Route path="/machines" element={null} />
             <Route path="/merge-queue" element={null} />
             <Route path="/milestones" element={null} />
             <Route path="/audit" element={null} />

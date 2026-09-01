@@ -37,9 +37,12 @@ vi.mock('@/api/client', () => ({
   // `ComingSoon` -- it calls this on mount the same way Home calls
   // fetchPipeline/fetchSessions.
   fetchDriveQueue: vi.fn(),
+  // `MachinesPanel` (#61) is the real /machines list content now -- it calls
+  // this on mount the same way `DriveQueuePanel` calls `fetchDriveQueue`.
+  fetchMachines: vi.fn(),
 }))
 
-import { fetchDriveQueue, fetchPipeline, fetchSessions } from '@/api/client'
+import { fetchDriveQueue, fetchMachines, fetchPipeline, fetchSessions } from '@/api/client'
 
 // ── fixtures ──────────────────────────────────────────────────────────────────
 
@@ -161,6 +164,9 @@ beforeEach(() => {
       fleet_held: 0,
     },
   })
+  // Matches every coord server running today (claude-coordinator#3027 is
+  // still open) -- see `fetchMachines`'s doc comment.
+  vi.mocked(fetchMachines).mockResolvedValue({ available: false })
 })
 
 afterEach(() => {
@@ -188,7 +194,7 @@ describe('shell — wide (>= 1024px)', () => {
     // Built.
     expect(await screen.findByRole('button', { name: /Pipeline/ })).toBeInTheDocument()
     // Not built yet, but visibly coming rather than silently absent.
-    for (const label of ['Board', 'Machines', 'Merge queue', 'Milestones', 'Audit', 'Spend']) {
+    for (const label of ['Board', 'Merge queue', 'Milestones', 'Audit', 'Spend']) {
       const item = screen.getByRole('button', { name: new RegExp(label) })
       expect(item).toHaveAttribute('aria-disabled', 'true')
     }
@@ -463,6 +469,29 @@ describe('shell — activity rail view selection', () => {
     expect(locationPath()).toBe(paths.queue())
     expect(queueButton).toHaveAttribute('aria-current', 'page')
     expect(within(listRegion()!).getByText('Queue')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Pipeline' })).not.toBeInTheDocument()
+  })
+
+  it('navigates to /machines and highlights the Machines rail entry (#61)', async () => {
+    const user = userEvent.setup()
+    renderShell()
+    await screen.findByRole('heading', { name: 'Pipeline' })
+
+    // Unlike the 'soon' entries (Board, Milestones, ...), Machines' rail
+    // entry is 'ready' (railItems.ts) -- the route + nav + API client wiring
+    // are this story's scope, even though the metrics/health grid behind it
+    // (later milestone #4 stories) isn't built yet.
+    const machinesButton = screen.getByRole('button', { name: /^Machines/ })
+    expect(machinesButton).not.toHaveAttribute('aria-disabled')
+
+    await user.click(machinesButton)
+
+    expect(locationPath()).toBe(paths.machines())
+    expect(machinesButton).toHaveAttribute('aria-current', 'page')
+    // The panel's own honest-degrade state (#61): every coord server running
+    // today 404s the Machines API, so this is what a real click renders,
+    // not a contrived fixture.
+    expect(await within(listRegion()!).findByText('Machines panel unavailable')).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Pipeline' })).not.toBeInTheDocument()
   })
 
