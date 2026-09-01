@@ -105,6 +105,14 @@ describe('machineChartValueKind / formatMachineChartValue', () => {
   it('count rounds to the nearest whole number', () => {
     expect(formatMachineChartValue(3.4, 'count')).toBe('3')
   })
+
+  it('round-trips the exact worktree_bytes value e2e/machine-charts.spec.ts asserts on', () => {
+    // Guards against the two drifting independently: the formatter is
+    // binary (1024-based), so a future edit to either this byte value or
+    // the e2e fixture's copy of it must keep both in sync with what
+    // formatMachineChartBytes actually renders, not a decimal (SI) guess.
+    expect(formatMachineChartValue(2_147_483_648, 'bytes')).toBe('2.0 GB')
+  })
 })
 
 describe('formatMachineChartTick', () => {

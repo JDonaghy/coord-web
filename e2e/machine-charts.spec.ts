@@ -35,7 +35,7 @@ const MACHINE_STATE = {
   quiet_hours_paused: false,
   hand_paused: false,
   release_cordoned: false,
-  worktree_bytes: 2_000_000_000,
+  worktree_bytes: 2_147_483_648, // exactly 2 GiB -- formatMachineChartBytes is binary (1024-based)
   concurrency_limit: 6,
 }
 
@@ -104,7 +104,7 @@ test.describe('Machine charts (#65)', () => {
         unit: 'bytes',
         points: [
           { t: NOW - 600, value: 1_800_000_000 },
-          { t: NOW, value: 2_000_000_000 },
+          { t: NOW, value: 2_147_483_648 }, // exactly 2 GiB -- see MACHINE_STATE.worktree_bytes comment
         ],
       },
     ])
