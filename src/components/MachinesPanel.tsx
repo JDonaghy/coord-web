@@ -23,12 +23,22 @@
  * quiet-hours/hand-pause/release-cordon badge set — see `MachinesList`
  * (`src/components/MachinesList.tsx`), which owns per-row rendering so it
  * can be unit-tested without a `QueryClientProvider`.
+ *
+ * #66 adds the fleet-level aggregate (`FleetSummary`,
+ * `src/components/FleetSummary.tsx`) above the roster: online/total, worst
+ * severity + count, worker capacity, and fleet-scope checks
+ * (`fetchFleetChecks`). It renders only once the roster itself is available
+ * — an unavailable/loading/empty roster already has its own dedicated states
+ * below, and a fleet-wide rollup over zero machines has nothing useful to
+ * say. `fleetChecks` degrades to `[]` on `{available: false}` exactly like
+ * `machines` does, per `FleetSummary`'s own "no units, not an error" posture.
  */
 import { ServerOff } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
-import { fetchMachines } from '@/api/client'
+import { fetchFleetChecks, fetchMachines } from '@/api/client'
+import FleetSummary from '@/components/FleetSummary'
 import { MachinesList } from '@/components/MachinesList'
 import { PanelHeader } from '@/components/PanelHeader'
 import { paths } from '@/routes/paths'
@@ -44,8 +54,13 @@ export default function MachinesPanel() {
     queryKey: ['machines'],
     queryFn: fetchMachines,
   })
+  const { data: fleetChecksResult } = useQuery({
+    queryKey: ['fleet-checks'],
+    queryFn: fetchFleetChecks,
+  })
 
   const machines = result?.available ? result.data : []
+  const fleetChecks = fleetChecksResult?.available ? fleetChecksResult.data : []
 
   return (
     <div className="mx-auto w-full max-w-lg px-4 py-4">
@@ -54,6 +69,10 @@ export default function MachinesPanel() {
         count={result?.available ? machines.length : undefined}
         countLabel="known"
       />
+
+      {result?.available && machines.length > 0 && (
+        <FleetSummary machines={machines} fleetChecks={fleetChecks} />
+      )}
 
       {isLoading && (
         <p className="py-12 text-center text-sm text-muted-foreground">Loading machines…</p>

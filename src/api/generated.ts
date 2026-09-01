@@ -334,7 +334,7 @@ export interface ReportResult {
   chart: ChartSpec | null
 }
 
-// ── Machines panel (coord-web#61, #62, #63) — blocked on claude-coordinator#3027 ──
+// ── Machines panel (coord-web#61, #62, #63, #66) — blocked on claude-coordinator#3027 ──
 //
 // Unlike `BoardDriveQueueEntry`/`ReportDef` above, these types are NOT a
 // transcription of a real, already-serving `coord.dashboard.server.
@@ -551,3 +551,24 @@ export interface MachineWorkStats {
   assignments_failed: number
   cost_usd: number | null
 }
+
+/**
+ * `GET /api/fleet/health` — fleet-*scope* health checks (#66): facts about
+ * the fleet as a whole (board latency, phantom-running rows, deploy-lane
+ * skew, …), not any one machine's. Wire shape mirrors `coord.health.
+ * fleet_snapshot.FleetHealthSnapshot.fleet_checks` / coord-tui's identically-
+ * named `FleetHealthBlock.fleet_checks` (`fleet_health.rs`) — reuses
+ * `MachineHealthCheckResult` row-for-row rather than inventing a second
+ * "check result" shape, since a fleet-scope check and a machine-scope check
+ * are rendered the same way (severity + headroom + detail), just scoped
+ * differently. Same hand-authored, wholesale-replaceable posture as the rest
+ * of this block: this route isn't registered on any coord server yet either.
+ *
+ * `FleetSummary` (`src/components/FleetSummary.tsx`) is what mirrors
+ * `coord.health.aggregate`'s counting rule client-side: one unit per
+ * machine's already-rolled-up `MachineState.severity`, plus one unit per
+ * entry here — see that component's doc comment, and `coord-tui/src/app/
+ * fleet_health.rs`'s module doc comment for why the two Rust/TS mirrors of
+ * the same Python rule have to be kept in sync by hand.
+ */
+export type FleetChecks = MachineHealthCheckResult[]
