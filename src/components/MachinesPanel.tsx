@@ -8,22 +8,28 @@
  * list -> detail convention `SessionsList` -> `SessionDetail` already
  * establishes.
  *
- * This is the scaffolding story for milestone #4 (Machines panel): the API
- * client, wire types, route and rail entry — not the metrics/health grid
- * itself, which lands in later M-4 stories once `fetchMachines()`
+ * #61 was the scaffolding story for milestone #4 (Machines panel): the API
+ * client, wire types, route and rail entry, plus the honest-degrade shell
+ * below (`result.available === false`) once `fetchMachines()`
  * (`src/api/client.ts`) has a real `claude-coordinator#3027` route to call.
- * Every coord server running today 404s that call, so the honest-degrade
- * path below (`result.available === false`) is this component's *normal*
- * rendering today, not an edge case — see `fetchMachines`'s and
- * `MachineQueryResult`'s doc comments for why that's a distinct state from
- * "loaded, zero machines" rather than an empty list indistinguishable from
- * a real empty roster.
+ * Every coord server running today 404s that call, so that path is this
+ * component's *normal* rendering today, not an edge case — see
+ * `fetchMachines`'s and `MachineQueryResult`'s doc comments for why that's a
+ * distinct state from "loaded, zero machines" rather than an empty list
+ * indistinguishable from a real empty roster.
+ *
+ * #62 fills in the actual row content once the roster is available:
+ * reachability, rolled-up health severity, agent version drift and the
+ * quiet-hours/hand-pause/release-cordon badge set — see `MachinesList`
+ * (`src/components/MachinesList.tsx`), which owns per-row rendering so it
+ * can be unit-tested without a `QueryClientProvider`.
  */
 import { ServerOff } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
 import { fetchMachines } from '@/api/client'
+import { MachinesList } from '@/components/MachinesList'
 import { PanelHeader } from '@/components/PanelHeader'
 import { paths } from '@/routes/paths'
 
@@ -94,26 +100,10 @@ export default function MachinesPanel() {
       )}
 
       {result?.available && machines.length > 0 && (
-        <section className="space-y-2" aria-label="Machines">
-          {machines.map((machine) => (
-            <button
-              key={machine.name}
-              type="button"
-              data-testid={`machine-row-${machine.name}`}
-              onClick={() => navigate(paths.machineItem(machine.name))}
-              className="flex w-full items-center justify-between rounded-lg border border-border bg-card px-4 py-3 text-left hover:bg-secondary/40"
-            >
-              <span className="font-mono text-sm text-card-foreground">{machine.name}</span>
-              <span
-                className={
-                  machine.reachable ? 'text-xs text-pass' : 'text-xs text-muted-foreground'
-                }
-              >
-                {machine.reachable ? 'online' : 'offline'}
-              </span>
-            </button>
-          ))}
-        </section>
+        <MachinesList
+          machines={machines}
+          onSelect={(name) => navigate(paths.machineItem(name))}
+        />
       )}
     </div>
   )
