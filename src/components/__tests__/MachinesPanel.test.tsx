@@ -24,12 +24,17 @@ import type { MachineQueryResult, MachineState } from '@/api/client'
 
 vi.mock('@/api/client', () => ({
   fetchMachines: vi.fn(),
+  fetchFleetChecks: vi.fn(),
 }))
 
-import { fetchMachines } from '@/api/client'
+import { fetchFleetChecks, fetchMachines } from '@/api/client'
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // Unrelated to every test below except the dedicated #66 one -- default to
+  // "no fleet-scope checks" so `FleetSummary`'s own presence/absence and the
+  // roster's states remain what each test is actually pinning.
+  vi.mocked(fetchFleetChecks).mockResolvedValue({ available: true, data: [] })
 })
 
 function renderPanel() {
@@ -112,5 +117,20 @@ describe('MachinesPanel', () => {
 
     const row = await screen.findByTestId('machine-row-dellserver')
     expect(row).toHaveTextContent('offline')
+  })
+
+  it('renders the fleet summary once the roster loads, and not while empty/unavailable (#66)', async () => {
+    vi.mocked(fetchMachines).mockResolvedValue({ available: true, data: [makeMachine()] })
+    renderPanel()
+
+    expect(await screen.findByTestId('fleet-summary')).toBeInTheDocument()
+  })
+
+  it('does not render a fleet summary over an empty or unavailable roster (#66)', async () => {
+    vi.mocked(fetchMachines).mockResolvedValue({ available: true, data: [] })
+    renderPanel()
+
+    await screen.findByText('No machines')
+    expect(screen.queryByTestId('fleet-summary')).not.toBeInTheDocument()
   })
 })

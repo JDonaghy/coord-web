@@ -25,6 +25,7 @@ import type {
   ChartSpec,
   ColumnMeta,
   DriveQueueSummary,
+  FleetChecks,
   MachineActiveWorker,
   MachineHealthCheckResult,
   MachineHealthSnapshot,
@@ -54,6 +55,7 @@ export type {
   ChartSpec,
   ColumnMeta,
   DriveQueueSummary,
+  FleetChecks,
   MachineActiveWorker,
   MachineHealthCheckResult,
   MachineHealthSnapshot,
@@ -331,6 +333,15 @@ export async function fetchMachineJobs(
   name: string,
 ): Promise<MachineQueryResult<MachineJobHistoryEntry[]>> {
   return apiFetchOptional<MachineJobHistoryEntry[]>(`/api/machines/${encodeURIComponent(name)}/jobs`)
+}
+
+/** Fetch fleet-*scope* health checks (#66) — facts about the fleet as a
+ * whole, not any one machine's (`FleetChecks`'s doc comment, `./generated.ts`).
+ * `FleetSummary` folds these into the same severity rollup as every
+ * machine's own `MachineState.severity`, per `coord.health.aggregate`'s
+ * counting rule. */
+export async function fetchFleetChecks(): Promise<MachineQueryResult<FleetChecks>> {
+  return apiFetchOptional<FleetChecks>('/api/fleet/health')
 }
 
 // ── GET /api/report, GET /api/report/{report_id} (#2492 RPT-1 / #21 RPT-2) ──
