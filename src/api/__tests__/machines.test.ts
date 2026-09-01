@@ -17,7 +17,7 @@ import {
   fetchMachineWorkStats,
   fetchMachines,
   type MachineActiveWorker,
-  type MachineHealthRow,
+  type MachineHealthSnapshot,
   type MachineJobHistoryEntry,
   type MachineMetricsSeries,
   type MachineState,
@@ -113,7 +113,7 @@ describe('fetchMachineMetrics / fetchMachineHealth / fetchMachineWorkStats', () 
     await fetchMachineMetrics('a b')
     expect(fetch).toHaveBeenLastCalledWith('/api/machines/a%20b/metrics')
 
-    vi.mocked(fetch).mockResolvedValueOnce(new Response('[]', { status: 200 }))
+    vi.mocked(fetch).mockResolvedValueOnce(new Response('{}', { status: 200 }))
     await fetchMachineHealth('a b')
     expect(fetch).toHaveBeenLastCalledWith('/api/machines/a%20b/health')
 
@@ -135,9 +135,14 @@ describe('fetchMachineMetrics / fetchMachineHealth / fetchMachineWorkStats', () 
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify(series), { status: 200 }))
     expect(await fetchMachineMetrics('laptop')).toEqual({ available: true, data: series })
 
-    const health: MachineHealthRow[] = [
-      { check: 'disk', status: 'ok', detail: null, checked_at: 1_700_000_000 },
-    ]
+    const health: MachineHealthSnapshot = {
+      severity: 'ok',
+      stale: false,
+      checked_at: 1_700_000_000,
+      results: [
+        { check: 'disk', label: 'disk', severity: 'ok', headroom: '86% used (22G free)', detail: null },
+      ],
+    }
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify(health), { status: 200 }))
     expect(await fetchMachineHealth('laptop')).toEqual({ available: true, data: health })
 

@@ -22,7 +22,7 @@ import MachineDetail from '@/components/MachineDetail'
 import { paths } from '@/routes/paths'
 import type {
   MachineActiveWorker,
-  MachineHealthRow,
+  MachineHealthSnapshot,
   MachineJobHistoryEntry,
   MachineState,
   MachineWorkStats,
@@ -113,9 +113,14 @@ describe('MachineDetail', () => {
 
   it('renders each section independently when only some endpoints are available', async () => {
     const machine = makeMachine({ name: 'laptop' })
-    const health: MachineHealthRow[] = [
-      { check: 'disk', status: 'ok', detail: null, checked_at: 1_700_000_000 },
-    ]
+    const health: MachineHealthSnapshot = {
+      severity: 'ok',
+      stale: false,
+      checked_at: 1_700_000_000,
+      results: [
+        { check: 'disk', label: 'disk', severity: 'ok', headroom: '86% used (22G free)', detail: null },
+      ],
+    }
     vi.mocked(fetchMachine).mockResolvedValue({ available: true, data: machine })
     vi.mocked(fetchMachines).mockResolvedValue({ available: false })
     vi.mocked(fetchMachineHealth).mockResolvedValue({ available: true, data: health })
