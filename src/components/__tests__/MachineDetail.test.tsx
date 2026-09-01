@@ -68,6 +68,12 @@ describe('MachineDetail', () => {
       last_seen: 1_700_000_000,
       active_assignments: 0,
       headless_workers: 1,
+      severity: 'ok',
+      agent_version: '1.2.3',
+      is_local: true,
+      quiet_hours_paused: false,
+      hand_paused: false,
+      release_cordoned: false,
     }
     const health: MachineHealthRow[] = [
       { check: 'disk', status: 'ok', detail: null, checked_at: 1_700_000_000 },

@@ -38,6 +38,12 @@ describe('fetchMachines', () => {
         last_seen: 1_700_000_000,
         active_assignments: 1,
         headless_workers: 2,
+        severity: 'ok',
+        agent_version: '1.2.3',
+        is_local: true,
+        quiet_hours_paused: false,
+        hand_paused: false,
+        release_cordoned: false,
       },
     ]
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify(machines), { status: 200 }))
@@ -72,6 +78,12 @@ describe('fetchMachine', () => {
       last_seen: null,
       active_assignments: 0,
       headless_workers: 0,
+      severity: 'unknown',
+      agent_version: null,
+      is_local: false,
+      quiet_hours_paused: false,
+      hand_paused: false,
+      release_cordoned: false,
     }
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify(machine), { status: 200 }))
 

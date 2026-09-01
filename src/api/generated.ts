@@ -354,7 +354,12 @@ export interface ReportResult {
  * roster knows about. Field selection mirrors what `SessionInfo`
  * (`./client.ts`, itself hand-written) already exposes per-session
  * (`machine`/`host`) plus the roster-level facts a Machines panel needs that
- * no existing endpoint carries. */
+ * no existing endpoint carries.
+ *
+ * `severity`/`agent_version`/`is_local`/the three pause flags were added for
+ * #62 (machines-list parity with coord-tui's `machines_list`, `app/mod.rs`)
+ * — same "hand-authored, wholesale replaceable" posture as the rest of this
+ * block, not a transcription of a real #3027 response. */
 export interface MachineState {
   name: string
   /** The machine's Tailscale host, same meaning as `SessionInfo.host`. */
@@ -364,6 +369,43 @@ export interface MachineState {
   last_seen: number | null
   active_assignments: number
   headless_workers: number
+  /**
+   * Rolled-up health severity across this machine's checks, computed
+   * server-side the same way `_effective_severity` computes it for
+   * coord-tui's `machines_list`. `'unknown'` is a first-class outcome, not a
+   * styling variant of `'ok'` — the daemon currently has no verdict for this
+   * machine (unreachable, never checked in, etc), and a client must never
+   * render that as healthy (#62's honesty rule).
+   */
+  severity: 'ok' | 'warn' | 'crit' | 'unknown'
+  /**
+   * The coord-agent version this machine last reported, or `null` when the
+   * daemon has never heard a version from it. `null` is distinct from
+   * "matches local" — never rendered as drift-free just because there's
+   * nothing to compare.
+   */
+  agent_version: string | null
+  /**
+   * True for the machine hosting this coord daemon itself — the version-
+   * drift reference point (#62): every other machine's `agent_version`
+   * compares against *this* machine's, not some separately-tracked "latest
+   * release" value.
+   */
+  is_local: boolean
+  /**
+   * True while this machine is paused by the coordinator's configured
+   * quiet-hours window. Distinct from `hand_paused` and `release_cordoned`
+   * — coord-tui's `machines_list` renders these as three separate badges,
+   * never collapsed into one "paused" pill, and its own tests pin that
+   * distinction (#62).
+   */
+  quiet_hours_paused: boolean
+  /** True while a human has explicitly paused this machine (`coord pause`),
+   * independent of quiet hours or a release cordon. */
+  hand_paused: boolean
+  /** True while this machine is cordoned off from new work by an in-flight
+   * release rollout, independent of quiet hours or a hand pause. */
+  release_cordoned: boolean
 }
 
 /** One sample of a `MachineMetricsSeries`. */
