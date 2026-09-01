@@ -40,9 +40,19 @@ vi.mock('@/api/client', () => ({
   // `MachinesPanel` (#61) is the real /machines list content now -- it calls
   // this on mount the same way `DriveQueuePanel` calls `fetchDriveQueue`.
   fetchMachines: vi.fn(),
+  // `MachinesPanel`'s `FleetSummary` header (#66) folds fleet-*scope* checks
+  // into the same severity rollup as the roster, so mounting /machines fires
+  // this alongside `fetchMachines`.
+  fetchFleetChecks: vi.fn(),
 }))
 
-import { fetchDriveQueue, fetchMachines, fetchPipeline, fetchSessions } from '@/api/client'
+import {
+  fetchDriveQueue,
+  fetchFleetChecks,
+  fetchMachines,
+  fetchPipeline,
+  fetchSessions,
+} from '@/api/client'
 
 // ── fixtures ──────────────────────────────────────────────────────────────────
 
@@ -167,6 +177,9 @@ beforeEach(() => {
   // Matches every coord server running today (claude-coordinator#3027 is
   // still open) -- see `fetchMachines`'s doc comment.
   vi.mocked(fetchMachines).mockResolvedValue({ available: false })
+  // Same version-skew story as the roster above: a server without
+  // /api/fleet/health reports "unavailable" rather than an empty check list.
+  vi.mocked(fetchFleetChecks).mockResolvedValue({ available: false })
 })
 
 afterEach(() => {
