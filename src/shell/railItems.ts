@@ -72,7 +72,17 @@ export const RAIL_ITEMS: readonly RailItem[] = [
     status: 'soon',
     hint: 'Standalone terminal panel — open one from Sessions for now',
   },
-  { id: 'machines', label: 'Machines', icon: Server, status: 'soon', hint: 'Machines panel — M-W2' },
+  {
+    id: 'machines',
+    label: 'Machines',
+    icon: Server,
+    // #61: rail entry + route + API client wiring ship in this story, same
+    // "route + nav are done, the rest fills in later" posture `queue`'s own
+    // comment below documents for QW-2/QW-3 — the full metrics/health grid
+    // (milestone #4's later stories) isn't built yet.
+    status: 'ready',
+    hint: 'Machine roster, health & work stats — milestone #4',
+  },
 
   {
     id: 'merge-queue',
