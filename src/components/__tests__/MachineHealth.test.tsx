@@ -26,11 +26,11 @@ import type { MachineHealthCheckResult, MachineHealthSnapshot } from '@/api/clie
 
 function makeResult(overrides: Partial<MachineHealthCheckResult> = {}): MachineHealthCheckResult {
   return {
-    check: 'disk',
+    key: 'disk',
     label: 'disk',
     severity: 'ok',
     headroom: '86% used (22G free)',
-    detail: null,
+    detail: '',
     ...overrides,
   }
 }
@@ -45,8 +45,8 @@ function makeSnapshot(overrides: Partial<MachineHealthSnapshot> = {}): MachineHe
   }
 }
 
-function row(check: string) {
-  return screen.getByTestId(`health-row-${check}`)
+function row(key: string) {
+  return screen.getByTestId(`health-row-${key}`)
 }
 
 describe('MachineHealth', () => {
@@ -61,7 +61,7 @@ describe('MachineHealth', () => {
     render(
       <MachineHealth
         snapshot={makeSnapshot({
-          results: [makeResult({ check: 'toolchain', label: 'toolchain', severity })],
+          results: [makeResult({ key: 'toolchain', label: 'toolchain', severity })],
         })}
       />,
     )
@@ -75,9 +75,9 @@ describe('MachineHealth', () => {
       <MachineHealth
         snapshot={makeSnapshot({
           results: [
-            makeResult({ check: 'disk', label: 'disk', headroom: '86% used (22G free)' }),
+            makeResult({ key: 'disk', label: 'disk', headroom: '86% used (22G free)' }),
             makeResult({
-              check: 'worktrees',
+              key: 'worktrees',
               label: 'worktrees',
               severity: 'warn',
               headroom: '12.3 GB across 4 checkouts',
@@ -96,9 +96,9 @@ describe('MachineHealth', () => {
       <MachineHealth
         snapshot={makeSnapshot({
           results: [
-            makeResult({ check: 'disk', severity: 'ok', detail: 'nothing to see' }),
+            makeResult({ key: 'disk', severity: 'ok', detail: 'nothing to see' }),
             makeResult({
-              check: 'index_lock',
+              key: 'index_lock',
               label: 'index_lock',
               severity: 'crit',
               detail: 'held for 3h by pid 4821',

@@ -22,7 +22,6 @@
  *    healthy check list.
  */
 import { SeverityBadge } from '@/components/MachinesList'
-import { cn } from '@/lib/utils'
 import { formatRelativeTime } from '@/lib/time'
 import type { MachineHealthSnapshot } from '@/api/client'
 
@@ -50,6 +49,7 @@ export default function MachineHealth({ snapshot }: MachineHealthProps) {
     <div className="space-y-2">
       {stale && (
         <p
+          role="status"
           data-testid="health-stale-banner"
           className="rounded bg-idle-wash px-2 py-1 text-xs font-medium text-idle"
         >
@@ -62,7 +62,7 @@ export default function MachineHealth({ snapshot }: MachineHealthProps) {
           {results.map((row) => {
             const showDetail = row.severity !== 'ok' && !!row.detail
             return (
-              <li key={row.check} data-testid={`health-row-${row.check}`} className="text-sm">
+              <li key={row.key} data-testid={`health-row-${row.key}`} className="text-sm">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex min-w-0 items-center gap-2">
                     <SeverityBadge severity={row.severity} />
@@ -73,7 +73,7 @@ export default function MachineHealth({ snapshot }: MachineHealthProps) {
                   </span>
                 </div>
                 {showDetail && (
-                  <p className={cn('mt-0.5 pl-1 text-xs text-muted-foreground')}>{row.detail}</p>
+                  <p className="mt-0.5 pl-1 text-xs text-muted-foreground">{row.detail}</p>
                 )}
               </li>
             )

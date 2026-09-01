@@ -515,17 +515,17 @@ export interface MachineHealthSnapshot {
  * numbers — the same rule `coord-tui/src/app/fleet_health.rs`'s module doc
  * comment spells out for the identical data. `headroom` is the load-bearing
  * field: a short, already-formatted phrase such as `"86% used (22G free)"`,
- * not a number this client formats itself. Open vocabulary on `check`.
+ * not a number this client formats itself. Open vocabulary on `key`.
  */
 export interface MachineHealthCheckResult {
   /** Stable identity for this row (`CheckResult.key`): `check_id`, or
    * `"<check_id>:<subject>"` when the check has a subject. */
-  check: string
-  /** Display label, e.g. `"disk"` or `"worktrees: vimcode"`. */
+  key: string
+  /** Display label, e.g. `"disk"` or `"worktrees vimcode"`. */
   label: string
   severity: 'ok' | 'warn' | 'crit' | 'unknown'
   headroom: string
-  detail: string | null
+  detail: string
 }
 
 /** `GET /api/machines/{name}/work-stats` — aggregate assignment throughput
