@@ -1,12 +1,16 @@
 name: CI
 
 # Split out of claude-coordinator's test.yml/acceptance-web.yml (#2005, epic
-# #2002 UX-3/UX-4). One thing this repo's CI deliberately does NOT do yet,
-# an open cross-repo design question tracked in claude-coordinator:
+# #2002 UX-3/UX-4). One thing this repo's CI deliberately does NOT do yet:
 #
-#   - `python scripts/codegen.py --check` (the generated.ts drift gate) --
-#     it needs the Python backend's OpenAPI spec, which lives in
-#     claude-coordinator, not here. See claude-coordinator#2258.
+#   - The generated.ts drift gate (`scripts/codegen.py --check` against the
+#     served OpenAPI spec). Tracked here as coord-web#77 -- blocked on a
+#     companion claude-coordinator issue (#3045) to expose the generator
+#     through the installed `code-coordinator` distribution; today
+#     `scripts/codegen.py` is a repo-root script, not part of the wheel
+#     `pip install 'code-coordinator[server]'` gives the e2e/acceptance jobs
+#     below. (claude-coordinator#2258 is a narrower, unrelated issue now --
+#     stale committed artifacts inside that repo -- not this gate.)
 #
 # The sealed oracle-loop acceptance suite (tests/acceptance/ms-3) moved
 # here from claude-coordinator's `coord/dashboard/webapp/**` route by #2007
