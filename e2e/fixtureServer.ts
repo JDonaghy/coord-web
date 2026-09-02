@@ -98,11 +98,24 @@ async function waitForReady(baseUrl: string, timeoutMs = 15_000): Promise<void> 
   throw new Error(`coord web --fixture never became ready at ${baseUrl}: ${String(lastError)}`)
 }
 
+export interface StartFixtureServerOptions {
+  /**
+   * Build and serve the production `dist/` bundle (`buildDist()` + `--dist`).
+   * Default `true` — needed by any spec that loads a page. Pass `false` for
+   * a spec that only talks to the API (e.g. `api-routes.spec.ts`, #78's
+   * OpenAPI-path check) — `GET /openapi.json` is computed from the Starlette
+   * route table independent of whether a frontend bundle is mounted, so
+   * skipping the ~5s build for those specs costs nothing.
+   */
+  dist?: boolean
+}
+
 /**
  * Starts a fresh `coord web --fixture <fixturePath>` on a free port, serving
- * the just-built `dist/`. Resolves `coord` on `$PATH` exactly the way a real
- * operator's shell (or the acceptance driver's `run:` command) would —
- * deliberately not hard-coded to any one machine's venv path.
+ * the just-built `dist/` (unless `{ dist: false }`). Resolves `coord` on
+ * `$PATH` exactly the way a real operator's shell (or the acceptance
+ * driver's `run:` command) would — deliberately not hard-coded to any one
+ * machine's venv path.
  *
  * `fixturePath` defaults to `FIXTURE_PATH` (`board-pipeline-basic.json`, the
  * #1538 reference board `live-update-fixture.spec.ts` uses) — pass a
@@ -110,16 +123,18 @@ async function waitForReady(baseUrl: string, timeoutMs = 15_000): Promise<void> 
  * (e.g. `available-gates-terminal.spec.ts`'s #2084 fixture) without
  * duplicating the subprocess-management plumbing.
  */
-export async function startFixtureServer(fixturePath: string = FIXTURE_PATH): Promise<FixtureServerHandle> {
-  buildDist()
+export async function startFixtureServer(
+  fixturePath: string = FIXTURE_PATH,
+  { dist = true }: StartFixtureServerOptions = {},
+): Promise<FixtureServerHandle> {
+  if (dist) buildDist()
   const port = await freePort()
   const baseUrl = `http://127.0.0.1:${port}`
 
-  const proc = spawn(
-    'coord',
-    ['web', '--fixture', fixturePath, '--dist', DIST_DIR, '--host', '127.0.0.1', '--port', String(port)],
-    { cwd: REPO_ROOT, stdio: 'pipe' },
-  )
+  const args = ['web', '--fixture', fixturePath, '--host', '127.0.0.1', '--port', String(port)]
+  if (dist) args.push('--dist', DIST_DIR)
+
+  const proc = spawn('coord', args, { cwd: REPO_ROOT, stdio: 'pipe' })
   let output = ''
   proc.stdout.on('data', (chunk) => (output += String(chunk)))
   proc.stderr.on('data', (chunk) => (output += String(chunk)))
