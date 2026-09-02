@@ -38,25 +38,30 @@
  * entirely rather than rendering a flat zero line (contract §8d's "never an
  * empty axis that reads as a flat healthy zero", applied literally).
  *
- * ## Metric vocabulary (hand-authored, wholesale-replaceable)
+ * ## Metric vocabulary (re-grounded in the real API by #76)
  *
- * `MachineMetricsSeries.metric` is open vocabulary (`generated.ts`'s own
- * doc comment) — the Machines API itself (claude-coordinator#3027) hasn't
- * landed yet, so these six key names are this client's own best-guess
- * naming, not a transcription of a real server response. Replace wholesale,
- * same posture as the rest of the Machines API block, the day #3027 lands
- * with real field/metric names:
+ * `MachineMetricsSeries.metric` is open vocabulary in principle
+ * (`generated.ts`'s own doc comment on `MachineMetricsSeries`), but in
+ * practice only two keys exist today: `cpu_pct` / `mem_pct` — percent, the
+ * panel's CPU/memory charts, synthesized client-side
+ * (`toMachineMetricsSeries`, `src/api/client.ts`) from the real
+ * `GET /api/machines/metrics`'s fixed per-timestamp `MachineMetricsSample`
+ * shape (`cpu_percent`/`mem_percent`, plus a `status` that maps a failed
+ * poll to an explicit gap on both series at once).
  *
- *  - `cpu_pct` / `mem_pct` — percent, the panel's CPU/memory charts
- *  - `worktree_bytes` — bytes, the disk/worktree-footprint trend (the
- *    "`/home` full while cargo GC said 19.5GB free" class of incident #65's
- *    issue text names — invisible on `MachineState.worktree_bytes`'s
- *    point-in-time reading alone, which is why this needs a trend)
- *  - `active_workers` — count, charted against the machine's own
- *    `concurrency_limit` ceiling (a constant, not a series — passed
- *    separately as a reference line, `MachineCharts.tsx`)
- *  - `jobs_completed` / `jobs_failed` — count, overlaid on one chart
- *    (`machineChartMultiPlan`) reusing the pass/fail status colours
+ * #65 originally shipped three more charts here (`worktree_bytes`,
+ * `active_workers`, `jobs_completed`/`jobs_failed`) against a fully-open
+ * named-metric vocabulary the pre-#76 invented `/api/machines/{name}/
+ * metrics` route was assumed to carry. None of those three has ever existed
+ * as a time series on any real server — `MachineCharts.tsx`'s own doc
+ * comment explains why those chart sections are gone rather than
+ * permanently stuck on their own degrade branch. The generic multi-series
+ * plan machinery they used (`machineChartMultiPlan`,
+ * `buildMachineChartMultiAriaLabel`) stays below, unused by
+ * `MachineCharts.tsx` today, in case a future real multi-series metric
+ * needs it again -- covered directly by this module's own tests
+ * (`src/lib/__tests__/machineCharts.test.ts`) rather than through the
+ * component.
  */
 import type { MachineMetricPoint, MachineMetricsSeries } from '@/api/client'
 

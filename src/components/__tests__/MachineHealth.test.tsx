@@ -27,10 +27,12 @@ import type { MachineHealthCheckResult, MachineHealthSnapshot } from '@/api/clie
 function makeResult(overrides: Partial<MachineHealthCheckResult> = {}): MachineHealthCheckResult {
   return {
     key: 'disk',
+    check_id: 'disk',
+    scope: 'machine',
+    title: 'Disk',
     label: 'disk',
     severity: 'ok',
     headroom: '86% used (22G free)',
-    detail: '',
     ...overrides,
   }
 }

@@ -334,170 +334,205 @@ export interface ReportResult {
   chart: ChartSpec | null
 }
 
-// ── Machines panel (coord-web#61, #62, #63, #66) — blocked on claude-coordinator#3027 ──
+// ── Machines panel (coord-web#76, replacing the invented #61-#66 surface) ──
 //
-// Unlike `BoardDriveQueueEntry`/`ReportDef` above, these types are NOT a
-// transcription of a real, already-serving `coord.dashboard.server.
-// openapi_spec()` response — the Machines API itself (routes + OpenAPI
-// schema) is claude-coordinator#3027, still open at the time this landed.
-// Hand-authored ahead of that landing, same "(forthcoming)" convention
-// `PipelineAction`/`DriveQueueAction` (`./client.ts`) use for an action
-// defined ahead of its backend route: calling any of the `fetchMachine*`
-// functions in `../client.ts` against a coord server running today 404s,
-// every one of them, not just the ones documented "(forthcoming)" elsewhere
-// in this file. Replace this block wholesale — field names very much
-// included, none of them are load-bearing yet — the day #3027 lands and
-// `scripts/codegen.py` can regenerate a real one from the actual spec; do
-// not assume today's field names survive that landing.
+// The previous version of this block invented a `/api/machines/{name}/*`
+// per-machine route family and a `MachineState.severity` field — issue #76
+// found neither was ever built. The real surface is four fleet-*wide*
+// collection endpoints — `/api/machines`, `/api/machines/health`,
+// `/api/machines/metrics`, `/api/machines/stats` — and `./client.ts` fetches
+// each once, joining/selecting per machine client-side rather than issuing
+// one request per machine per concern.
+//
+// Unlike the rest of this file, every type below IS a faithful transcription
+// of a real, running server's own `GET /openapi.json` (fetched against a
+// local `coord web --fixture` process on the exact `coord==0.5.341` #76
+// cites, then cross-checked field-for-field) — not a guess, and not the
+// generator claude-coordinator#3045 would eventually produce (still not
+// shipped in the wheel, coord-web#77), but the closest thing to it available
+// today. Names/nesting/nullability all come straight from that spec's
+// `MachineRow`/`FleetHealthResponse`/`MachineHealthRow`/`HealthCheckResult`/
+// `MachineMetricsResponse`/`MachineMetricsSample`/`MachineStatsRow` schemas.
+// Replace wholesale the day a real generated.ts can supersede it.
 
-/** `GET /api/machines`/`GET /api/machines/{name}` — one machine coord's
- * roster knows about. Field selection mirrors what `SessionInfo`
- * (`./client.ts`, itself hand-written) already exposes per-session
- * (`machine`/`host`) plus the roster-level facts a Machines panel needs that
- * no existing endpoint carries.
- *
- * `severity`/`agent_version`/`is_local`/the three pause flags were added for
- * #62 (machines-list parity with coord-tui's `machines_list`, `app/mod.rs`)
- * — same "hand-authored, wholesale replaceable" posture as the rest of this
- * block, not a transcription of a real #3027 response. */
+/** `GET /api/machines` — one roster entry (`MachineRow` in the live
+ * OpenAPI schema). No `severity` here on purpose — the server only computes
+ * that per-check, in `GET /api/machines/health`'s `machine_health[]` rows;
+ * `severity` must be joined onto a roster row by machine name, never
+ * invented locally (see `joinMachineSeverity`, `./client.ts`). */
 export interface MachineState {
   name: string
   /** The machine's Tailscale host, same meaning as `SessionInfo.host`. */
-  host: string | null
-  reachable: boolean
-  /** Epoch seconds of the roster's last successful reachability probe. */
-  last_seen: number | null
-  active_assignments: number
-  headless_workers: number
-  /**
-   * Rolled-up health severity across this machine's checks, computed
-   * server-side the same way `_effective_severity` computes it for
-   * coord-tui's `machines_list`. `'unknown'` is a first-class outcome, not a
-   * styling variant of `'ok'` — the daemon currently has no verdict for this
-   * machine (unreachable, never checked in, etc), and a client must never
-   * render that as healthy (#62's honesty rule).
-   */
-  severity: 'ok' | 'warn' | 'crit' | 'unknown'
-  /**
-   * The coord-agent version this machine last reported, or `null` when the
-   * daemon has never heard a version from it. `null` is distinct from
-   * "matches local" — never rendered as drift-free just because there's
-   * nothing to compare.
-   */
+  host: string
+  /** Reachability state — open vocabulary per the spec's own description
+   * ("unknown|online|offline|..."); render verbatim rather than assuming a
+   * closed enum. */
+  state: string
+  /** Human-readable context for `state` (e.g. why a probe failed). */
+  reason: string
+  /** Round-trip latency of the roster's last reachability probe, in
+   * milliseconds, or `null` when unmeasured. */
+  latency_ms: number | null
+  /** The coord-agent version this machine last reported, or `null` when the
+   * daemon has never heard a version from it. */
   agent_version: string | null
-  /**
-   * True for the machine hosting this coord daemon itself — the version-
-   * drift reference point (#62): every other machine's `agent_version`
-   * compares against *this* machine's, not some separately-tracked "latest
-   * release" value.
-   */
-  is_local: boolean
-  /**
-   * True while this machine is paused by the coordinator's configured
-   * quiet-hours window. Distinct from `hand_paused` and `release_cordoned`
-   * — coord-tui's `machines_list` renders these as three separate badges,
-   * never collapsed into one "paused" pill, and its own tests pin that
-   * distinction (#62).
-   */
-  quiet_hours_paused: boolean
-  /** True while a human has explicitly paused this machine (`coord pause`),
-   * independent of quiet hours or a release cordon. */
-  hand_paused: boolean
-  /** True while this machine is cordoned off from new work by an in-flight
-   * release rollout, independent of quiet hours or a hand pause. */
-  release_cordoned: boolean
-  /**
-   * Total on-disk size, in bytes, of this machine's git worktrees, or
-   * `null` when the daemon hasn't reported one. Added for #63 (machine
-   * detail's disk-footprint line) — same hand-authored, wholesale-
-   * replaceable posture as the rest of this block.
-   */
+  /** Repos this machine has a worktree/checkout for. */
+  repos: string[]
+  /** Total on-disk size, in bytes, of this machine's git worktrees, or
+   * `null` when the daemon hasn't reported one. */
   worktree_bytes: number | null
-  /**
-   * Max concurrent headless workers this machine will run at once (its
-   * concurrency ceiling), or `null` when the daemon hasn't reported one.
-   * Paired with `headless_workers` (the current count) so the detail panel
-   * can render "2 / 6" rather than the count alone (#63).
-   */
-  concurrency_limit: number | null
+  /** This machine's current assignment activity — present (per the spec's
+   * own description) "only when this machine has running work"; absent or
+   * `null` both mean "nothing active", never fabricated as `{active: []}`
+   * by this type (`./client.ts`'s readers normalize that). */
+  assignments?: MachineAssignments | null
+}
+
+/** `MachineState.assignments` — issue #76's mapping table: "workers" (the
+ * old, never-built `/api/machines/{name}/workers` route) now reads as
+ * `assignments.active` on the roster row itself. */
+export interface MachineAssignments {
+  active: MachineActiveWorker[]
 }
 
 /**
- * `GET /api/machines/{name}/workers` — one of this machine's currently
- * active headless workers. `type` reuses `AssignmentType`'s real value set
- * since a worker *is* a dispatched assignment. Parity reference: coord-tui's
- * `machine_detail_list` ACTIVE WORKERS section (`app/mod.rs`). Same
- * hand-authored, wholesale-replaceable posture as the rest of this block
- * (#63) — see this section's header.
+ * One of a machine's currently active assignments, nested under
+ * `MachineState.assignments.active`. Deliberately thin per the live schema
+ * — no dispatch timestamp and no assignment `type` travel on this row (both
+ * were invented by the pre-#76 surface), so the detail panel can show
+ * identity + status + issue context but not an age column.
  */
 export interface MachineActiveWorker {
-  id: string
-  issue: number | null
-  type: AssignmentType
-  repo: string | null
-  /** Epoch seconds the worker was dispatched -- the detail panel's age
-   * column is computed client-side from this. */
-  started_at: number
+  assignment_id: string
+  status: string
+  spec?: MachineAssignmentSpec
+}
+
+/** `MachineActiveWorker.spec` — issue context for one active assignment,
+ * all optional per the live schema (a spec-less row still has an
+ * `assignment_id`/`status` worth showing). */
+export interface MachineAssignmentSpec {
+  issue_number?: number
+  issue_title?: string
+  repo_name?: string
 }
 
 /**
- * `GET /api/machines/{name}/jobs` — one entry in this machine's recent job
- * history. `status` reuses `AssignmentStatus`'s real value set since a job
- * history row *is* a (usually finished) assignment; the detail panel uses
- * it to render failures visually distinct from the rest. Parity reference:
- * coord-tui's `machine_detail_list` JOB HISTORY section (`app/mod.rs`).
- * Same hand-authored, wholesale-replaceable posture as the rest of this
- * block (#63).
+ * One entry in a machine's recent (last 20, per the endpoint's own summary)
+ * job history, nested under `GET /api/machines/stats`'s per-machine
+ * `job_history[]` — already scoped to one machine on the wire, unlike the
+ * pre-#76 surface's invented flat/fleet-wide array.
  */
 export interface MachineJobHistoryEntry {
-  id: string
-  issue: number | null
-  repo: string | null
+  assignment_id: string
+  repo_name: string
+  issue_number: number | null
+  issue_title: string | null
+  /** Assignment type, e.g. `"work"`/`"review"` — reuses `AssignmentType`'s
+   * open string shape rather than fixing it here; the live schema declares
+   * this a bare string, not necessarily a closed `AssignmentType`. */
+  type: string
+  /** Assignment status — reuses `AssignmentStatus`'s real value set since a
+   * job history row *is* a (usually finished) assignment; the detail panel
+   * uses it to render failures visually distinct from the rest. */
   status: AssignmentStatus
+  dispatched_at: number | null
   /** Epoch seconds the job finished, or `null` while it's still
    * pending/running -- the detail panel renders those as "in progress"
    * rather than a bogus age. */
   finished_at: number | null
 }
 
-/** One sample of a `MachineMetricsSeries`.
+/** One sample of a machine's CPU/memory time series
+ * (`MachinesMetricsResponse.machines{}`'s per-machine array, oldest-first).
+ * Deliberately not a generic named-metric-series shape (the pre-#76
+ * surface's invented `MachineMetricsSeries`/`MachineMetricPoint`) — the real
+ * endpoint reports a fixed, richer sample per timestamp instead.
  *
- * `value: null` is a first-class, explicit "unknown" sample (#65) — a poll
- * that failed or timed out, never a real reading. A client MUST render this
- * as a gap in the series (never interpolate across it, never plot it as
- * `0`) — plotting a failed poll as `0` would draw a dead agent as an
- * idle-but-healthy one, exactly the dishonest reading this milestone's
- * severity-verbatim / stale-labelled conventions (#62, #64) exist to rule
- * out elsewhere in the Machines panel. */
-export interface MachineMetricPoint {
+ * `status: 'unknown'` (a poll that failed or timed out) is a first-class
+ * outcome (#65's honesty rule, still true post-#76): `./client.ts`'s
+ * `fetchMachineMetrics` maps a `'unknown'`-status sample to an explicit gap
+ * in the `cpu_pct`/`mem_pct` series it synthesizes, never interpolating
+ * across it or plotting it as `0`. */
+export interface MachineMetricsSample {
   /** Epoch seconds. */
+  timestamp: number
+  status: string
+  cpu_percent: number | null
+  mem_percent: number | null
+  mem_used_mb: number | null
+  mem_total_mb: number | null
+  reason: string
+}
+
+/** `GET /api/machines/metrics`'s response shape — `machines{}` keyed by
+ * machine name, each an oldest-first `MachineMetricsSample[]`. */
+export interface MachinesMetricsResponse {
+  schema: number
+  generated_at: number
+  since: number | null
+  resolution: number | null
+  machines: Record<string, MachineMetricsSample[]>
+}
+
+/** One epoch-seconds point of a `MachineMetricsSeries` — `./client.ts`'s
+ * `fetchMachineMetrics` synthesizes this shape from the real
+ * `MachineMetricsSample[]` above so `src/components/MachineCharts.tsx` /
+ * `src/lib/machineCharts.ts`'s generic named-metric-series chart machinery
+ * (built for #65 against the pre-#76 invented endpoint, but not itself
+ * wrong — just fed from the wrong source) can stay as-is. `value: null` is
+ * a first-class, explicit "unknown" sample: a client MUST render it as a
+ * gap in the series, never interpolated or plotted as `0`. */
+export interface MachineMetricPoint {
   t: number
   value: number | null
 }
 
-/** `GET /api/machines/{name}/metrics` — one named time series (e.g. load,
- * disk free) for a machine, over the daemon's retained window (~6h,
- * claude-coordinator#3020). A client meeting a `metric` it doesn't
- * recognize renders it generically rather than dropping it — open
- * vocabulary, same posture `ColumnMeta.kind` documents. `src/lib/
- * machineCharts.ts`'s own doc comment lists the metric names this client
- * currently knows how to chart (`cpu_pct`, `mem_pct`, `worktree_bytes`,
- * `active_workers`, `jobs_completed`, `jobs_failed`) — hand-authored ahead
- * of #3027 landing, same wholesale-replaceable posture as the rest of this
- * block. */
+/** A named time series (`"cpu_pct"`/`"mem_pct"`, the only two
+ * `fetchMachineMetrics` synthesizes today — see that function's doc
+ * comment) for one machine, client-side-derived from
+ * `MachineMetricsSample[]`. */
 export interface MachineMetricsSeries {
   metric: string
   unit: string | null
   points: MachineMetricPoint[]
 }
 
+export type Severity = 'ok' | 'warn' | 'crit' | 'unknown'
+
 /**
- * `GET /api/machines/{name}/health` — this machine's health-check snapshot.
- * Mirrors the wire shape coord-tui's `fleet_health.rs` already consumes for
- * the identical data (`FleetMachineHealth`, itself
- * `coord.health.fleet_snapshot`'s per-machine row in `/board`'s
- * `fleet_health.machine_health[]`) rather than inventing a new one — one
- * wire contract for "one machine's rolled-up health", read by both clients.
+ * One already-rendered health-check row (`HealthCheckResult` in the live
+ * OpenAPI schema) — the wire shape of `coord.health.models.CheckResult.
+ * to_dict()` (`coord/health/checks/`: disk, worktrees, toolchain,
+ * index_lock, spawned_coord, cargo_targets and the rest). `severity`/
+ * `headroom` are pre-decided by the probe that produced this row; nothing
+ * on this side may re-derive either from raw numbers — the same rule
+ * `coord-tui/src/app/fleet_health.rs`'s module doc comment spells out for
+ * the identical data. `headroom` is the load-bearing field: a short,
+ * already-formatted phrase such as `"86% used (22G free)"`, not a number
+ * this client formats itself. Open vocabulary on `key`. `detail` is
+ * optional per the live schema — an unset one just means nothing extra to
+ * show, not a data error.
+ */
+export interface MachineHealthCheckResult {
+  /** Stable identity for this row: `check_id`, or `"<check_id>:<subject>"`
+   * when the check has a subject. */
+  key: string
+  check_id: string
+  scope: string
+  subject?: string | null
+  title: string
+  /** Display label, e.g. `"disk"` or `"worktrees vimcode"`. */
+  label: string
+  severity: Severity
+  headroom: string
+  threshold?: string
+  detail?: string
+  trend?: string | null
+}
+
+/** One row of `GET /api/machines/health`'s `machine_health[]` — one
+ * machine's rolled-up health, keyed by `machine` (#76's mapping table).
  *
  * `severity`/`stale` answer "trust this right now?"; `results`/`checked_at`
  * answer "what did we last see?" — kept as two separate pairs on purpose
@@ -506,69 +541,110 @@ export interface MachineMetricsSeries {
  * server-side (it becomes `'unknown'` once a machine hasn't reported in too
  * long), but `stale`+`checked_at` are what let the UI say *why* rather than
  * just rendering the downgraded verdict with no explanation.
- */
-export interface MachineHealthSnapshot {
-  /** Rolled-up across `results`, computed server-side the same way
-   * `MachineState.severity` is — not re-derived on this side. */
-  severity: 'ok' | 'warn' | 'crit' | 'unknown'
-  /** True when this snapshot is too old to currently trust, per the
-   * server's own staleness rule (not a client-side age comparison). */
+ *
+ * This is the server's one and only computed `severity` for a machine
+ * (`_effective_severity`) — per #76 and #3023's honesty contract, no other
+ * type in this file may re-derive or duplicate it; `MachineState` deliberately
+ * has none of its own. Also carries its own copy of several roster-shaped
+ * fields (`state`/`reason`/`latency_ms`/`worktree_bytes`/
+ * `agent_runtime_version`) per the live schema — `./client.ts` ignores those
+ * here and reads them off the roster instead, to avoid two sources of truth
+ * for the same fact inside one component tree. */
+export interface MachineHealthRow {
+  machine: string
+  state: string
+  reason: string
+  latency_ms?: number | null
+  received_at?: number | null
   stale: boolean
-  /** Epoch seconds of the last actual measurement, or `null` when this
-   * machine has never reported health at all (old agent, or never polled). */
+  severity: Severity
+  /** Epoch seconds of the last actual measurement, or `null`/absent when
+   * this machine has never reported health at all (old agent, or never
+   * polled). */
+  checked_at?: number | null
+  results: MachineHealthCheckResult[]
+  worktree_bytes?: number | null
+  agent_runtime_version?: string | null
+}
+
+/** `GET /api/machines/health`'s response shape (`FleetHealthResponse`) —
+ * `machine_health[]` (one row per machine, keyed by `machine`) plus
+ * `fleet_checks`, facts about the fleet as a whole (board latency,
+ * phantom-running rows, deploy-lane skew, …) that aren't about any one
+ * machine. Reuses `MachineHealthCheckResult` row-for-row for `fleet_checks`
+ * rather than inventing a second "check result" shape, since a fleet-scope
+ * check and a machine-scope check render the same way (severity + headroom
+ * + detail), just scoped differently. */
+export interface MachinesHealthResponse {
+  schema: number
+  refreshed_at: number | null
+  machine_health: MachineHealthRow[]
+  fleet_checks: MachineHealthCheckResult[]
+  truncated: boolean
+}
+
+/** A machine's rolled-up health, joined onto one roster row by name
+ * (`joinMachineSeverity`/`fetchMachineHealth`, `./client.ts`) — the
+ * severity/stale/checked_at/results slice of `MachineHealthRow` this panel
+ * actually renders (see that type's doc comment for why the rest of its
+ * fields are ignored here). */
+export interface MachineHealthSnapshot {
+  severity: Severity
+  stale: boolean
   checked_at: number | null
   results: MachineHealthCheckResult[]
 }
 
-/**
- * One already-rendered health-check row — the wire shape of
- * `coord.health.models.CheckResult.to_dict()` (`coord/health/checks/`:
- * disk, worktrees, toolchain, index_lock, spawned_coord, cargo_targets and
- * the rest). `severity`/`headroom` are pre-decided by the probe that
- * produced this row; nothing on this side may re-derive either from raw
- * numbers — the same rule `coord-tui/src/app/fleet_health.rs`'s module doc
- * comment spells out for the identical data. `headroom` is the load-bearing
- * field: a short, already-formatted phrase such as `"86% used (22G free)"`,
- * not a number this client formats itself. Open vocabulary on `key`.
- */
-export interface MachineHealthCheckResult {
-  /** Stable identity for this row (`CheckResult.key`): `check_id`, or
-   * `"<check_id>:<subject>"` when the check has a subject. */
-  key: string
-  /** Display label, e.g. `"disk"` or `"worktrees vimcode"`. */
-  label: string
-  severity: 'ok' | 'warn' | 'crit' | 'unknown'
-  headroom: string
-  detail: string
+/** One machine's active-vs-configured worker concurrency
+ * (`MachineStatsRow.capacity`). */
+export interface MachineCapacity {
+  active: number
+  max: number
 }
 
-/** `GET /api/machines/{name}/work-stats` — aggregate assignment throughput
- * for one machine over a server-chosen trailing window. */
+/** Fleet-wide worker capacity, client-side-summed across every
+ * `MachineStatsRow.capacity` (`fetchFleetCapacity`, `./client.ts`) — there
+ * is no fleet-wide total on the wire, only per-machine ones. `total: null`
+ * when no machine reports one, never a fabricated 0. */
+export interface FleetCapacity {
+  used: number
+  total: number | null
+}
+
+/** One machine's completed/failed assignment counts over the server's own
+ * retention window (`MachineStatsRow.counts`). */
+export interface MachineJobCounts {
+  completed: number
+  failed: number
+}
+
+/** `GET /api/machines/stats`'s response shape — an array of per-machine
+ * rows (`MachineStatsRow` in the live schema), NOT the fleet-wide
+ * `{capacity, counts, job_history}` object the pre-#76 surface guessed at:
+ * capacity and job counts are both per-machine here, and there is no
+ * separate fleet-wide capacity total on the wire — `fetchFleetCapacity`
+ * (`./client.ts`) sums `capacity.active`/`capacity.max` across every row
+ * client-side, the same way the pre-#76 `summarizeFleetCapacity` summed
+ * per-machine roster fields (just sourced from the real endpoint now). */
+export interface MachineStatsRow {
+  name: string
+  capacity: MachineCapacity
+  counts: MachineJobCounts
+  job_history: MachineJobHistoryEntry[]
+}
+
+/** One machine's work-stats summary, derived from its `MachineStatsRow`
+ * (`fetchMachineWorkStats`, `./client.ts`) — the completed/failed counts
+ * `MachineDetail`'s Work stats section renders. */
 export interface MachineWorkStats {
   machine: string
-  window_seconds: number
   assignments_completed: number
   assignments_failed: number
-  cost_usd: number | null
 }
 
-/**
- * `GET /api/fleet/health` — fleet-*scope* health checks (#66): facts about
- * the fleet as a whole (board latency, phantom-running rows, deploy-lane
- * skew, …), not any one machine's. Wire shape mirrors `coord.health.
- * fleet_snapshot.FleetHealthSnapshot.fleet_checks` / coord-tui's identically-
- * named `FleetHealthBlock.fleet_checks` (`fleet_health.rs`) — reuses
- * `MachineHealthCheckResult` row-for-row rather than inventing a second
- * "check result" shape, since a fleet-scope check and a machine-scope check
- * are rendered the same way (severity + headroom + detail), just scoped
- * differently. Same hand-authored, wholesale-replaceable posture as the rest
- * of this block: this route isn't registered on any coord server yet either.
- *
- * `FleetSummary` (`src/components/FleetSummary.tsx`) is what mirrors
- * `coord.health.aggregate`'s counting rule client-side: one unit per
- * machine's already-rolled-up `MachineState.severity`, plus one unit per
- * entry here — see that component's doc comment, and `coord-tui/src/app/
- * fleet_health.rs`'s module doc comment for why the two Rust/TS mirrors of
- * the same Python rule have to be kept in sync by hand.
- */
+/** Fleet-*scope* health checks (#66): facts about the fleet as a whole, not
+ * any one machine's — `MachinesHealthResponse.fleet_checks`. `FleetSummary`
+ * (`src/components/FleetSummary.tsx`) mirrors `coord.health.aggregate`'s
+ * counting rule client-side: one unit per machine's joined severity, plus
+ * one unit per entry here. */
 export type FleetChecks = MachineHealthCheckResult[]

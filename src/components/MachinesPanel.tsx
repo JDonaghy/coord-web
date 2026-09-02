@@ -1,5 +1,6 @@
 /**
- * MachinesPanel — the Machines panel's list-slot content (#61).
+ * MachinesPanel — the Machines panel's list-slot content (#61, re-wired by
+ * #76).
  *
  * `ShellLayout` owns the frame (rail, status bar) and renders this component
  * into the list slot for the `/machines` route, same convention
@@ -10,34 +11,26 @@
  *
  * #61 was the scaffolding story for milestone #4 (Machines panel): the API
  * client, wire types, route and rail entry, plus the honest-degrade shell
- * below (`result.available === false`) once `fetchMachines()`
- * (`src/api/client.ts`) has a real `claude-coordinator#3027` route to call.
- * Every coord server running today 404s that call, so that path is this
- * component's *normal* rendering today, not an edge case — see
- * `fetchMachines`'s and `MachineQueryResult`'s doc comments for why that's a
- * distinct state from "loaded, zero machines" rather than an empty list
- * indistinguishable from a real empty roster.
+ * below (`result.available === false`) for a coord server old enough to
+ * predate the Machines API entirely.
  *
- * #62 fills in the actual row content once the roster is available:
- * reachability, rolled-up health severity, agent version drift and the
- * quiet-hours/hand-pause/release-cordon badge set — see `MachinesList`
- * (`src/components/MachinesList.tsx`), which owns per-row rendering so it
- * can be unit-tested without a `QueryClientProvider`.
- *
- * #66 adds the fleet-level aggregate (`FleetSummary`,
- * `src/components/FleetSummary.tsx`) above the roster: online/total, worst
- * severity + count, worker capacity, and fleet-scope checks
- * (`fetchFleetChecks`). It renders only once the roster itself is available
- * — an unavailable/loading/empty roster already has its own dedicated states
- * below, and a fleet-wide rollup over zero machines has nothing useful to
- * say. `fleetChecks` degrades to `[]` on `{available: false}` exactly like
- * `machines` does, per `FleetSummary`'s own "no units, not an error" posture.
+ * #62 filled in the roster row content; #66 added the fleet-level aggregate
+ * (`FleetSummary`, `src/components/FleetSummary.tsx`) above it. #76 found
+ * both had been built against a `/api/machines` shape and a
+ * `MachineState.severity` field that claude-coordinator never shipped --
+ * this file now fetches the roster (`fetchMachines`) and the real
+ * `GET /api/machines/health` fleet-wide response (`fetchMachinesHealth`) in
+ * parallel, joins severity onto the roster by name (`joinMachineSeverity`),
+ * and fetches fleet worker capacity (`fetchFleetCapacity`,
+ * `GET /api/machines/stats`) separately -- three real, fleet-wide endpoints,
+ * each fetched once, rather than the never-built per-machine surface the
+ * pre-#76 version assumed.
  */
 import { ServerOff } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
-import { fetchFleetChecks, fetchMachines } from '@/api/client'
+import { fetchFleetCapacity, fetchMachines, fetchMachinesHealth, joinMachineSeverity } from '@/api/client'
 import FleetSummary from '@/components/FleetSummary'
 import { MachinesList } from '@/components/MachinesList'
 import { PanelHeader } from '@/components/PanelHeader'
@@ -54,13 +47,20 @@ export default function MachinesPanel() {
     queryKey: ['machines'],
     queryFn: fetchMachines,
   })
-  const { data: fleetChecksResult } = useQuery({
-    queryKey: ['fleet-checks'],
-    queryFn: fetchFleetChecks,
+  const { data: healthResult } = useQuery({
+    queryKey: ['machines-health'],
+    queryFn: fetchMachinesHealth,
+  })
+  const { data: capacityResult } = useQuery({
+    queryKey: ['fleet-capacity'],
+    queryFn: fetchFleetCapacity,
   })
 
   const machines = result?.available ? result.data : []
-  const fleetChecks = fleetChecksResult?.available ? fleetChecksResult.data : []
+  const health = healthResult?.available ? healthResult.data : null
+  const severityMap = joinMachineSeverity(machines, health)
+  const fleetChecks = health?.fleet_checks ?? []
+  const capacity = capacityResult?.available ? capacityResult.data : null
 
   return (
     <div className="mx-auto w-full max-w-lg px-4 py-4">
@@ -71,7 +71,12 @@ export default function MachinesPanel() {
       />
 
       {result?.available && machines.length > 0 && (
-        <FleetSummary machines={machines} fleetChecks={fleetChecks} />
+        <FleetSummary
+          machines={machines}
+          severityMap={severityMap}
+          fleetChecks={fleetChecks}
+          capacity={capacity}
+        />
       )}
 
       {isLoading && (
@@ -121,6 +126,7 @@ export default function MachinesPanel() {
       {result?.available && machines.length > 0 && (
         <MachinesList
           machines={machines}
+          severityMap={severityMap}
           onSelect={(name) => navigate(paths.machineItem(name))}
         />
       )}

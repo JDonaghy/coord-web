@@ -28,28 +28,37 @@ import { EmptyDetail } from '../EmptyDetail'
 import { LIST_WIDTH_DEFAULT_PX, SHELL_STORAGE_KEY } from '../shellState'
 import { MEDIUM_PX, NARROW_PX, WIDE_PX, restoreViewport, stubViewportWidth } from './stubViewport'
 
-vi.mock('@/api/client', () => ({
-  fetchPipeline: vi.fn(),
-  fetchSessions: vi.fn(),
-  fetchDiff: vi.fn(),
-  pipelineAction: vi.fn(),
-  // `DriveQueuePanel` (#7 QW-3) is the real /queue list content now, not
-  // `ComingSoon` -- it calls this on mount the same way Home calls
-  // fetchPipeline/fetchSessions.
-  fetchDriveQueue: vi.fn(),
-  // `MachinesPanel` (#61) is the real /machines list content now -- it calls
-  // this on mount the same way `DriveQueuePanel` calls `fetchDriveQueue`.
-  fetchMachines: vi.fn(),
-  // `MachinesPanel`'s `FleetSummary` header (#66) folds fleet-*scope* checks
-  // into the same severity rollup as the roster, so mounting /machines fires
-  // this alongside `fetchMachines`.
-  fetchFleetChecks: vi.fn(),
-}))
+vi.mock('@/api/client', async (importOriginal) => {
+  // Partial mock: `joinMachineSeverity` is a pure client-side join (#76),
+  // not a network call, and `MachinesPanel` imports it directly from this
+  // module -- keep the real implementation via `importOriginal` rather than
+  // mocking it away to `undefined`.
+  const actual = await importOriginal<typeof import('@/api/client')>()
+  return {
+    ...actual,
+    fetchPipeline: vi.fn(),
+    fetchSessions: vi.fn(),
+    fetchDiff: vi.fn(),
+    pipelineAction: vi.fn(),
+    // `DriveQueuePanel` (#7 QW-3) is the real /queue list content now, not
+    // `ComingSoon` -- it calls this on mount the same way Home calls
+    // fetchPipeline/fetchSessions.
+    fetchDriveQueue: vi.fn(),
+    // `MachinesPanel` (#61) is the real /machines list content now -- it
+    // calls this, plus `fetchMachinesHealth`/`fetchFleetCapacity` (#76's
+    // re-wire onto the real fleet-wide endpoints), on mount the same way
+    // `DriveQueuePanel` calls `fetchDriveQueue`.
+    fetchMachines: vi.fn(),
+    fetchMachinesHealth: vi.fn(),
+    fetchFleetCapacity: vi.fn(),
+  }
+})
 
 import {
   fetchDriveQueue,
-  fetchFleetChecks,
+  fetchFleetCapacity,
   fetchMachines,
+  fetchMachinesHealth,
   fetchPipeline,
   fetchSessions,
 } from '@/api/client'
@@ -174,12 +183,14 @@ beforeEach(() => {
       fleet_held: 0,
     },
   })
-  // Matches every coord server running today (claude-coordinator#3027 is
-  // still open) -- see `fetchMachines`'s doc comment.
+  // Matches a coord server old enough to predate even the real #76 Machines
+  // API -- see `fetchMachines`'s doc comment.
   vi.mocked(fetchMachines).mockResolvedValue({ available: false })
   // Same version-skew story as the roster above: a server without
-  // /api/fleet/health reports "unavailable" rather than an empty check list.
-  vi.mocked(fetchFleetChecks).mockResolvedValue({ available: false })
+  // /api/machines/health or /api/machines/stats reports "unavailable"
+  // rather than empty/zeroed data.
+  vi.mocked(fetchMachinesHealth).mockResolvedValue({ available: false })
+  vi.mocked(fetchFleetCapacity).mockResolvedValue({ available: false })
 })
 
 afterEach(() => {

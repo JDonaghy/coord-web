@@ -31,48 +31,45 @@ async function mockShellApi(page: Page): Promise<void> {
   await page.route('**/api/sessions', (route) => route.fulfill(json([])))
 }
 
-function machineState(overrides: {
-  name: string
-  reachable: boolean
-  severity: 'ok' | 'warn' | 'crit' | 'unknown'
-  is_local?: boolean
-}) {
+function machineState(overrides: { name: string; state: string }) {
   return {
-    host: null,
-    last_seen: Math.floor(Date.now() / 1000),
-    active_assignments: 0,
-    headless_workers: 0,
+    host: '',
+    reason: '',
+    latency_ms: null,
     agent_version: null,
-    is_local: false,
-    quiet_hours_paused: false,
-    hand_paused: false,
-    release_cordoned: false,
+    repos: [],
     worktree_bytes: null,
-    concurrency_limit: null,
     ...overrides,
   }
 }
 
 const ROSTER = [
-  machineState({ name: 'laptop', reachable: true, severity: 'ok', is_local: true }),
-  machineState({ name: 'oldbox', reachable: false, severity: 'unknown' }),
+  machineState({ name: 'laptop', state: 'online' }),
+  machineState({ name: 'oldbox', state: 'unreachable' }),
 ]
 
 async function mockMachines(page: Page): Promise<void> {
   await mockShellApi(page)
   await page.route('**/api/machines', (route) => route.fulfill(json(ROSTER)))
-  await page.route('**/api/fleet/health', (route) => route.fulfill(json([])))
-  // Every per-name MachineDetail route 404s -- irrelevant to this file's
+  // 'laptop' has a real health row (severity 'ok'); 'oldbox' has none --
+  // joins to 'unknown' (`joinMachineSeverity`, `src/api/client.ts`), never a
+  // fabricated 'ok'.
+  await page.route('**/api/machines/health', (route) =>
+    route.fulfill(
+      json({
+        schema: 1,
+        refreshed_at: Math.floor(Date.now() / 1000),
+        truncated: false,
+        machine_health: [{ machine: 'laptop', state: 'online', reason: '', severity: 'ok', stale: false, checked_at: Math.floor(Date.now() / 1000), results: [] }],
+        fleet_checks: [],
+      }),
+    ),
+  )
+  // The `/api/machines/stats` route 404s -- irrelevant to this file's
   // concern (layout/theme, not data), so kept minimal and honest rather than
   // hand-waved with an empty 200.
-  for (const name of ['laptop', 'oldbox']) {
-    const escaped = encodeURIComponent(name)
-    for (const suffix of ['', '/health', '/work-stats', '/workers', '/jobs', '/metrics']) {
-      await page.route(`**/api/machines/${escaped}${suffix}`, (route) =>
-        route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }),
-      )
-    }
-  }
+  await page.route('**/api/machines/stats', (route) => route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }))
+  await page.route('**/api/machines/metrics', (route) => route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }))
 }
 
 const detail = (page: Page) => page.locator('[data-region="detail"]')
@@ -105,14 +102,14 @@ test.describe('Machines panel — both breakpoints (#67)', () => {
     if (testInfo.project.name === 'wide') {
       // Wide keeps the roster visible alongside the now-populated detail.
       await expect(list(page).getByTestId('machine-row-oldbox')).toBeVisible()
-      await expect(detail(page).getByText('Machine state unavailable')).toBeVisible()
+      await expect(detail(page).getByText('online')).toBeVisible()
     } else {
       // Narrow's drill-in: the roster is gone, only the detail shows, and
       // Back returns to it -- the roster was never dropped, just not the
       // first thing rendered (same convention deep-link.spec.ts pins for
       // Pipeline's narrow drill-in).
       await expect(list(page)).toHaveCount(0)
-      await expect(detail(page).getByText('Machine state unavailable')).toBeVisible()
+      await expect(detail(page).getByText('online')).toBeVisible()
       await page.getByLabel('Back').click()
       await expect(list(page).getByTestId('machine-row-laptop')).toBeVisible()
       await expect(detail(page)).toHaveCount(0)
@@ -125,7 +122,7 @@ test.describe('Machines panel — both breakpoints (#67)', () => {
     await mockMachines(page)
     await page.goto('/machines/oldbox')
 
-    await expect(detail(page).getByText('Machine state unavailable')).toBeVisible()
+    await expect(detail(page).getByText('unreachable')).toBeVisible()
 
     if (testInfo.project.name === 'wide') {
       await expect(list(page).getByTestId('machine-row-laptop')).toBeVisible()
@@ -203,7 +200,9 @@ test.describe('Machines panel — both themes (#67)', () => {
     await expect(page).toHaveURL(/\/machines\/laptop$/)
 
     await expect.poll(() => htmlTheme(page)).toBe('light')
-    await expect(detail(page).getByText('Machine state unavailable')).toBeVisible()
+    await expect(detail(page).getByText('online')).toBeVisible()
+    // /api/machines/metrics 404s in this file's mock -- its honest
+    // "unavailable" note stays legible after the switch too.
     await expect(detail(page).getByText('Metrics unavailable')).toBeVisible()
   })
 })

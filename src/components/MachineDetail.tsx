@@ -1,33 +1,37 @@
 /**
  * MachineDetail — the detail slot for one machine, at `/machines/:name`
- * (#61, #63).
+ * (#61, #63, re-wired by #76).
  *
  * Mirrors `SessionDetail`'s shape (panel content, not a screen; a back
  * control) for the same list -> detail addressing convention, but reads
- * several independent endpoints instead of one (`fetchMachine`/
- * `fetchMachines`/`fetchMachineHealth`/`fetchMachineWorkStats`/
+ * several independent pieces of derived data instead of one
+ * (`fetchMachine`/`fetchMachineHealth`/`fetchMachineWorkStats`/
  * `fetchMachineMetrics`/`fetchMachineWorkers`/`fetchMachineJobs`, all
- * `src/api/client.ts`) — state, roster, health, work stats, metrics, active
- * workers and job history are separate routes on the Machines API
- * (claude-coordinator#3027), not one payload.
+ * `src/api/client.ts`) — state, health, work stats, metrics, active workers
+ * and job history read from four different fleet-wide endpoints
+ * (`/api/machines`, `/api/machines/health`, `/api/machines/metrics`,
+ * `/api/machines/stats`), each already filtered/joined to this one machine
+ * by `src/api/client.ts`'s convenience wrappers, not five separate
+ * per-machine routes -- see that file's Machines-section header for the
+ * full #76 mapping.
  *
- * Each section degrades on its own: a coord server that doesn't serve
- * #3027's routes yet 404s every one of them, and `MachineQueryResult`'s
+ * Each section still degrades on its own: `MachineQueryResult`'s
  * `{available: false}` renders here as an honest per-section "unavailable"
  * note rather than an empty table/chart that would misreport as "this
- * machine really has zero health checks" — issue #61's explicit acceptance
- * bar. Degrading independently (rather than one panel-wide fallback) means a
- * server that ships state+health before work-stats+metrics (or vice versa)
- * still shows whatever it actually has.
+ * machine really has zero health checks" -- issue #61's original acceptance
+ * bar, unchanged by #76's re-wire. Degrading independently (rather than one
+ * panel-wide fallback) means a coord server that's missing just one of the
+ * four real endpoints still shows whatever it actually has.
  *
- * #63 fills in the read-only half of coord-tui's `machine_detail_list`
- * (`app/mod.rs`) parity reference: identity (local-vs-remote), status +
- * last-contact age, agent-version drift, worktree disk footprint, ACTIVE
- * WORKERS (id/issue/type/repo/age + the machine's concurrency ceiling
- * alongside the count) and JOB HISTORY (recent jobs, failures visually
- * distinct). The TUI's write actions (restart/update/clean, routing-pause /
- * quiet-hours menu) are explicitly out of scope for this milestone — no
- * endpoints exist for them yet.
+ * #76 dropped two things #63 built against fields the real API never had:
+ * the "this machine" / "remote" locality badge and agent-version drift
+ * highlighting (both needed `MachineState.is_local`, which doesn't exist —
+ * there is no confirmed way to identify "the machine coord-web is served
+ * from" from the roster alone) and the active-workers "N / ceiling" count
+ * (needed a per-machine `concurrency_limit`, which also doesn't exist; only
+ * a fleet-wide capacity total does, `FleetSummary`'s own job). The TUI's
+ * write actions (restart/update/clean, routing-pause / quiet-hours menu)
+ * remain explicitly out of scope — no endpoints exist for them either.
  */
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -39,14 +43,13 @@ import {
   fetchMachineMetrics,
   fetchMachineWorkers,
   fetchMachineWorkStats,
-  fetchMachines,
 } from '@/api/client'
 import MachineCharts from '@/components/MachineCharts'
 import MachineHealth from '@/components/MachineHealth'
 import { SeverityBadge } from '@/components/MachinesList'
-import { cn } from '@/lib/utils'
 import { issueRef } from '@/lib/repoRef'
 import { formatRelativeTime } from '@/lib/time'
+import { cn } from '@/lib/utils'
 
 const detailShellClass = 'mx-auto w-full max-w-3xl px-4 py-5 md:px-6'
 
@@ -78,7 +81,7 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(1)} ${units[unitIndex]}`
 }
 
-function BackHeader({ name, isLocal }: { name: string; isLocal: boolean | null }) {
+function BackHeader({ name }: { name: string }) {
   const navigate = useNavigate()
   return (
     <header className="mb-5 flex items-center gap-3">
@@ -92,14 +95,6 @@ function BackHeader({ name, isLocal }: { name: string; isLocal: boolean | null }
       </button>
       <h1 className="flex items-center gap-2 text-step-1 font-semibold text-foreground">
         <span className="font-mono">{name}</span>
-        {isLocal !== null && (
-          <span
-            data-testid="locality-badge"
-            className="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground"
-          >
-            {isLocal ? 'this machine' : 'remote'}
-          </span>
-        )}
       </h1>
     </header>
   )
@@ -112,15 +107,6 @@ export default function MachineDetail() {
     queryKey: ['machine', name],
     queryFn: () => fetchMachine(name),
     enabled: !!name,
-  })
-  // Same `queryKey` `MachinesPanel` (`src/components/MachinesPanel.tsx`)
-  // uses for the roster fetch -- react-query serves this from that cache
-  // when the user arrived via the machines list, rather than a second
-  // network round trip. Needed here only for the version-drift reference
-  // point: the roster entry with `is_local: true` (#62/#63).
-  const machinesQuery = useQuery({
-    queryKey: ['machines'],
-    queryFn: fetchMachines,
   })
   const workersQuery = useQuery({
     queryKey: ['machine-workers', name],
@@ -149,35 +135,18 @@ export default function MachineDetail() {
   })
 
   const state = machineQuery.data?.available ? machineQuery.data.data : null
-  const roster = machinesQuery.data?.available ? machinesQuery.data.data : null
   const workers = workersQuery.data?.available ? workersQuery.data.data : null
   const jobs = jobsQuery.data?.available ? jobsQuery.data.data : null
   const health = healthQuery.data?.available ? healthQuery.data.data : null
   const workStats = workStatsQuery.data?.available ? workStatsQuery.data.data : null
   const metrics = metricsQuery.data?.available ? metricsQuery.data.data : null
 
-  // Version-drift reference point, same rule `MachinesList` applies (#62):
-  // compare against the roster's own `is_local: true` entry, never a
-  // separately-tracked "latest release" value, and never flag the local
-  // machine (or an unknown version on either side) as drifted.
-  const localVersion = roster?.find((m) => m.is_local)?.agent_version ?? null
-  const versionDrift =
-    !!state &&
-    !state.is_local &&
-    localVersion !== null &&
-    state.agent_version !== null &&
-    state.agent_version !== localVersion
-
-  // Prefer this section's own fetched list for the live count -- falls back
-  // to the roster row's `headless_workers` only while the workers endpoint
-  // itself hasn't resolved (or 404s), so the header line still shows a
-  // number rather than nothing.
-  const workerCount = workers ? workers.length : (state?.headless_workers ?? null)
+  const workerCount = workers ? workers.length : null
 
   if (!name) {
     return (
       <div className={detailShellClass}>
-        <BackHeader name="Not found" isLocal={null} />
+        <BackHeader name="Not found" />
         <p className="text-sm text-muted-foreground">No machine name given.</p>
       </div>
     )
@@ -185,7 +154,7 @@ export default function MachineDetail() {
 
   return (
     <div className={detailShellClass}>
-      <BackHeader name={name} isLocal={state?.is_local ?? null} />
+      <BackHeader name={name} />
 
       <section className="mb-6" aria-label="State">
         {machineQuery.isLoading ? (
@@ -195,32 +164,23 @@ export default function MachineDetail() {
         ) : state ? (
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2 text-sm">
-              <SeverityBadge severity={state.severity} />
-              <span
-                className={
-                  state.reachable ? 'font-medium text-pass' : 'font-medium text-muted-foreground'
-                }
-              >
-                {state.reachable ? 'online' : 'offline'}
-              </span>
+              <SeverityBadge severity={health?.severity} />
+              <span className="font-medium text-foreground">{state.state}</span>
               {state.host && (
                 <span className="font-mono text-xs text-muted-foreground">{state.host}</span>
               )}
-              {state.last_seen !== null && (
-                <span className="text-xs text-muted-foreground">
-                  last contact {formatRelativeTime(state.last_seen)}
-                </span>
+              {state.latency_ms !== null && (
+                <span className="text-xs text-muted-foreground">{state.latency_ms} ms</span>
+              )}
+              {state.reason && (
+                <span className="text-xs text-muted-foreground">{state.reason}</span>
               )}
             </div>
             {(state.agent_version || state.worktree_bytes !== null) && (
               <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                 {state.agent_version && (
-                  <span
-                    data-testid="agent-version"
-                    className={cn('font-mono', versionDrift && 'font-semibold text-destructive')}
-                  >
+                  <span data-testid="agent-version" className="font-mono">
                     agent {state.agent_version}
-                    {versionDrift && ' (drift)'}
                   </span>
                 )}
                 {state.worktree_bytes !== null && (
@@ -242,9 +202,6 @@ export default function MachineDetail() {
           {workerCount !== null && (
             <span data-testid="worker-ceiling" className="font-mono normal-case text-muted-foreground">
               {workerCount}
-              {state?.concurrency_limit !== null && state?.concurrency_limit !== undefined
-                ? ` / ${state.concurrency_limit}`
-                : ''}
             </span>
           )}
         </h2>
@@ -256,23 +213,24 @@ export default function MachineDetail() {
           <ul className="space-y-1.5">
             {workers.map((worker) => (
               <li
-                key={worker.id}
+                key={worker.assignment_id}
                 className="flex items-center justify-between gap-2 text-sm"
               >
                 <div className="flex min-w-0 items-center gap-2">
                   <span className="truncate font-mono text-xs text-muted-foreground">
-                    {worker.id}
+                    {worker.assignment_id}
                   </span>
-                  <span className="text-foreground">{worker.type}</span>
-                  {worker.repo && worker.issue !== null && (
+                  {worker.spec?.repo_name && worker.spec.issue_number !== undefined && (
                     <span className="font-mono text-xs text-muted-foreground">
-                      {issueRef(worker.repo, worker.issue)}
+                      {issueRef(worker.spec.repo_name, worker.spec.issue_number)}
                     </span>
                   )}
                 </div>
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  {formatRelativeTime(worker.started_at)}
-                </span>
+                {/* No dispatch timestamp travels on this row (the real
+                    `/api/machines` schema, unlike the pre-#76 invented one,
+                    carries no `started_at`) -- status is the only live
+                    signal available per assignment. */}
+                <span className="shrink-0 text-xs text-muted-foreground">{worker.status}</span>
               </li>
             ))}
           </ul>
@@ -297,7 +255,7 @@ export default function MachineDetail() {
               const failed = FAILED_JOB_STATUSES.has(job.status)
               return (
                 <li
-                  key={job.id}
+                  key={job.assignment_id}
                   data-testid={failed ? 'job-row-failed' : 'job-row'}
                   className={cn(
                     'flex items-center justify-between gap-2 rounded px-2 py-1 text-sm',
@@ -305,9 +263,9 @@ export default function MachineDetail() {
                   )}
                 >
                   <div className="flex min-w-0 items-center gap-2">
-                    {job.repo && job.issue !== null && (
+                    {job.issue_number !== null && (
                       <span className="font-mono text-xs text-muted-foreground">
-                        {issueRef(job.repo, job.issue)}
+                        {issueRef(job.repo_name, job.issue_number)}
                       </span>
                     )}
                     <span
@@ -368,12 +326,12 @@ export default function MachineDetail() {
         ) : metricsQuery.data && !metricsQuery.data.available ? (
           <UnavailableNote label="Metrics" />
         ) : metrics ? (
-          // CPU/memory/disk/throughput time-series charts (#65, M-4) --
-          // each degrades on its own (`MachineCharts`'s own per-metric
-          // `machineChartPlan`/`machineChartMultiPlan`) when this machine
-          // hasn't reported a given metric yet, rather than one panel-wide
-          // fallback.
-          <MachineCharts metrics={metrics} concurrencyLimit={state?.concurrency_limit ?? null} />
+          // CPU/memory time-series charts (#65, M-4, trimmed to what the
+          // real endpoint actually reports by #76) -- each degrades on its
+          // own (`MachineCharts`'s own per-metric `machineChartPlan`) when
+          // this machine hasn't reported a given metric yet, rather than one
+          // panel-wide fallback.
+          <MachineCharts metrics={metrics} />
         ) : (
           <p className="text-sm text-destructive">Failed to load metrics</p>
         )}

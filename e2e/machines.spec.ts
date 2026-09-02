@@ -1,5 +1,6 @@
 /**
- * E2E acceptance net for the Machines panel (#67, M-4's exit gate).
+ * E2E acceptance net for the Machines panel (#67, M-4's exit gate;
+ * re-wired for the real API by #76).
  *
  * #61/#62/#63/#64/#65/#66 shipped the panel in slices, each with its own
  * component-level vitest coverage (`src/components/__tests__/Machine*`) and,
@@ -13,29 +14,30 @@
  * (metric gaps, the range selector) or the per-row severity/badge unit tests
  * already own; see each test's own comment for what's new here.
  *
+ * #76 found the panel had been wired to seven `/api/machines/{name}/*`
+ * routes and a `MachineState.severity` field that claude-coordinator never
+ * shipped — the real surface is four fleet-*wide* endpoints (`/api/machines`,
+ * `/api/machines/health`, `/api/machines/metrics`, `/api/machines/stats`),
+ * verified against a real server's own `GET /openapi.json` (see the 'real
+ * coord web --fixture process' describe block below). The degrade-
+ * independence granularity below changed to match: `MachineDetail`'s six
+ * sections now share four underlying routes (state+active-workers both read
+ * `/api/machines`; job-history+work-stats both read `/api/machines/stats`;
+ * health reads `/api/machines/health` alone; metrics reads `/api/machines/
+ * metrics` alone) — see `mockMachineDetailRoutes`'s own doc comment.
+ *
  * Two postures, both already established by this milestone's own prior
  * stories:
  *
  *  - Most of this file mocks `/api/machines*` via `page.route()` against the
- *    Vite dev server, same choice `machine-charts.spec.ts`'s header explains:
- *    the *per-machine* routes `src/api/client.ts` calls
- *    (`/api/machines/{name}`, `/health`, `/work-stats`, `/workers`, `/jobs`)
- *    are claude-coordinator#3027, still open — no published `coord` server
- *    implements them, so there is nothing real to boot against for that
- *    surface, and mocking is what makes every degraded-state combination
- *    below deterministic rather than dependent on which `code-coordinator`
- *    version happens to be on `$PATH`.
+ *    Vite dev server, same choice `machine-charts.spec.ts`'s header explains.
  *  - The 'real coord web --fixture process' describe block near the bottom
- *    is the exception, for the one piece of the Machines API that IS real
- *    and stable on every published server this repo has ever run against:
- *    plain `GET /api/machines` (the roster list). Booting the actual process
- *    there catches the wire shape itself drifting — `live-update-fixture.
- *    spec.ts`'s whole reason to exist, applied to this panel — without
- *    betting on claude-coordinator#3027 or #3026's newer fixture keys having
- *    landed on whatever version CI's unpinned `pip install
- *    code-coordinator[server]` resolves to; see `e2e/fixtures/
- *    machines-basic.json`'s own comment for why it only leans on the older,
- *    long-stable `machines` fixture key.
+ *    is the exception: it boots the actual `coord` CLI on `$PATH` and proves
+ *    two things a mock can't -- that the real `/api/machines` wire shape
+ *    (`e2e/fixtures/machines-basic.json`) renders without crashing, and
+ *    (via `GET /openapi.json`, the same technique #76 used to derive these
+ *    types) that this repo's `MachineState` type still matches what a real
+ *    server declares it serves.
  *
  * Runs at the default (wide-ish) `chromium` viewport only — both breakpoints
  * and both themes for this panel are `machines-responsive.spec.ts`'s job
@@ -69,106 +71,105 @@ async function mockShellApi(page: Page): Promise<void> {
 
 interface MachineStateFixture {
   name: string
-  host?: string | null
-  reachable: boolean
-  last_seen?: number | null
-  active_assignments?: number
-  headless_workers?: number
-  severity: 'ok' | 'warn' | 'crit' | 'unknown'
+  host?: string
+  state: string
+  reason?: string
+  latency_ms?: number | null
   agent_version?: string | null
-  is_local?: boolean
-  quiet_hours_paused?: boolean
-  hand_paused?: boolean
-  release_cordoned?: boolean
+  repos?: string[]
   worktree_bytes?: number | null
-  concurrency_limit?: number | null
+  assignments?: { active: unknown[] }
 }
 
 function machineState(overrides: MachineStateFixture) {
   return {
-    host: null,
-    last_seen: NOW,
-    active_assignments: 0,
-    headless_workers: 0,
+    host: '',
+    reason: '',
+    latency_ms: null,
     agent_version: null,
-    is_local: false,
-    quiet_hours_paused: false,
-    hand_paused: false,
-    release_cordoned: false,
+    repos: [],
     worktree_bytes: null,
-    concurrency_limit: null,
     ...overrides,
   }
 }
 
-/** `/api/machines` (the roster) plus `/api/fleet/health` -- the two routes
- * `MachinesPanel` reads regardless of which machine is drilled into. */
-async function mockRoster(page: Page, machines: unknown[], fleetChecks: unknown[] = []): Promise<void> {
+/** `/api/machines` (the roster) plus `/api/machines/health` (fleet-wide
+ * `machine_health[]`/`fleet_checks`) plus `/api/machines/stats` (fleet-wide,
+ * empty by default) -- the three routes `MachinesPanel` reads regardless of
+ * which machine is drilled into. */
+async function mockRoster(
+  page: Page,
+  machines: unknown[],
+  machineHealth: unknown[] = [],
+  fleetChecks: unknown[] = [],
+): Promise<void> {
   await page.route('**/api/machines', (route) => route.fulfill(json(machines)))
-  await page.route('**/api/fleet/health', (route) => route.fulfill(json(fleetChecks)))
+  await page.route('**/api/machines/health', (route) =>
+    route.fulfill(json({ schema: 1, refreshed_at: NOW, machine_health: machineHealth, fleet_checks: fleetChecks, truncated: false })),
+  )
+  await page.route('**/api/machines/stats', (route) => route.fulfill(json([])))
 }
 
-/** Every per-name `MachineDetail` route 404s -- `apiFetchOptional`'s honest
- * "this coord server doesn't serve this route" outcome, `src/api/client.ts`. */
-async function mock404AllMachineRoutes(page: Page, name: string): Promise<void> {
-  const escaped = encodeURIComponent(name)
-  for (const suffix of ['', '/health', '/work-stats', '/workers', '/jobs', '/metrics']) {
-    await page.route(`**/api/machines/${escaped}${suffix}`, (route) =>
-      route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }),
-    )
-  }
-}
-
-interface MachineDetailFixtures {
-  state?: unknown
-  health?: unknown
-  workStats?: unknown
-  workers?: unknown[]
-  jobs?: unknown[]
-  metrics?: unknown[]
-}
-
-/** Mocks every `MachineDetail` route for one machine name, independently --
- * pass `undefined` for a section to leave its 404 route unset by the caller
- * (see `mock404AllMachineRoutes`, used ahead of this for the "some sections
- * degrade, others don't" tests). */
-async function mockMachineDetail(page: Page, name: string, fixtures: MachineDetailFixtures): Promise<void> {
-  const escaped = encodeURIComponent(name)
-  if (fixtures.state !== undefined) {
-    await page.route(`**/api/machines/${escaped}`, (route) => route.fulfill(json(fixtures.state)))
+/**
+ * Mocks the four real Machines API routes with independent availability —
+ * `MachineDetail`'s six sections read from only four underlying routes
+ * post-#76 (see this file's header): state+active-workers both come off
+ * `/api/machines` (filtered/joined client-side to one machine, `fetchMachine`/
+ * `fetchMachineWorkers`, `src/api/client.ts`), job-history+work-stats both
+ * come off `/api/machines/stats` (`fetchMachineJobs`/`fetchMachineWorkStats`),
+ * health off `/api/machines/health` alone, metrics off `/api/machines/metrics`
+ * alone. Pass `undefined` for a route to 404 it — `apiFetchOptional`'s
+ * honest "this coord server doesn't serve this route" outcome.
+ */
+async function mockMachineDetailRoutes(
+  page: Page,
+  fixtures: {
+    machines?: unknown[]
+    health?: { machine_health: unknown[]; fleet_checks: unknown[] }
+    stats?: unknown[]
+    metrics?: { machines: Record<string, unknown[]> }
+  },
+): Promise<void> {
+  if (fixtures.machines !== undefined) {
+    await page.route('**/api/machines', (route) => route.fulfill(json(fixtures.machines)))
+  } else {
+    await page.route('**/api/machines', (route) => route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }))
   }
   if (fixtures.health !== undefined) {
-    await page.route(`**/api/machines/${escaped}/health`, (route) => route.fulfill(json(fixtures.health)))
+    await page.route('**/api/machines/health', (route) =>
+      route.fulfill(json({ schema: 1, refreshed_at: NOW, truncated: false, ...fixtures.health })),
+    )
+  } else {
+    await page.route('**/api/machines/health', (route) => route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }))
   }
-  if (fixtures.workStats !== undefined) {
-    await page.route(`**/api/machines/${escaped}/work-stats`, (route) => route.fulfill(json(fixtures.workStats)))
-  }
-  if (fixtures.workers !== undefined) {
-    await page.route(`**/api/machines/${escaped}/workers`, (route) => route.fulfill(json(fixtures.workers)))
-  }
-  if (fixtures.jobs !== undefined) {
-    await page.route(`**/api/machines/${escaped}/jobs`, (route) => route.fulfill(json(fixtures.jobs)))
+  if (fixtures.stats !== undefined) {
+    await page.route('**/api/machines/stats', (route) => route.fulfill(json(fixtures.stats)))
+  } else {
+    await page.route('**/api/machines/stats', (route) => route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }))
   }
   if (fixtures.metrics !== undefined) {
-    await page.route(`**/api/machines/${escaped}/metrics`, (route) => route.fulfill(json(fixtures.metrics)))
+    await page.route('**/api/machines/metrics', (route) =>
+      route.fulfill(json({ schema: 1, generated_at: NOW, since: null, resolution: null, ...fixtures.metrics })),
+    )
+  } else {
+    await page.route('**/api/machines/metrics', (route) => route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }))
   }
 }
 
 const detail = (page: Page) => page.locator('[data-region="detail"]')
 
-// ── Degraded states (#67) ───────────────────────────────────────────────────
+// ── Degraded states (#67, re-scoped by #76) ─────────────────────────────────
 
-test.describe('Machines panel — degraded states (#67)', () => {
+test.describe('Machines panel — degraded states (#67, #76)', () => {
   test('a coord server that predates the Machines API renders the honest unavailable panel, not an empty roster', async ({
     page,
   }) => {
     await mockShellApi(page)
-    await mockRoster(page, [])
-    // Override the roster route with a 404 -- the whole-panel version-skew
-    // case, distinct from "loaded, zero machines" (#61's own honesty rule).
-    await page.route('**/api/machines', (route) =>
-      route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }),
-    )
+    // Every real Machines route 404s -- the whole-panel version-skew case,
+    // distinct from "loaded, zero machines" (#61's own honesty rule).
+    await page.route('**/api/machines', (route) => route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }))
+    await page.route('**/api/machines/health', (route) => route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }))
+    await page.route('**/api/machines/stats', (route) => route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }))
 
     await page.goto('/machines')
 
@@ -180,30 +181,30 @@ test.describe('Machines panel — degraded states (#67)', () => {
     await expect(page.getByText('No machines')).toHaveCount(0)
   })
 
-  test('an unreachable, version-drifted machine renders in the roster, and its detail page shows every section degrading independently (the auto-deploy-skew case, claude-coordinator#3027)', async ({
+  test('an unreachable machine renders in the roster with unknown severity, and its detail page shows every underlying route degrading independently', async ({
     page,
   }) => {
     await mockShellApi(page)
-    await mockRoster(page, [
-      machineState({ name: 'laptop', severity: 'ok', is_local: true, agent_version: '1.4.0' }),
-      machineState({
-        name: 'oldbox',
-        reachable: false,
-        severity: 'unknown',
-        agent_version: '1.2.0', // drifted against laptop's 1.4.0
-        quiet_hours_paused: true,
-      }),
-    ])
-    await mock404AllMachineRoutes(page, 'oldbox')
+    await mockRoster(
+      page,
+      [
+        machineState({ name: 'laptop', state: 'online' }),
+        machineState({ name: 'oldbox', state: 'unreachable', reason: 'connection refused' }),
+      ],
+      [{ machine: 'laptop', state: 'online', reason: '', severity: 'ok', stale: false, checked_at: NOW, results: [] }],
+      // 'oldbox' has no machine_health row at all -- resolves to an
+      // explicit 'unknown' severity (`fetchMachineHealth`'s "never
+      // reported" synthesis, `src/api/client.ts`), never a fabricated 'ok'.
+    )
+    // Every per-machine route for 'oldbox' unavailable at the detail level.
+    await mockMachineDetailRoutes(page, {})
 
     await page.goto('/machines')
 
     const row = page.getByTestId('machine-row-oldbox')
     await expect(row).toBeVisible()
-    await expect(row.getByText('offline')).toBeVisible()
+    await expect(row).toContainText('unreachable')
     await expect(row.getByTestId('severity-badge')).toHaveText('unknown')
-    await expect(row.getByTestId('badge-quiet-hours')).toBeVisible()
-    await expect(row.getByTestId('agent-version')).toHaveText('1.2.0')
 
     await row.click()
     await expect(page).toHaveURL(/\/machines\/oldbox$/)
@@ -223,35 +224,63 @@ test.describe('Machines panel — degraded states (#67)', () => {
     }
   })
 
+  test('the roster route alone degrading takes state and active workers down together, while health/stats/metrics stay independent', async ({
+    page,
+  }) => {
+    await mockShellApi(page)
+    await mockRoster(page, [machineState({ name: 'laptop', state: 'online' })])
+    await mockMachineDetailRoutes(page, {
+      // machines: undefined -> 404s, taking down both State and Active
+      // workers (both read `/api/machines`, #76's mapping).
+      health: { machine_health: [{ machine: 'laptop', state: 'online', reason: '', severity: 'ok', stale: false, checked_at: NOW, results: [] }], fleet_checks: [] },
+      stats: [{ name: 'laptop', capacity: { active: 0, max: 4 }, counts: { completed: 2, failed: 0 }, job_history: [] }],
+      metrics: { machines: {} },
+    })
+
+    await page.goto('/machines/laptop')
+
+    await expect(detail(page).getByText('Machine state unavailable')).toBeVisible()
+    await expect(detail(page).getByText('Active workers unavailable')).toBeVisible()
+    // The other three routes are up -- their sections render real content,
+    // not an unavailable note.
+    await expect(page.getByTestId('health-never-polled')).toBeVisible()
+    await expect(detail(page).getByText('2 completed · 0 failed')).toBeVisible()
+    await expect(detail(page).getByText('No job history.')).toBeVisible()
+  })
+
   test('a stale health snapshot, a real metric gap and an empty job/worker history all render together on one machine', async ({
     page,
   }) => {
     await mockShellApi(page)
-    await mockRoster(page, [machineState({ name: 'laptop', severity: 'warn', is_local: true })])
-    await mockMachineDetail(page, 'laptop', {
-      state: machineState({ name: 'laptop', severity: 'warn', is_local: true, worktree_bytes: 1_000_000 }),
+    await mockRoster(page, [machineState({ name: 'laptop', state: 'online' })])
+    await mockMachineDetailRoutes(page, {
+      machines: [machineState({ name: 'laptop', state: 'online', worktree_bytes: 1_000_000 })],
       health: {
-        severity: 'warn',
-        stale: true,
-        checked_at: NOW - 3 * 3600,
-        results: [
-          { key: 'disk', label: 'disk', severity: 'warn', headroom: '86% used (22G free)', detail: 'low headroom' },
+        machine_health: [
+          {
+            machine: 'laptop',
+            state: 'online',
+            reason: '',
+            severity: 'warn',
+            stale: true,
+            checked_at: NOW - 3 * 3600,
+            results: [
+              { key: 'disk', check_id: 'disk', scope: 'machine', title: 'Disk', label: 'disk', severity: 'warn', headroom: '86% used (22G free)', detail: 'low headroom' },
+            ],
+          },
         ],
+        fleet_checks: [],
       },
-      workStats: { machine: 'laptop', window_seconds: 21_600, assignments_completed: 0, assignments_failed: 0, cost_usd: null },
-      workers: [],
-      jobs: [],
-      metrics: [
-        {
-          metric: 'cpu_pct',
-          unit: '%',
-          points: [
-            { t: NOW - 600, value: 12 },
-            { t: NOW - 300, value: null }, // a failed/timed-out poll -- an honest gap, never interpolated
-            { t: NOW, value: 20 },
+      stats: [{ name: 'laptop', capacity: { active: 0, max: 4 }, counts: { completed: 0, failed: 0 }, job_history: [] }],
+      metrics: {
+        machines: {
+          laptop: [
+            { timestamp: NOW - 600, status: 'ok', cpu_percent: 12, mem_percent: 30, mem_used_mb: 100, mem_total_mb: 300, reason: '' },
+            { timestamp: NOW - 300, status: 'unknown', cpu_percent: null, mem_percent: null, mem_used_mb: null, mem_total_mb: null, reason: 'timeout' }, // a failed/timed-out poll -- an honest gap, never interpolated
+            { timestamp: NOW, status: 'ok', cpu_percent: 20, mem_percent: 32, mem_used_mb: 110, mem_total_mb: 300, reason: '' },
           ],
         },
-      ],
+      },
     })
 
     await page.goto('/machines/laptop')
@@ -276,14 +305,12 @@ test.describe('Machines panel — degraded states (#67)', () => {
 
   test('a machine with absolutely no history yet reads as "no signal", never as healthy', async ({ page }) => {
     await mockShellApi(page)
-    await mockRoster(page, [machineState({ name: 'fresh', severity: 'unknown', is_local: true })])
-    await mockMachineDetail(page, 'fresh', {
-      state: machineState({ name: 'fresh', severity: 'unknown', is_local: true }),
-      health: { severity: 'unknown', stale: false, checked_at: null, results: [] },
-      workStats: { machine: 'fresh', window_seconds: 21_600, assignments_completed: 0, assignments_failed: 0, cost_usd: null },
-      workers: [],
-      jobs: [],
-      metrics: [],
+    await mockRoster(page, [machineState({ name: 'fresh', state: 'online' })])
+    await mockMachineDetailRoutes(page, {
+      machines: [machineState({ name: 'fresh', state: 'online' })],
+      health: { machine_health: [], fleet_checks: [] },
+      stats: [],
+      metrics: { machines: {} },
     })
 
     await page.goto('/machines/fresh')
@@ -296,8 +323,7 @@ test.describe('Machines panel — degraded states (#67)', () => {
     // Every chart family reads its own "hasn't reported yet" line rather
     // than an empty-but-present chart that could misread as a flat zero.
     await expect(page.getByTestId('machine-chart-cpu-degraded')).toBeVisible()
-    await expect(page.getByTestId('machine-chart-workers-degraded')).toBeVisible()
-    await expect(page.getByTestId('machine-chart-throughput-degraded')).toBeVisible()
+    await expect(page.getByTestId('machine-chart-memory-degraded')).toBeVisible()
   })
 })
 
@@ -364,26 +390,27 @@ test.describe('Machines panel — live updates (#67)', () => {
   test('a machine_connected event refreshes the roster with no manual refresh (SSE-driven, not polling)', async ({
     page,
   }) => {
-    const roster = {
-      machines: [machineState({ name: 'laptop', severity: 'ok', is_local: true, reachable: false })],
-    }
+    const roster = { machines: [machineState({ name: 'laptop', state: 'unreachable' })] }
     await installFakeEventSource(page)
     await mockShellApi(page)
     await page.route('**/api/machines', (route) => route.fulfill(json(roster.machines)))
-    await page.route('**/api/fleet/health', (route) => route.fulfill(json([])))
+    await page.route('**/api/machines/health', (route) =>
+      route.fulfill(json({ schema: 1, refreshed_at: NOW, machine_health: [], fleet_checks: [], truncated: false })),
+    )
+    await page.route('**/api/machines/stats', (route) => route.fulfill(json([])))
 
     await page.goto('/machines')
-    await expect(page.getByTestId('machine-row-laptop').getByText('offline')).toBeVisible()
+    await expect(page.getByTestId('machine-row-laptop')).toContainText('unreachable')
 
     await emitOnOnlyOpenInstance(page, 'open')
 
     // The server-side fact changes (as if the agent just reconnected) and a
     // scripted `machine_connected` announces it -- `src/realtime/events.ts`
     // maps this event type to the `['machines']` query key.
-    roster.machines = [machineState({ name: 'laptop', severity: 'ok', is_local: true, reachable: true })]
+    roster.machines = [machineState({ name: 'laptop', state: 'online' })]
     await emitOnOnlyOpenInstance(page, { message: ['machine_connected', { machine: 'laptop' }] })
 
-    await expect(page.getByTestId('machine-row-laptop').getByText('online')).toBeVisible({ timeout: 5_000 })
+    await expect(page.getByTestId('machine-row-laptop')).toContainText('online', { timeout: 5_000 })
   })
 })
 
@@ -392,7 +419,7 @@ test.describe('Machines panel — live updates (#67)', () => {
 test.describe('Machines panel — deep links (#67)', () => {
   test('goto /machines cold restores the roster, without visiting Home first', async ({ page }) => {
     await mockShellApi(page)
-    await mockRoster(page, [machineState({ name: 'laptop', severity: 'ok', is_local: true })])
+    await mockRoster(page, [machineState({ name: 'laptop', state: 'online' })])
 
     await page.goto('/machines')
 
@@ -404,14 +431,12 @@ test.describe('Machines panel — deep links (#67)', () => {
     page,
   }) => {
     await mockShellApi(page)
-    await mockRoster(page, [machineState({ name: 'laptop', severity: 'ok', is_local: true })])
-    await mockMachineDetail(page, 'laptop', {
-      state: machineState({ name: 'laptop', severity: 'ok', is_local: true, agent_version: '1.4.0' }),
-      health: { severity: 'ok', stale: false, checked_at: NOW, results: [] },
-      workStats: { machine: 'laptop', window_seconds: 21_600, assignments_completed: 3, assignments_failed: 0, cost_usd: null },
-      workers: [],
-      jobs: [],
-      metrics: [],
+    await mockRoster(page, [machineState({ name: 'laptop', state: 'online' })])
+    await mockMachineDetailRoutes(page, {
+      machines: [machineState({ name: 'laptop', state: 'online', agent_version: '1.4.0' })],
+      health: { machine_health: [], fleet_checks: [] },
+      stats: [{ name: 'laptop', capacity: { active: 0, max: 4 }, counts: { completed: 3, failed: 0 }, job_history: [] }],
+      metrics: { machines: {} },
     })
 
     await page.goto('/machines/laptop')
@@ -425,9 +450,9 @@ test.describe('Machines panel — deep links (#67)', () => {
   })
 })
 
-// ── Real coord web --fixture process (#67) ─────────────────────────────────
+// ── Real coord web --fixture process (#67, re-verified for #76) ────────────
 
-test.describe('Machines panel against a real coord web --fixture process (#67)', () => {
+test.describe('Machines panel against a real coord web --fixture process (#67, #76)', () => {
   test.describe.configure({ mode: 'serial' })
   let server: FixtureServerHandle
 
@@ -449,16 +474,21 @@ test.describe('Machines panel against a real coord web --fixture process (#67)',
 
     await page.goto(`${server.baseUrl}/machines`)
 
-    // Seeded fixture (e2e/fixtures/machines-basic.json): one local/online
-    // machine, one remote/unreachable one -- proves the real dist bundle
-    // parses the real `/api/machines` response, not a hand-authored guess
-    // at its shape.
+    // Seeded fixture (e2e/fixtures/machines-basic.json): one online machine
+    // with an active assignment, one unreachable one -- proves the real
+    // dist bundle parses the real `/api/machines` response (#76's corrected
+    // field set), not the pre-#76 invented shape.
     const laptop = page.getByTestId('machine-row-laptop')
     await expect(laptop).toBeVisible()
-    await expect(laptop.getByText('online')).toBeVisible()
+    await expect(laptop).toContainText('online')
     const dellserver = page.getByTestId('machine-row-dellserver')
     await expect(dellserver).toBeVisible()
-    await expect(dellserver.getByText('offline')).toBeVisible()
+    await expect(dellserver).toContainText('unreachable')
+    // Neither machine has a `machine_health` row (the fixture doesn't seed
+    // one) -- both must read as 'unknown', never a fabricated 'ok' (#76's
+    // honesty requirement, the direct regression test for the white-screen
+    // bug: `SeverityBadge` must survive an absent severity, not crash).
+    await expect(laptop.getByTestId('severity-badge')).toHaveText('unknown')
     await expect(dellserver.getByTestId('severity-badge')).toHaveText('unknown')
 
     const badge = page.getByRole('status', { name: /Connection:/ })
@@ -478,36 +508,51 @@ test.describe('Machines panel against a real coord web --fixture process (#67)',
       .toBeGreaterThan(requestsBeforeReplay)
   })
 
-  test('goto /machines/:name cold against the real process degrades every per-machine section, rather than crashing (claude-coordinator#3027 is not registered on any published coord server yet)', async ({
+  test('goto /machines/:name cold against the real process degrades every per-machine section, rather than crashing', async ({
     page,
   }) => {
-    // NOT the `apiFetchOptional`/`UnavailableNote` "unavailable — this coord
-    // server doesn't serve it yet" copy the mocked test above exercises via
-    // an explicit 404 -- that codepath assumes an unregistered API route
-    // answers 404. In reality, `coord/dashboard/server.py`'s SPA catch-all
-    // (`_spa_catch_all`, registered whenever a built `dist/` is served, e.g.
-    // via `--dist`) matches *any* unmatched GET, `/api/...` included, and
-    // returns 200 `index.html` -- there is no distinction for API-shaped
-    // paths. `apiFetchOptional`'s `res.json()` on that HTML body throws, so
-    // every one of these six sections lands on `MachineDetail`'s generic
-    // `catch`-shaped "Failed to load ..." branch instead of the honest
-    // per-route note. Asserted here as the actual, current behavior of every
-    // published `coord` server against this bundle -- not the nicer message
-    // the client's own doc comments assume -- so a future fix to either side
-    // (a real 404 from the server, or a client-side check to tell "not
-    // JSON" apart from "a real error") has a red test to turn green rather
-    // than this silently regressing further.
+    // The real `/api/machines/health`, `/metrics`, `/stats` routes DO exist
+    // on this server (#76) but report nothing for a machine the daemon has
+    // no health/metrics/stats data for yet -- each section reads that as its
+    // own honest "no signal" state (empty roster, "no data reported", chart
+    // degrade), never a crash and never silently as healthy.
     await page.goto(`${server.baseUrl}/machines/laptop`)
 
-    for (const label of [
-      'Failed to load machine state',
-      'Failed to load active workers',
-      'Failed to load job history',
-      'Failed to load health checks',
-      'Failed to load work stats',
-      'Failed to load metrics',
-    ]) {
-      await expect(detail(page).getByText(label)).toBeVisible()
-    }
+    await expect(page.getByTestId('health-never-polled')).toBeVisible()
+    await expect(page.getByText('No job history.')).toBeVisible()
+    await expect(page.getByText('0 completed · 0 failed')).toBeVisible()
+    await expect(page.getByTestId('machine-chart-cpu-degraded')).toBeVisible()
+  })
+
+  test("the real server's own OpenAPI schema still matches this repo's MachineState type (#76's root-cause regression guard)", async ({
+    page,
+  }) => {
+    // #76 was found by exactly this technique: fetching a real server's own
+    // `GET /openapi.json` and diffing it against what `src/api/generated.ts`
+    // declares. Encoding that check as a test means a future server-side
+    // field rename/addition/removal is caught here, structurally, rather
+    // than needing a second bundle-disassembly investigation.
+    const res = await page.request.get(`${server.baseUrl}/openapi.json`)
+    expect(res.ok()).toBe(true)
+    const spec = await res.json()
+
+    const machinesGet = spec.paths['/api/machines'].get
+    const ref = machinesGet.responses['200'].content['application/json'].schema.items.$ref as string
+    const schemaName = ref.split('/').pop() as string
+    const properties = Object.keys(spec.components.schemas[schemaName].properties).sort()
+
+    // Exactly `MachineState`'s field set (`src/api/generated.ts`) -- in
+    // particular, no `severity` (issue #76's actual crash) and none of the
+    // other invented pre-#76 fields.
+    expect(properties).toEqual(
+      ['agent_version', 'assignments', 'host', 'latency_ms', 'name', 'reason', 'repos', 'state', 'worktree_bytes'].sort(),
+    )
+
+    // The four real Machines routes, and nothing per-machine -- the other
+    // half of #76's finding (seven of eight called routes never existed).
+    const machinePaths = Object.keys(spec.paths).filter((p: string) => p.startsWith('/api/machines'))
+    expect(machinePaths.sort()).toEqual(
+      ['/api/machines', '/api/machines/health', '/api/machines/metrics', '/api/machines/stats'].sort(),
+    )
   })
 })

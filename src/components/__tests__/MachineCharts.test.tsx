@@ -1,15 +1,19 @@
 /**
- * Component tests for `MachineCharts` (#65, M-4) — the machine detail
- * Metrics section's CPU/memory/disk/throughput time-series charts.
+ * Component tests for `MachineCharts` (#65, M-4, trimmed to CPU/memory only
+ * by #76) — the machine detail Metrics section's charts.
  *
- * Rendered directly with a plain `metrics`/`concurrencyLimit` prop pair (no
- * router, no `QueryClientProvider`) — same "pure presentation" split
+ * Rendered directly with a plain `metrics` prop (no router, no
+ * `QueryClientProvider`) — same "pure presentation" split
  * `MachineHealth.test.tsx` documents; `MachineDetail.test.tsx` covers the
  * data-fetching shell (loading / 404-unavailable / fetch-failure) around
  * this component.
  *
- * Four things this file exists to pin, all called out in #65's own issue
- * text:
+ * #76 found the real `GET /api/machines/metrics` reports only CPU/memory
+ * samples per timestamp (`MachineMetricsSample`, `src/api/generated.ts`) —
+ * the disk/worker-ceiling/throughput charts #65 originally shipped here had
+ * no real data source and are gone (see `MachineCharts.tsx`'s own doc
+ * comment); this file's coverage shrinks to match, keeping the same four
+ * things #65's issue text called out, now only proven against CPU:
  *
  *  - plan/degrade selection per chart (a recognised metric with data
  *    renders, an unreported one degrades with its own honest reason)
@@ -20,7 +24,7 @@
  *    hover-driven readout
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 
 import MachineCharts from '@/components/MachineCharts'
 import type { MachineMetricsSeries } from '@/api/client'
@@ -51,9 +55,9 @@ beforeEach(() => {
 describe('MachineCharts', () => {
   // ── plan/degrade selection ────────────────────────────────────────────
 
-  it('renders a chart for a recognised metric with data, and degrades the others independently', () => {
+  it('renders a chart for a recognised metric with data, and degrades the other independently', () => {
     const metrics = [series('cpu_pct', [{ t: NOW - 100, value: 42 }], '%')]
-    render(<MachineCharts metrics={metrics} concurrencyLimit={null} now={NOW} />)
+    render(<MachineCharts metrics={metrics} now={NOW} />)
 
     expect(screen.getByTestId('machine-chart-cpu')).toBeInTheDocument()
     expect(screen.queryByTestId('machine-chart-cpu-degraded')).not.toBeInTheDocument()
@@ -66,19 +70,16 @@ describe('MachineCharts', () => {
   })
 
   it('a machine with no metrics at all degrades every chart, never a false empty axis', () => {
-    render(<MachineCharts metrics={[]} concurrencyLimit={null} now={NOW} />)
+    render(<MachineCharts metrics={[]} now={NOW} />)
 
     expect(screen.getByTestId('machine-chart-cpu-degraded')).toBeInTheDocument()
     expect(screen.getByTestId('machine-chart-memory-degraded')).toBeInTheDocument()
-    expect(screen.getByTestId('machine-chart-disk-degraded')).toBeInTheDocument()
-    expect(screen.getByTestId('machine-chart-workers-degraded')).toBeInTheDocument()
-    expect(screen.getByTestId('machine-chart-throughput-degraded')).toBeInTheDocument()
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
   })
 
   it('the range selector filters out-of-range data into a degrade, and switching range restores it', () => {
     const metrics = [series('cpu_pct', [{ t: NOW - 5 * 3600, value: 77 }], '%')]
-    render(<MachineCharts metrics={metrics} concurrencyLimit={null} now={NOW} />)
+    render(<MachineCharts metrics={metrics} now={NOW} />)
 
     // Default range is "All" -- the 5h-old sample renders.
     expect(screen.getByTestId('machine-chart-cpu')).toBeInTheDocument()
@@ -92,15 +93,6 @@ describe('MachineCharts', () => {
     expect(screen.getByTestId('machine-chart-cpu')).toBeInTheDocument()
   })
 
-  it('the active-workers chart draws a ceiling reference line only when a concurrency limit is known', () => {
-    const metrics = [series('active_workers', [{ t: NOW - 10, value: 2 }])]
-    const { rerender } = render(<MachineCharts metrics={metrics} concurrencyLimit={6} now={NOW} />)
-    expect(within(screen.getByTestId('machine-chart-workers')).getByText('ceiling 6')).toBeInTheDocument()
-
-    rerender(<MachineCharts metrics={metrics} concurrencyLimit={null} now={NOW} />)
-    expect(within(screen.getByTestId('machine-chart-workers')).queryByText(/ceiling/)).not.toBeInTheDocument()
-  })
-
   // ── gap rendering ────────────────────────────────────────────────────
 
   it('breaks the line at an unknown sample instead of interpolating or plotting 0', () => {
@@ -112,7 +104,7 @@ describe('MachineCharts', () => {
         { t: NOW, value: 30 },
       ], '%'),
     ]
-    render(<MachineCharts metrics={metrics} concurrencyLimit={null} now={NOW} />)
+    render(<MachineCharts metrics={metrics} now={NOW} />)
 
     const chart = screen.getByTestId('machine-chart-cpu')
     // Two known-value runs either side of the gap -> two separate
@@ -129,7 +121,7 @@ describe('MachineCharts', () => {
         { t: NOW - 100, value: null },
       ], '%'),
     ]
-    render(<MachineCharts metrics={metrics} concurrencyLimit={null} now={NOW} />)
+    render(<MachineCharts metrics={metrics} now={NOW} />)
     expect(screen.getByTestId('machine-chart-cpu-degraded')).toHaveTextContent(
       'Every CPU poll in the last All failed — no readings to chart.',
     )
@@ -139,23 +131,11 @@ describe('MachineCharts', () => {
 
   it('carries a full-text aria-label summarizing the series', () => {
     const metrics = [series('cpu_pct', [{ t: NOW - 100, value: 42 }], '%')]
-    render(<MachineCharts metrics={metrics} concurrencyLimit={null} now={NOW} />)
+    render(<MachineCharts metrics={metrics} now={NOW} />)
 
     const chart = screen.getByTestId('machine-chart-cpu')
     expect(chart).toHaveAttribute('role', 'img')
     expect(chart.getAttribute('aria-label')).toBe('CPU over the last All: latest 42%, min 42%, max 42%.')
-  })
-
-  it('the throughput chart aria-label names each series distinctly', () => {
-    const metrics = [
-      series('jobs_completed', [{ t: NOW - 100, value: 4 }]),
-      series('jobs_failed', [{ t: NOW - 100, value: 1 }]),
-    ]
-    render(<MachineCharts metrics={metrics} concurrencyLimit={null} now={NOW} />)
-    const chart = screen.getByTestId('machine-chart-throughput')
-    expect(chart.getAttribute('aria-label')).toBe(
-      'Completed / failed over the last All: completed latest 4, failed latest 1.',
-    )
   })
 
   // ── value label (contract §8c) + hover readout ───────────────────────
@@ -167,7 +147,7 @@ describe('MachineCharts', () => {
         { t: NOW - 100, value: 88 },
       ], '%'),
     ]
-    render(<MachineCharts metrics={metrics} concurrencyLimit={null} now={NOW} />)
+    render(<MachineCharts metrics={metrics} now={NOW} />)
     expect(screen.getByTestId('machine-chart-cpu-value')).toHaveTextContent('88%')
   })
 
@@ -178,7 +158,7 @@ describe('MachineCharts', () => {
         { t: NOW, value: 90 },
       ], '%'),
     ]
-    render(<MachineCharts metrics={metrics} concurrencyLimit={null} now={NOW} />)
+    render(<MachineCharts metrics={metrics} now={NOW} />)
 
     const svg = screen.getByTestId('machine-chart-cpu').querySelector('svg')
     expect(svg).not.toBeNull()
