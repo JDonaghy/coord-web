@@ -90,6 +90,33 @@ function renderPanel() {
   )
 }
 
+/**
+ * Click "Run report" — but only once the panel has actually settled on a
+ * selected report.
+ *
+ * `ReportsPanel` picks its cold-load tab in a `useEffect` (contract §3c:
+ * nothing is selectable until the catalogue arrives), so the catalogue
+ * landing produces **two** commits: the first paints the tablist with
+ * `selectedId === null` — no description, no param bar, and therefore no
+ * `reports-run-button` — and only the second, after that effect flushes,
+ * paints the form. React flushes passive effects before paint, so a real
+ * user never sees the intermediate frame; RTL, whose `findBy*` resolves off
+ * a MutationObserver, absolutely can. `await findByTestId('reports-tab-x')`
+ * is therefore satisfied by commit #1, and a synchronous
+ * `getByTestId('reports-run-button')` on the next line throws
+ * "Unable to find an element by: [data-testid='reports-run-button']".
+ *
+ * That lost race is load-dependent — it never reproduced running this file
+ * alone (0/20), only with all 33 suite files competing for the box, which is
+ * how it reached CI as an intermittent `checks` failure on #78's branch.
+ * Waiting for the button itself is the fix: it is the first element that
+ * exists *only* after the selection commit, so awaiting it can't be
+ * satisfied early.
+ */
+async function clickRunReport() {
+  await userEvent.click(await screen.findByTestId('reports-run-button'))
+}
+
 // ── catalogue loading/error (non-blocking review finding) ──────────────────
 
 describe('ReportsPanel — catalogue fetch', () => {
@@ -143,7 +170,7 @@ describe('ReportsPanel — stale run guard', () => {
     // Cold load selects drive-queue-status (contract §3c) -- run it, but
     // never let its response resolve yet.
     await screen.findByTestId('reports-tab-drive-queue-status')
-    await userEvent.click(screen.getByTestId('reports-run-button'))
+    await clickRunReport()
     expect(fetchReport).toHaveBeenCalledWith('drive-queue-status', {})
 
     // Switch to the other tab before report A's run resolves.
@@ -163,7 +190,7 @@ describe('ReportsPanel — stale run guard', () => {
     expect(screen.getByTestId('reports-tab-issue-activity')).toHaveAttribute('aria-selected', 'true')
 
     // Running B for real still works normally afterwards.
-    await userEvent.click(screen.getByTestId('reports-run-button'))
+    await clickRunReport()
     await waitFor(() => expect(screen.getByText('api#99')).toBeInTheDocument())
   })
 })
@@ -198,7 +225,7 @@ describe('ReportsPanel — list-of-dicts cell rendering', () => {
 
     renderPanel()
     await screen.findByTestId('reports-tab-decisions')
-    await userEvent.click(screen.getByTestId('reports-run-button'))
+    await clickRunReport()
 
     const cell = await screen.findByTestId('reports-options-cell-0')
     const recommended = screen.getByText('Release gate').closest('li')
@@ -233,7 +260,7 @@ describe('ReportsPanel — list-of-dicts cell rendering', () => {
 
     renderPanel()
     await screen.findByTestId('reports-tab-drive-queue-status')
-    await userEvent.click(screen.getByTestId('reports-run-button'))
+    await clickRunReport()
 
     await screen.findByText(/api#42, api#40/)
     expect(screen.queryByTestId('reports-options-cell-0')).not.toBeInTheDocument()
@@ -283,7 +310,7 @@ describe('ReportsPanel — chart rendering (§8)', () => {
 
     renderPanel()
     await screen.findByTestId('reports-tab-queue-outcomes')
-    await userEvent.click(screen.getByTestId('reports-run-button'))
+    await clickRunReport()
 
     const chart = await screen.findByTestId('reports-chart')
     expect(chart).toHaveAttribute('role', 'img')
@@ -313,7 +340,7 @@ describe('ReportsPanel — chart rendering (§8)', () => {
 
     renderPanel()
     await screen.findByTestId('reports-tab-usage')
-    await userEvent.click(screen.getByTestId('reports-run-button'))
+    await clickRunReport()
 
     const degraded = await screen.findByTestId('reports-chart-degraded')
     expect(degraded).toHaveAttribute('role', 'status')
@@ -335,7 +362,7 @@ describe('ReportsPanel — chart rendering (§8)', () => {
 
     renderPanel()
     await screen.findByTestId('reports-tab-drive-queue-status')
-    await userEvent.click(screen.getByTestId('reports-run-button'))
+    await clickRunReport()
 
     await screen.findByTestId('reports-grid')
     expect(screen.queryByTestId('reports-chart')).not.toBeInTheDocument()
