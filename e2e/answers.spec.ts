@@ -92,11 +92,30 @@ test.describe('Answers screen (#59)', () => {
   }) => {
     await mockShellApi(page)
 
+    // The post-submit refetch is held until the test says so. `AnswersPanel`
+    // marks the card recorded and invalidates `['portal-needs-input']` in the
+    // same tick (see its doc comment), so against an instantly-fulfilled mock
+    // the "Answer recorded" note can be replaced by the refetched empty list
+    // before any assertion sees it -- a race in the *mock*, not in the app,
+    // and one that made this test fail ~2 runs in 3 locally. Gating the
+    // second response makes the intermediate state deterministic without
+    // weakening either assertion.
+    let releaseRefetch: () => void = () => {}
+    const refetchGate = new Promise<void>((resolve) => {
+      releaseRefetch = resolve
+    })
     let needsInputCalls = 0
-    await page.route('**/api/portal/needs-input', (route) => {
+    await page.route('**/api/portal/needs-input', async (route) => {
       needsInputCalls += 1
-      const body = needsInputCalls === 1 ? [NEEDS_INPUT_ITEM] : []
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+      if (needsInputCalls === 1) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([NEEDS_INPUT_ITEM]),
+        })
+      }
+      await refetchGate
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
     })
 
     await page.route('**/api/portal/answer', (route) =>
@@ -128,7 +147,9 @@ test.describe('Answers screen (#59)', () => {
 
     await expect(page.getByTestId('answer-recorded-sub-2001')).toBeVisible()
     // No manual second step: the card is gone once the post-submit refetch
-    // lands, and the screen falls back to its empty state.
+    // lands (nothing below clicks a refresh control), and the screen falls
+    // back to its empty state.
+    releaseRefetch()
     await expect(page.getByTestId('answer-card-sub-2001')).not.toBeVisible()
     await expect(page.getByTestId('answers-empty-state')).toBeVisible()
   })
