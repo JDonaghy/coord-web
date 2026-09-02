@@ -1,16 +1,17 @@
 /**
- * Component tests for `MachinesPanel` (#61) — mocking convention matches
- * `SessionsList`'s own coverage posture (no dedicated test file for that one
- * exists yet, so this mirrors `ReportsPanel.test.tsx`/`DriveQueuePanel.test.tsx`
- * instead): `@/api/client` mocked entirely, wrapped in QueryClientProvider +
- * MemoryRouter.
+ * Component tests for `MachinesPanel` (#61, re-wired by #76) — mocking
+ * convention matches `SessionsList`'s own coverage posture (no dedicated
+ * test file for that one exists yet, so this mirrors `ReportsPanel.test.tsx`/
+ * `DriveQueuePanel.test.tsx` instead): `@/api/client` mocked entirely
+ * (except the pure `joinMachineSeverity` join, kept real via
+ * `importOriginal`), wrapped in QueryClientProvider + MemoryRouter.
  *
  * The one thing this file exists to pin down is issue #61's explicit
- * acceptance bar: a `{available: false}` result (every coord server running
- * today, since claude-coordinator#3027 hasn't landed) must render an honest
- * "unavailable" state, distinct from both a loading spinner and a real
- * empty roster -- never a crash, and never a silent "0 machines" that reads
- * as a real (if boring) answer instead of "this build can't ask yet."
+ * acceptance bar, unchanged by #76's re-wire onto the real endpoints: a
+ * `{available: false}` roster result must render an honest "unavailable"
+ * state, distinct from both a loading spinner and a real empty roster --
+ * never a crash, and never a silent "0 machines" that reads as a real (if
+ * boring) answer instead of "this build can't ask yet."
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
@@ -20,21 +21,31 @@ import { MemoryRouter } from 'react-router-dom'
 
 import MachinesPanel from '@/components/MachinesPanel'
 import { ThemeProvider } from '@/components/ui/theme-provider'
-import type { MachineQueryResult, MachineState } from '@/api/client'
+import type { MachineQueryResult, MachinesHealthResponse, MachineState } from '@/api/client'
 
-vi.mock('@/api/client', () => ({
-  fetchMachines: vi.fn(),
-  fetchFleetChecks: vi.fn(),
-}))
+vi.mock('@/api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/api/client')>()
+  return {
+    ...actual,
+    fetchMachines: vi.fn(),
+    fetchMachinesHealth: vi.fn(),
+    fetchFleetCapacity: vi.fn(),
+  }
+})
 
-import { fetchFleetChecks, fetchMachines } from '@/api/client'
+import { fetchFleetCapacity, fetchMachines, fetchMachinesHealth } from '@/api/client'
 
 beforeEach(() => {
   vi.clearAllMocks()
   // Unrelated to every test below except the dedicated #66 one -- default to
-  // "no fleet-scope checks" so `FleetSummary`'s own presence/absence and the
-  // roster's states remain what each test is actually pinning.
-  vi.mocked(fetchFleetChecks).mockResolvedValue({ available: true, data: [] })
+  // "no fleet-scope checks, no machine severities" so `FleetSummary`'s own
+  // presence/absence and the roster's states remain what each test is
+  // actually pinning.
+  vi.mocked(fetchMachinesHealth).mockResolvedValue({
+    available: true,
+    data: { schema: 1, refreshed_at: null, machine_health: [], fleet_checks: [], truncated: false },
+  })
+  vi.mocked(fetchFleetCapacity).mockResolvedValue({ available: true, data: { used: 0, total: null } })
 })
 
 function renderPanel() {
@@ -54,18 +65,12 @@ function makeMachine(overrides: Partial<MachineState> = {}): MachineState {
   return {
     name: 'laptop',
     host: 'laptop.tailnet.ts.net',
-    reachable: true,
-    last_seen: 1_700_000_000,
-    active_assignments: 0,
-    headless_workers: 1,
-    severity: 'ok',
+    state: 'online',
+    reason: '',
+    latency_ms: 10,
     agent_version: '1.2.3',
-    is_local: true,
-    quiet_hours_paused: false,
-    hand_paused: false,
-    release_cordoned: false,
+    repos: [],
     worktree_bytes: null,
-    concurrency_limit: null,
     ...overrides,
   }
 }
@@ -108,15 +113,31 @@ describe('MachinesPanel', () => {
     // clicking a row doesn't throw.
   })
 
-  it('shows offline machines distinctly from online ones', async () => {
+  it('renders whatever state string the roster reports, distinctly per row', async () => {
     vi.mocked(fetchMachines).mockResolvedValue({
       available: true,
-      data: [makeMachine({ name: 'dellserver', reachable: false })],
+      data: [makeMachine({ name: 'dellserver', state: 'unreachable' })],
     })
     renderPanel()
 
     const row = await screen.findByTestId('machine-row-dellserver')
-    expect(row).toHaveTextContent('offline')
+    expect(row).toHaveTextContent('unreachable')
+  })
+
+  it('joins severity from /api/machines/health onto the roster by name (#76)', async () => {
+    vi.mocked(fetchMachines).mockResolvedValue({ available: true, data: [makeMachine({ name: 'laptop' })] })
+    const health: MachinesHealthResponse = {
+      schema: 1,
+      refreshed_at: 1,
+      machine_health: [{ machine: 'laptop', state: 'online', reason: '', severity: 'crit', stale: false, checked_at: 1, results: [] }],
+      fleet_checks: [],
+      truncated: false,
+    }
+    vi.mocked(fetchMachinesHealth).mockResolvedValue({ available: true, data: health })
+    renderPanel()
+
+    const row = await screen.findByTestId('machine-row-laptop')
+    expect(row.querySelector('[data-testid="severity-badge"]')).toHaveTextContent('crit')
   })
 
   it('renders the fleet summary once the roster loads, and not while empty/unavailable (#66)', async () => {

@@ -1,17 +1,24 @@
 /**
  * Component tests for `MachineDetail` — the `/machines/:name` detail panel
- * (#61, #63). Same shape as `SessionDetail.test.tsx`: `@/api/client` mocked,
- * rendered inside a `MemoryRouter` at the real param'd route so `useParams`/
- * `useNavigate` resolve.
+ * (#61, #63, re-wired by #76). Same shape as `SessionDetail.test.tsx`:
+ * `@/api/client` mocked, rendered inside a `MemoryRouter` at the real
+ * param'd route so `useParams`/`useNavigate` resolve.
  *
  * #61's half of this file is issue #61's per-section independence: state,
- * health, work-stats and metrics are separate endpoints that can (and,
- * until claude-coordinator#3027 lands, always do) 404 independently, and
- * each must render its own honest "unavailable" note rather than one
- * panel-wide failure or a false all-or-nothing zero. #63 adds two more
- * independent sections on the same footing (active workers, job history)
- * and covers the populated / idle / unreachable-machine states issue #63
- * calls out explicitly.
+ * health, work-stats and metrics come from independent pieces of derived
+ * data that can (and, for a server old enough to predate #76's real routes,
+ * do) 404 independently, and each must render its own honest "unavailable"
+ * note rather than one panel-wide failure or a false all-or-nothing zero.
+ * #63 adds two more independent sections on the same footing (active
+ * workers, job history).
+ *
+ * #76 dropped the locality badge ("this machine"/"remote") and
+ * agent-version drift highlighting this file used to cover -- both needed
+ * `MachineState.is_local`, which never existed on a real roster -- and the
+ * active-workers "N / ceiling" denominator, which needed a per-machine
+ * `concurrency_limit` that also never existed. Severity now comes from the
+ * Health section's own query (`fetchMachineHealth`), not a field on the
+ * roster row.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
@@ -30,7 +37,6 @@ import type {
 
 vi.mock('@/api/client', () => ({
   fetchMachine: vi.fn(),
-  fetchMachines: vi.fn(),
   fetchMachineHealth: vi.fn(),
   fetchMachineWorkStats: vi.fn(),
   fetchMachineMetrics: vi.fn(),
@@ -40,7 +46,6 @@ vi.mock('@/api/client', () => ({
 
 import {
   fetchMachine,
-  fetchMachines,
   fetchMachineHealth,
   fetchMachineMetrics,
   fetchMachineWorkers,
@@ -69,26 +74,19 @@ function makeMachine(overrides: Partial<MachineState> = {}): MachineState {
   return {
     name: 'laptop',
     host: 'laptop.tailnet.ts.net',
-    reachable: true,
-    last_seen: 1_700_000_000,
-    active_assignments: 0,
-    headless_workers: 0,
-    severity: 'ok',
+    state: 'online',
+    reason: '',
+    latency_ms: 12,
     agent_version: '1.2.3',
-    is_local: false,
-    quiet_hours_paused: false,
-    hand_paused: false,
-    release_cordoned: false,
+    repos: ['coord-web'],
     worktree_bytes: null,
-    concurrency_limit: null,
     ...overrides,
   }
 }
 
-/** All non-state/roster endpoints unavailable — the common shape for tests
- * that only care about the State section. */
+/** All non-state endpoints unavailable — the common shape for tests that
+ * only care about the State section. */
 function mockRestUnavailable() {
-  vi.mocked(fetchMachines).mockResolvedValue({ available: false })
   vi.mocked(fetchMachineHealth).mockResolvedValue({ available: false })
   vi.mocked(fetchMachineWorkStats).mockResolvedValue({ available: false })
   vi.mocked(fetchMachineMetrics).mockResolvedValue({ available: false })
@@ -105,8 +103,7 @@ describe('MachineDetail', () => {
 
     // One per section (state, active workers, job history, health, work
     // stats, metrics) -- never a single panel-wide failure that would hide
-    // which parts are actually missing. The roster fetch (`fetchMachines`)
-    // has no section of its own -- it's only ever a silent drift input.
+    // which parts are actually missing.
     const notes = await screen.findAllByText(/unavailable — this coord server doesn't serve it yet/)
     expect(notes).toHaveLength(6)
   })
@@ -118,11 +115,10 @@ describe('MachineDetail', () => {
       stale: false,
       checked_at: 1_700_000_000,
       results: [
-        { key: 'disk', label: 'disk', severity: 'ok', headroom: '86% used (22G free)', detail: '' },
+        { key: 'disk', check_id: 'disk', scope: 'machine', title: 'Disk', label: 'disk', severity: 'ok', headroom: '86% used (22G free)' },
       ],
     }
     vi.mocked(fetchMachine).mockResolvedValue({ available: true, data: machine })
-    vi.mocked(fetchMachines).mockResolvedValue({ available: false })
     vi.mocked(fetchMachineHealth).mockResolvedValue({ available: true, data: health })
     vi.mocked(fetchMachineWorkStats).mockResolvedValue({ available: false })
     vi.mocked(fetchMachineMetrics).mockResolvedValue({ available: false })
@@ -145,10 +141,8 @@ describe('MachineDetail', () => {
     mockRestUnavailable()
     const workStats: MachineWorkStats = {
       machine: 'laptop',
-      window_seconds: 86400,
       assignments_completed: 4,
       assignments_failed: 1,
-      cost_usd: 2.5,
     }
     vi.mocked(fetchMachineWorkStats).mockResolvedValue({ available: true, data: workStats })
     vi.mocked(fetchMachineMetrics).mockResolvedValue({
@@ -180,57 +174,54 @@ describe('MachineDetail', () => {
 
   // ── #63: identity, active workers, job history ──────────────────────────
 
-  it('renders a populated machine: identity, version drift, active workers and a distinct failure in job history', async () => {
-    const local = makeMachine({ name: 'desktop', is_local: true, agent_version: '2.0.0' })
+  it('renders a populated machine: state, host, latency, active workers and a distinct failure in job history', async () => {
     const machine = makeMachine({
       name: 'laptop',
-      is_local: false,
-      agent_version: '1.9.0', // drifts from `local`'s 2.0.0
-      headless_workers: 2,
-      concurrency_limit: 6,
+      host: 'laptop.tailnet.ts.net',
+      latency_ms: 42,
       worktree_bytes: 1_500_000_000, // ~1.4 GB
-      severity: 'ok',
+      agent_version: '1.9.0',
     })
     vi.mocked(fetchMachine).mockResolvedValue({ available: true, data: machine })
-    vi.mocked(fetchMachines).mockResolvedValue({ available: true, data: [local, machine] })
-    vi.mocked(fetchMachineHealth).mockResolvedValue({ available: false })
+    vi.mocked(fetchMachineHealth).mockResolvedValue({
+      available: true,
+      data: { severity: 'ok', stale: false, checked_at: 1, results: [] },
+    })
     vi.mocked(fetchMachineWorkStats).mockResolvedValue({ available: false })
     vi.mocked(fetchMachineMetrics).mockResolvedValue({ available: false })
 
     const workers: MachineActiveWorker[] = [
-      { id: 'wk-1', issue: 42, type: 'work', repo: 'coord-web', started_at: 1_700_000_000 },
-      { id: 'wk-2', issue: null, type: 'review', repo: null, started_at: 1_700_000_500 },
+      { assignment_id: 'wk-1', status: 'running', spec: { issue_number: 42, issue_title: 'Fix', repo_name: 'coord-web' } },
+      { assignment_id: 'wk-2', status: 'pending' },
     ]
     vi.mocked(fetchMachineWorkers).mockResolvedValue({ available: true, data: workers })
 
     const jobs: MachineJobHistoryEntry[] = [
-      { id: 'job-1', issue: 10, repo: 'coord-web', status: 'done', finished_at: 1_699_999_000 },
-      { id: 'job-2', issue: 11, repo: 'coord-web', status: 'failed', finished_at: 1_699_998_000 },
+      { assignment_id: 'job-1', repo_name: 'coord-web', issue_number: 10, issue_title: 'Fix', type: 'work', status: 'done', dispatched_at: 1, finished_at: 1_699_999_000 },
+      { assignment_id: 'job-2', repo_name: 'coord-web', issue_number: 11, issue_title: 'Break', type: 'work', status: 'failed', dispatched_at: 1, finished_at: 1_699_998_000 },
     ]
     vi.mocked(fetchMachineJobs).mockResolvedValue({ available: true, data: jobs })
 
     renderDetail('laptop')
 
-    // Identity: remote badge (never "this machine" for a non-local roster
-    // entry).
-    expect(await screen.findByText('remote')).toBeInTheDocument()
+    expect(await screen.findByText('online')).toBeInTheDocument()
+    expect(screen.getByText('laptop.tailnet.ts.net')).toBeInTheDocument()
+    expect(screen.getByText('42 ms')).toBeInTheDocument()
 
-    // Version drift: flagged against the roster's `is_local` entry, not
-    // some hardcoded reference.
     const versionEl = await screen.findByTestId('agent-version')
     expect(versionEl).toHaveTextContent('1.9.0')
-    expect(versionEl).toHaveTextContent('drift')
-    expect(versionEl).toHaveClass('text-destructive')
 
     // Worktree disk footprint, human-formatted.
     expect(screen.getByTestId('worktree-footprint')).toHaveTextContent('1.4 GB')
 
-    // Active workers: id/issue/type/repo/age rows, plus count / ceiling.
+    // Active workers: assignment_id/issue/status rows, plus count. No age
+    // column -- the real schema carries no dispatch timestamp per row
+    // (#76), unlike the pre-#76 invented `started_at`.
     const activeSection = screen.getByLabelText('Active workers')
     expect(within(activeSection).getByText('wk-1')).toBeInTheDocument()
-    expect(within(activeSection).getByText('work')).toBeInTheDocument()
+    expect(within(activeSection).getByText('running')).toBeInTheDocument()
     expect(within(activeSection).getByText('CW#42')).toBeInTheDocument()
-    expect(within(activeSection).getByTestId('worker-ceiling')).toHaveTextContent('2 / 6')
+    expect(within(activeSection).getByTestId('worker-ceiling')).toHaveTextContent('2')
 
     // Job history: both rows present, and the failed one is visually
     // distinct (its own testid + destructive-toned classes), the done one
@@ -242,15 +233,9 @@ describe('MachineDetail', () => {
     expect(screen.getByTestId('job-row')).toHaveTextContent('done')
   })
 
-  it('renders an idle machine: reachable, no active workers, ceiling still shown', async () => {
-    const machine = makeMachine({
-      name: 'idle-box',
-      is_local: true,
-      headless_workers: 0,
-      concurrency_limit: 4,
-    })
+  it('renders an idle machine: no active workers, count still shown as zero', async () => {
+    const machine = makeMachine({ name: 'idle-box' })
     vi.mocked(fetchMachine).mockResolvedValue({ available: true, data: machine })
-    vi.mocked(fetchMachines).mockResolvedValue({ available: true, data: [machine] })
     vi.mocked(fetchMachineHealth).mockResolvedValue({ available: false })
     vi.mocked(fetchMachineWorkStats).mockResolvedValue({ available: false })
     vi.mocked(fetchMachineMetrics).mockResolvedValue({ available: false })
@@ -259,25 +244,18 @@ describe('MachineDetail', () => {
 
     renderDetail('idle-box')
 
-    expect(await screen.findByText('this machine')).toBeInTheDocument()
     expect(await screen.findByText('No active workers.')).toBeInTheDocument()
-    expect(screen.getByTestId('worker-ceiling')).toHaveTextContent('0 / 4')
+    expect(screen.getByTestId('worker-ceiling')).toHaveTextContent('0')
     expect(screen.getByText('No job history.')).toBeInTheDocument()
-    // Never flagged for drift against itself.
-    expect(screen.queryByText(/drift/)).not.toBeInTheDocument()
   })
 
-  it('renders an unreachable machine: offline, unknown severity, last-contact age, no live worker data assumed', async () => {
-    const machine = makeMachine({
-      name: 'ghost',
-      reachable: false,
-      severity: 'unknown',
-      last_seen: 1_700_000_000,
-      headless_workers: 0,
-    })
+  it('renders an unreachable machine: its state text, unknown severity, no live worker data assumed', async () => {
+    const machine = makeMachine({ name: 'ghost', state: 'unreachable', reason: 'connection refused' })
     vi.mocked(fetchMachine).mockResolvedValue({ available: true, data: machine })
-    vi.mocked(fetchMachines).mockResolvedValue({ available: true, data: [machine] })
-    vi.mocked(fetchMachineHealth).mockResolvedValue({ available: false })
+    vi.mocked(fetchMachineHealth).mockResolvedValue({
+      available: true,
+      data: { severity: 'unknown', stale: false, checked_at: null, results: [] },
+    })
     vi.mocked(fetchMachineWorkStats).mockResolvedValue({ available: false })
     vi.mocked(fetchMachineMetrics).mockResolvedValue({ available: false })
     vi.mocked(fetchMachineWorkers).mockResolvedValue({ available: false })
@@ -285,15 +263,15 @@ describe('MachineDetail', () => {
 
     renderDetail('ghost')
 
-    expect(await screen.findByText('offline')).toBeInTheDocument()
+    expect(await screen.findByText('unreachable')).toBeInTheDocument()
+    expect(screen.getByText('connection refused')).toBeInTheDocument()
     // 'unknown' severity must never read as the healthy ('ok') badge -- the
     // same honesty rule #62 pins for the list rows.
     expect(screen.getByTestId('severity-badge')).toHaveTextContent('unknown')
-    expect(screen.getByText(/last contact/)).toBeInTheDocument()
-    // Active workers / job history / health / work stats / metrics all 404
+    // Active workers / job history / work stats / metrics all 404
     // independently -- each still gets its own honest note, never a blank
     // section.
     const notes = await screen.findAllByText(/unavailable — this coord server doesn't serve it yet/)
-    expect(notes.length).toBeGreaterThanOrEqual(5)
+    expect(notes.length).toBeGreaterThanOrEqual(4)
   })
 })

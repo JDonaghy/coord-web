@@ -25,14 +25,24 @@ import type {
   ChartSpec,
   ColumnMeta,
   DriveQueueSummary,
+  FleetCapacity,
   FleetChecks,
   MachineActiveWorker,
+  MachineAssignmentSpec,
+  MachineAssignments,
+  MachineCapacity,
   MachineHealthCheckResult,
+  MachineHealthRow,
   MachineHealthSnapshot,
+  MachineJobCounts,
   MachineJobHistoryEntry,
   MachineMetricPoint,
+  MachineMetricsSample,
   MachineMetricsSeries,
+  MachinesHealthResponse,
+  MachinesMetricsResponse,
   MachineState,
+  MachineStatsRow,
   MachineWorkStats,
   PipelineAction,
   PipelineGate,
@@ -43,6 +53,7 @@ import type {
   ReportParam,
   ReportResult,
   RowIdentity,
+  Severity,
   TestVerdict,
 } from './generated'
 
@@ -55,14 +66,24 @@ export type {
   ChartSpec,
   ColumnMeta,
   DriveQueueSummary,
+  FleetCapacity,
   FleetChecks,
   MachineActiveWorker,
+  MachineAssignmentSpec,
+  MachineAssignments,
+  MachineCapacity,
   MachineHealthCheckResult,
+  MachineHealthRow,
   MachineHealthSnapshot,
+  MachineJobCounts,
   MachineJobHistoryEntry,
   MachineMetricPoint,
+  MachineMetricsSample,
   MachineMetricsSeries,
+  MachinesHealthResponse,
+  MachinesMetricsResponse,
   MachineState,
+  MachineStatsRow,
   MachineWorkStats,
   PipelineAction,
   PipelineGate,
@@ -73,6 +94,7 @@ export type {
   ReportParam,
   ReportResult,
   RowIdentity,
+  Severity,
   TestVerdict,
 }
 
@@ -214,13 +236,14 @@ export type MachineQueryResult<T> = { available: true; data: T } | { available: 
  * throwing — the version-skew case this repo's CLAUDE.md calls out:
  * `coord-web` auto-deploys to the live tool on its own timer, decoupled from
  * any `claude-coordinator` release, so the bundle **will** at some point be
- * newer than the API serving it. Every `fetchMachine*` function below is
- * built on this rather than `apiFetch` for exactly that reason (issue #61:
- * "must degrade to an honest 'unavailable' state when an endpoint 404s, not
- * crash the panel or render an empty chart as zero") — today that 404 always
- * fires, since the Machines API itself is still claude-coordinator#3027, not
- * yet a registered route on any coord server; the same code path is what
- * keeps this client working once #3027 lands on some hosts before others.
+ * newer than the API serving it. Every low-level `fetchMachines*` function
+ * below is built on this rather than `apiFetch` for exactly that reason
+ * (issue #61: "must degrade to an honest 'unavailable' state when an
+ * endpoint 404s, not crash the panel or render an empty chart as zero") —
+ * the real Machines API (`/api/machines`, `/api/machines/health`,
+ * `/api/machines/metrics`, `/api/machines/stats`, verified by #76) is a
+ * recent addition, so this 404 path is what keeps this client working
+ * against any coord server old enough to predate it.
  *
  * Any other non-2xx is still a real error and still throws — a 404 here is
  * "this route doesn't exist," not "the machine doesn't exist," a distinction
@@ -266,82 +289,230 @@ export async function fetchSessions(): Promise<SessionInfo[]> {
   return apiFetch<SessionInfo[]>('/api/sessions')
 }
 
-// ── GET /api/machines* (forthcoming — claude-coordinator#3027, #61, #63) ───
+// ── GET /api/machines, /api/machines/health, /api/machines/metrics, ────────
+// ── GET /api/machines/stats (#76) ───────────────────────────────────────────
 //
-// Every function below hits a route that isn't registered on any coord
-// server yet — see `./generated.ts`'s "Machines panel" section header for
-// the full context. All seven are built on `apiFetchOptional`, not
-// `apiFetch`: a 404 is this milestone's *expected* steady state until #3027
-// lands, not a bug to throw over, and `MachinesPanel`/`MachineDetail` (M-4)
-// render `{available: false}` as an honest "unavailable" note per section
-// rather than an empty list/chart that would misreport as "zero machines" /
-// "zero of this metric."
+// The real Machines API is exactly these four fleet-*wide* collection
+// endpoints — there is no `/api/machines/{name}/...` route anywhere in
+// claude-coordinator. Verified against a real server's own `GET
+// /openapi.json` (a local `coord web --fixture` on the exact `coord==0.5.341`
+// #76 cites), not the issue text alone — see `./generated.ts`'s "Machines
+// panel" section header. The low-level `fetchMachines*`/`fetchMachinesStats`
+// functions below each hit one of the four, once; every per-machine
+// `fetchMachine*` function is a client-side filter/join over one of those
+// four responses, not a fifth network call. All of them stay on
+// `apiFetchOptional`, not `apiFetch`: a coord server old enough to predate
+// even the real #76 routes still 404s them, and this panel must degrade to
+// an honest "unavailable" note per section rather than crash or render an
+// empty list/chart that would misreport as "zero machines" / "zero of this
+// metric" (issue #61's original acceptance bar, unchanged by #76's re-wire).
 
-/** Fetch the machine roster — every machine coord knows about. */
+/** Fetch the machine roster — every machine coord knows about, exactly the
+ * fields a live server actually returns (see `MachineState`'s doc comment,
+ * `./generated.ts`). Carries no `severity` — join `fetchMachinesHealth()`
+ * onto this by name (`joinMachineSeverity`) for that. */
 export async function fetchMachines(): Promise<MachineQueryResult<MachineState[]>> {
   return apiFetchOptional<MachineState[]>('/api/machines')
 }
 
-/** Fetch one machine's roster entry by name. */
+/** Fetch one machine's roster entry by name — filters `fetchMachines()`'s
+ * result client-side; there is no real per-machine route to call instead
+ * (#76's mapping table: "filter the roster client-side"). */
 export async function fetchMachine(name: string): Promise<MachineQueryResult<MachineState>> {
-  return apiFetchOptional<MachineState>(`/api/machines/${encodeURIComponent(name)}`)
+  const result = await fetchMachines()
+  if (!result.available) return result
+  const machine = result.data.find((m) => m.name === name)
+  return machine ? { available: true, data: machine } : { available: false }
 }
 
-/** Fetch a machine's metrics series (load, disk free, etc — open vocabulary,
- * see `MachineMetricsSeries`'s doc comment). */
-export async function fetchMachineMetrics(
-  name: string,
-): Promise<MachineQueryResult<MachineMetricsSeries[]>> {
-  return apiFetchOptional<MachineMetricsSeries[]>(
-    `/api/machines/${encodeURIComponent(name)}/metrics`,
-  )
+/** Fetch every machine's health rollup + fleet-scope checks in one call —
+ * `GET /api/machines/health`'s real response shape (`MachinesHealthResponse`,
+ * `./generated.ts`). Low-level: `fetchMachineHealth`/`fetchFleetChecks`
+ * below both build on this rather than issuing their own requests. */
+export async function fetchMachinesHealth(): Promise<MachineQueryResult<MachinesHealthResponse>> {
+  return apiFetchOptional<MachinesHealthResponse>('/api/machines/health')
 }
 
-/** Fetch a machine's current health-check snapshot (severity/stale +
+/** Fetch one machine's current health-check snapshot (severity/stale +
  * per-check results — see `MachineHealthSnapshot`'s doc comment for why
- * both pairs travel together, #64). */
+ * both pairs travel together, #64) by finding its row in
+ * `fetchMachinesHealth()`'s `machine_health[]`. A machine present in the
+ * roster but absent from `machine_health` (never reported) resolves to an
+ * explicit "never polled" snapshot — the same shape `MachineHealth.tsx`
+ * already renders as "No health data reported" — rather than
+ * `{available: false}`, which is reserved for the *route* being missing,
+ * not this one machine's data. */
 export async function fetchMachineHealth(
   name: string,
 ): Promise<MachineQueryResult<MachineHealthSnapshot>> {
-  return apiFetchOptional<MachineHealthSnapshot>(
-    `/api/machines/${encodeURIComponent(name)}/health`,
-  )
-}
-
-/** Fetch a machine's aggregate work-stats over the server's own trailing window. */
-export async function fetchMachineWorkStats(
-  name: string,
-): Promise<MachineQueryResult<MachineWorkStats>> {
-  return apiFetchOptional<MachineWorkStats>(
-    `/api/machines/${encodeURIComponent(name)}/work-stats`,
-  )
-}
-
-/** Fetch a machine's currently active headless workers (#63's ACTIVE WORKERS
- * section — id/issue/type/repo/age per row). */
-export async function fetchMachineWorkers(
-  name: string,
-): Promise<MachineQueryResult<MachineActiveWorker[]>> {
-  return apiFetchOptional<MachineActiveWorker[]>(
-    `/api/machines/${encodeURIComponent(name)}/workers`,
-  )
-}
-
-/** Fetch a machine's recent job history (#63's JOB HISTORY section —
- * status + age per row, most recent first). */
-export async function fetchMachineJobs(
-  name: string,
-): Promise<MachineQueryResult<MachineJobHistoryEntry[]>> {
-  return apiFetchOptional<MachineJobHistoryEntry[]>(`/api/machines/${encodeURIComponent(name)}/jobs`)
+  const result = await fetchMachinesHealth()
+  if (!result.available) return result
+  const row = result.data.machine_health.find((r) => r.machine === name)
+  if (!row) {
+    return { available: true, data: { severity: 'unknown', stale: false, checked_at: null, results: [] } }
+  }
+  return {
+    available: true,
+    data: {
+      severity: row.severity,
+      stale: row.stale,
+      checked_at: row.checked_at ?? null,
+      results: row.results,
+    },
+  }
 }
 
 /** Fetch fleet-*scope* health checks (#66) — facts about the fleet as a
  * whole, not any one machine's (`FleetChecks`'s doc comment, `./generated.ts`).
  * `FleetSummary` folds these into the same severity rollup as every
- * machine's own `MachineState.severity`, per `coord.health.aggregate`'s
- * counting rule. */
+ * machine's joined severity, per `coord.health.aggregate`'s counting rule. */
 export async function fetchFleetChecks(): Promise<MachineQueryResult<FleetChecks>> {
-  return apiFetchOptional<FleetChecks>('/api/fleet/health')
+  const result = await fetchMachinesHealth()
+  if (!result.available) return result
+  return { available: true, data: result.data.fleet_checks }
+}
+
+/** Join a roster onto a severity-per-machine map, `unknown` for any roster
+ * entry `machineHealth` has no row for -- the one place `MachineState.severity`
+ * gets synthesized, always from the server's own `_effective_severity`
+ * verdict (`MachineHealthRow.severity`), never re-derived from raw roster
+ * fields (#76's honesty requirement, mirroring #3023's contract). */
+export function joinMachineSeverity(
+  machines: readonly MachineState[],
+  health: MachinesHealthResponse | null,
+): Record<string, Severity> {
+  const byName = new Map<string, MachineHealthRow>(
+    (health?.machine_health ?? []).map((row) => [row.machine, row]),
+  )
+  const out: Record<string, Severity> = {}
+  for (const m of machines) {
+    out[m.name] = byName.get(m.name)?.severity ?? 'unknown'
+  }
+  return out
+}
+
+/** Fetch every machine's raw metrics samples in one call — `GET /api/
+ * machines/metrics`'s real response shape (`MachinesMetricsResponse`,
+ * `./generated.ts`), `machines{}` keyed by name, each an oldest-first
+ * `MachineMetricsSample[]`. Low-level: `fetchMachineMetrics` below is the
+ * per-machine convenience wrapper that also reshapes this into the named
+ * series `MachineCharts.tsx` renders. */
+export async function fetchMachinesMetrics(): Promise<MachineQueryResult<MachinesMetricsResponse>> {
+  return apiFetchOptional<MachinesMetricsResponse>('/api/machines/metrics')
+}
+
+/** Reshape one machine's raw `MachineMetricsSample[]` into the two named
+ * `MachineMetricsSeries` `MachineCharts.tsx`/`src/lib/machineCharts.ts`
+ * chart (`cpu_pct`, `mem_pct`) — the real endpoint reports a fixed sample
+ * shape per timestamp, not an open set of named series, so this is where
+ * that reshaping happens once rather than in every chart consumer.
+ * `status !== 'ok'` maps to an explicit `value: null` gap on both series for
+ * that timestamp (#65's honesty rule: a failed poll is a gap, never
+ * interpolated or plotted as `0`), independent of `cpu_percent`/
+ * `mem_percent` already being individually nullable. */
+function toMachineMetricsSeries(samples: readonly MachineMetricsSample[]): MachineMetricsSeries[] {
+  return [
+    {
+      metric: 'cpu_pct',
+      unit: '%',
+      points: samples.map((s) => ({ t: s.timestamp, value: s.status === 'ok' ? s.cpu_percent : null })),
+    },
+    {
+      metric: 'mem_pct',
+      unit: '%',
+      points: samples.map((s) => ({ t: s.timestamp, value: s.status === 'ok' ? s.mem_percent : null })),
+    },
+  ]
+}
+
+/** Fetch a machine's CPU/memory metrics series (`cpu_pct`/`mem_pct` — the
+ * only two the real endpoint reports; see `toMachineMetricsSeries`'s doc
+ * comment) by key-lookup into `fetchMachinesMetrics()`'s `machines{}`. A
+ * machine this build's fleet-wide response doesn't mention resolves to `[]`
+ * (available, just nothing to chart) — `machineChartPlan`
+ * (`src/lib/machineCharts.ts`) already renders an empty series as its own
+ * honest "hasn't reported this metric" degrade, so there is no separate
+ * 404-shaped state to invent here. */
+export async function fetchMachineMetrics(
+  name: string,
+): Promise<MachineQueryResult<MachineMetricsSeries[]>> {
+  const result = await fetchMachinesMetrics()
+  if (!result.available) return result
+  return { available: true, data: toMachineMetricsSeries(result.data.machines[name] ?? []) }
+}
+
+/** Fetch every machine's stats row in one call — `GET /api/machines/stats`'s
+ * real response shape (`MachineStatsRow[]`, `./generated.ts`): an array, one
+ * row per machine, each carrying its own `capacity`/`counts`/`job_history` —
+ * NOT the fleet-wide `{capacity, counts, job_history}` object earlier
+ * (pre-verification) versions of this file guessed at. Low-level:
+ * `fetchMachineWorkStats`/`fetchMachineJobs`/`fetchFleetCapacity` below all
+ * build on this. */
+export async function fetchMachinesStats(): Promise<MachineQueryResult<MachineStatsRow[]>> {
+  return apiFetchOptional<MachineStatsRow[]>('/api/machines/stats')
+}
+
+/** Fetch a machine's completed/failed assignment counts, by name-lookup into
+ * `fetchMachinesStats()`'s rows. A machine absent from the response (no
+ * stats row at all) resolves to an explicit zero row, not
+ * `{available: false}` — same "route missing vs this machine has nothing to
+ * report" distinction `fetchMachineHealth` draws. */
+export async function fetchMachineWorkStats(
+  name: string,
+): Promise<MachineQueryResult<MachineWorkStats>> {
+  const result = await fetchMachinesStats()
+  if (!result.available) return result
+  const row = result.data.find((r) => r.name === name)
+  return {
+    available: true,
+    data: {
+      machine: name,
+      assignments_completed: row?.counts.completed ?? 0,
+      assignments_failed: row?.counts.failed ?? 0,
+    },
+  }
+}
+
+/** Fetch a machine's recent job history (#63's JOB HISTORY section —
+ * status + age per row, most recent first) — already scoped to one machine
+ * on the wire (`MachineStatsRow.job_history`), so this is a name-lookup, not
+ * a filter over a flat fleet-wide array. */
+export async function fetchMachineJobs(
+  name: string,
+): Promise<MachineQueryResult<MachineJobHistoryEntry[]>> {
+  const result = await fetchMachinesStats()
+  if (!result.available) return result
+  const row = result.data.find((r) => r.name === name)
+  return { available: true, data: row?.job_history ?? [] }
+}
+
+/** Fetch a machine's currently active assignments (#63's ACTIVE WORKERS
+ * section) — lives on the roster row itself (`MachineState.assignments.
+ * active`, #76's mapping table), so this is a plain field read off
+ * `fetchMachine(name)`, not a separate request. `assignments` is absent/null
+ * on the wire whenever a machine has no running work (per the live schema's
+ * own description), normalized to `[]` here rather than leaking that
+ * optionality to every caller. */
+export async function fetchMachineWorkers(
+  name: string,
+): Promise<MachineQueryResult<MachineActiveWorker[]>> {
+  const result = await fetchMachine(name)
+  if (!result.available) return result
+  return { available: true, data: result.data.assignments?.active ?? [] }
+}
+
+/** Fetch fleet-wide worker capacity (used vs total ceiling), summed
+ * client-side across every `fetchMachinesStats()` row's own `capacity` --
+ * there is no fleet-wide capacity total on the wire, only a per-machine
+ * `{active, max}` each (`MachineCapacity`, `./generated.ts`). Mirrors the
+ * pre-#76 `summarizeFleetCapacity`'s summation, just sourced from the real
+ * endpoint instead of invented roster fields. */
+export async function fetchFleetCapacity(): Promise<MachineQueryResult<FleetCapacity>> {
+  const result = await fetchMachinesStats()
+  if (!result.available) return result
+  const used = result.data.reduce((sum, r) => sum + r.capacity.active, 0)
+  const total = result.data.length > 0 ? result.data.reduce((sum, r) => sum + r.capacity.max, 0) : null
+  return { available: true, data: { used, total } }
 }
 
 // ── GET /api/report, GET /api/report/{report_id} (#2492 RPT-1 / #21 RPT-2) ──

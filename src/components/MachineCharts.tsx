@@ -1,13 +1,24 @@
 /**
  * MachineCharts — time-series charts over a machine's ~6h retained metrics
- * window (#65, M-4): CPU, memory, disk/worktree footprint, and worker
- * throughput/concurrency. Fed by `MachineDetail`'s already-fetched
+ * window (#65, M-4): CPU and memory. Fed by `MachineDetail`'s already-fetched
  * `MachineMetricsSeries[]` (`fetchMachineMetrics`, same "each section
  * degrades on its own, route-level unavailability is `MachineDetail`'s own
  * job" split #64's `MachineHealth` already established — this component
  * receives a real (possibly metric-sparse) array, never `null`; a coord
  * server too old to serve `/metrics` at all renders `MachineDetail`'s own
  * `UnavailableNote` instead of this component).
+ *
+ * #65 originally shipped five charts here (CPU, memory, worktree footprint,
+ * active workers, completed/failed throughput) against a fully-open
+ * named-metric-series vocabulary the pre-#76 invented `/api/machines/
+ * {name}/metrics` was assumed to carry. #76 found the real
+ * `GET /api/machines/metrics` reports a fixed per-timestamp sample with only
+ * CPU/memory fields (`MachineMetricsSample`, `./generated.ts`) — no
+ * worktree/worker/job trend exists on the wire to chart, ever, on any
+ * server. Rather than ship three chart sections permanently stuck on their
+ * own degrade branch, they're gone; the generic named-series chart plumbing
+ * they used (`machineChartPlan`, `SingleMetricChart`) stays, since CPU and
+ * memory still need it, and a future real metric would too.
  *
  * coord-tui draws two 2-row sparklines (CPU + mem) with no axes, no scale,
  * no hover, and history that dies when the panel closes (#65's issue text,
@@ -54,24 +65,17 @@ import {
   DEFAULT_MACHINE_CHART_RANGE_ID,
   MACHINE_CHART_RANGES,
   buildMachineChartAriaLabel,
-  buildMachineChartMultiAriaLabel,
   formatMachineChartTick,
   formatMachineChartValue,
-  machineChartMultiPlan,
   machineChartPlan,
   machineChartRangeById,
   machineChartValueKind,
   scaleValue,
-  type MachineChartSeriesSpec,
   type MachineChartValueKind,
 } from '@/lib/machineCharts'
 
 export interface MachineChartsProps {
   metrics: MachineMetricsSeries[]
-  /** `MachineState.concurrency_limit` — the active-workers chart's ceiling
-   * reference line. `null` renders the chart with no ceiling line rather
-   * than a fabricated one. */
-  concurrencyLimit: number | null
   /** Injectable "now", same convention `formatRelativeTime` uses, so tests
    * don't depend on the real clock. */
   now?: number
@@ -350,7 +354,6 @@ function SingleMetricChart({
   colorClass,
   range,
   now,
-  referenceLine,
 }: {
   title: string
   testId: string
@@ -359,7 +362,6 @@ function SingleMetricChart({
   colorClass: string
   range: (typeof MACHINE_CHART_RANGES)[number]
   now: number
-  referenceLine?: { value: number; label: string } | null
 }) {
   const kind = machineChartValueKind(metricKey)
   const plan = machineChartPlan(metrics, metricKey, title, range, now)
@@ -385,58 +387,11 @@ function SingleMetricChart({
       domainMinT={plan.domainMinT}
       domainMaxT={plan.domainMaxT}
       kind={kind}
-      referenceLine={referenceLine}
     />
   )
 }
 
-function ThroughputChart({
-  metrics,
-  range,
-  now,
-}: {
-  metrics: MachineMetricsSeries[]
-  range: (typeof MACHINE_CHART_RANGES)[number]
-  now: number
-}) {
-  const specs: MachineChartSeriesSpec[] = [
-    { key: 'jobs_completed', label: 'completed', colorClass: 'text-pass' },
-    { key: 'jobs_failed', label: 'failed', colorClass: 'text-fail' },
-  ]
-  const plan = machineChartMultiPlan(metrics, specs, 'completed/failed job', range, now)
-  const title = 'Completed / failed'
-
-  if (plan.status === 'degrade') {
-    return (
-      <div className="mb-5">
-        <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-faint">{title}</h3>
-        <DegradeNote reason={plan.reason} testId="machine-chart-throughput-degraded" />
-      </div>
-    )
-  }
-
-  const ariaLabel = buildMachineChartMultiAriaLabel(title, plan, 'count', range.label)
-  return (
-    <ValueChart
-      title={title}
-      testId="machine-chart-throughput"
-      ariaLabel={ariaLabel}
-      series={plan.series.map((s) => ({
-        label: s.label,
-        colorClass: s.colorClass,
-        points: s.points,
-        segments: s.segments,
-      }))}
-      min={Math.min(0, plan.min)}
-      max={plan.max}
-      domainMinT={plan.domainMinT}
-      domainMaxT={plan.domainMaxT}
-      kind="count"
-    />
-  )
-}
-
-export default function MachineCharts({ metrics, concurrencyLimit, now = Date.now() / 1000 }: MachineChartsProps) {
+export default function MachineCharts({ metrics, now = Date.now() / 1000 }: MachineChartsProps) {
   const [rangeId, setRangeId] = useState(DEFAULT_MACHINE_CHART_RANGE_ID)
   const range = machineChartRangeById(rangeId)
 
@@ -461,26 +416,6 @@ export default function MachineCharts({ metrics, concurrencyLimit, now = Date.no
         range={range}
         now={now}
       />
-      <SingleMetricChart
-        title="Worktree footprint"
-        testId="machine-chart-disk"
-        metrics={metrics}
-        metricKey="worktree_bytes"
-        colorClass="text-brand"
-        range={range}
-        now={now}
-      />
-      <SingleMetricChart
-        title="Active workers"
-        testId="machine-chart-workers"
-        metrics={metrics}
-        metricKey="active_workers"
-        colorClass="text-brand"
-        range={range}
-        now={now}
-        referenceLine={concurrencyLimit !== null ? { value: concurrencyLimit, label: `ceiling ${concurrencyLimit}` } : null}
-      />
-      <ThroughputChart metrics={metrics} range={range} now={now} />
     </div>
   )
 }

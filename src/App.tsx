@@ -51,8 +51,9 @@ const Gallery = lazy(() => import('@/components/Gallery'))
  *   /machines/:name                  -> MachineDetail (#61) -- state,
  *                                        health, work-stats and metrics
  *                                        each degrade independently to an
- *                                        honest "unavailable" note until
- *                                        claude-coordinator#3027 lands
+ *                                        honest "unavailable" note against a
+ *                                        coord server old enough to predate
+ *                                        the real Machines API (#76)
  *   /board /merge-queue
  *   /milestones /audit /spend
  *   /settings                        -> ComingSoon(view) -- placeholders for
