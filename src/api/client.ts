@@ -213,6 +213,55 @@ export interface DriveQueueActionResult {
 /** Same-origin base — webapp is served by coord/dashboard/server.py. */
 const API_BASE = ''
 
+/**
+ * Every path this client fetches, in the served OpenAPI spec's own template
+ * form (`{param}`, not an interpolated value) — the single source of truth
+ * both the fetch helpers below build concrete URLs from AND
+ * `e2e/api-routes.spec.ts` diffs against a real `GET /openapi.json` (#78).
+ *
+ * coord-web#76 shipped the Machines panel calling **eight** paths of which
+ * **seven had never been built**, and every gate was green because nothing
+ * checked a path literal against the real server at all. The fix isn't a
+ * smarter check bolted on after the fact — it's that a path literal now
+ * exists in exactly one place. A checker that parsed `fetch()` calls out of
+ * source could always drift from what the helpers actually request; a
+ * checker that imports this same map the helpers are built from cannot.
+ *
+ * Not included: `/ws/terminal/{session_id}` (`terminalWebSocketUrl` below) —
+ * a WebSocket upgrade route, not a REST path, and absent from
+ * `_openapi_spec()`'s own `paths` for the same reason.
+ */
+export const API_ROUTES = {
+  board: '/api/board',
+  pipeline: '/api/pipeline',
+  driveQueue: '/api/drive-queue',
+  driveQueueAction: '/api/drive-queue/action',
+  sessions: '/api/sessions',
+  machines: '/api/machines',
+  machinesHealth: '/api/machines/health',
+  machinesMetrics: '/api/machines/metrics',
+  machinesStats: '/api/machines/stats',
+  reportCatalogue: '/api/report',
+  report: '/api/report/{report_id}',
+  diff: '/api/diff/{id}',
+  pipelineAction: '/api/pipeline/action',
+  portalNeedsInput: '/api/portal/needs-input',
+  portalAnswer: '/api/portal/answer',
+} as const satisfies Record<string, string>
+
+/**
+ * Substitute `{param}` placeholders in an `API_ROUTES` template with
+ * URI-encoded values — the one place a templated route turns into a
+ * concrete URL, so `API_ROUTES` itself always stays in the spec's exact
+ * `{name}` form for `e2e/api-routes.spec.ts` to diff against verbatim.
+ */
+function buildPath(template: string, params: Readonly<Record<string, string>>): string {
+  return Object.entries(params).reduce(
+    (path, [key, value]) => path.replace(`{${key}}`, encodeURIComponent(value)),
+    template,
+  )
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, init)
   if (!res.ok) {
@@ -265,12 +314,12 @@ async function apiFetchOptional<T>(path: string): Promise<MachineQueryResult<T>>
 
 /** Fetch the full board state (active + last-20 completed assignments). */
 export async function fetchBoard(): Promise<BoardData> {
-  return apiFetch<BoardData>('/api/board')
+  return apiFetch<BoardData>(API_ROUTES.board)
 }
 
 /** Fetch pipeline views for all work-type assignments. */
 export async function fetchPipeline(): Promise<PipelineView[]> {
-  return apiFetch<PipelineView[]>('/api/pipeline')
+  return apiFetch<PipelineView[]>(API_ROUTES.pipeline)
 }
 
 /**
@@ -281,12 +330,12 @@ export async function fetchPipeline(): Promise<PipelineView[]> {
  */
 export async function fetchDriveQueue(repo?: string): Promise<DriveQueueData> {
   const query = repo ? `?repo=${encodeURIComponent(repo)}` : ''
-  return apiFetch<DriveQueueData>(`/api/drive-queue${query}`)
+  return apiFetch<DriveQueueData>(`${API_ROUTES.driveQueue}${query}`)
 }
 
 /** Fetch live coord-* interactive sessions the phone can take over (#1066). */
 export async function fetchSessions(): Promise<SessionInfo[]> {
-  return apiFetch<SessionInfo[]>('/api/sessions')
+  return apiFetch<SessionInfo[]>(API_ROUTES.sessions)
 }
 
 // ── GET /api/machines, /api/machines/health, /api/machines/metrics, ────────
@@ -312,7 +361,7 @@ export async function fetchSessions(): Promise<SessionInfo[]> {
  * `./generated.ts`). Carries no `severity` — join `fetchMachinesHealth()`
  * onto this by name (`joinMachineSeverity`) for that. */
 export async function fetchMachines(): Promise<MachineQueryResult<MachineState[]>> {
-  return apiFetchOptional<MachineState[]>('/api/machines')
+  return apiFetchOptional<MachineState[]>(API_ROUTES.machines)
 }
 
 /** Fetch one machine's roster entry by name — filters `fetchMachines()`'s
@@ -330,7 +379,7 @@ export async function fetchMachine(name: string): Promise<MachineQueryResult<Mac
  * `./generated.ts`). Low-level: `fetchMachineHealth`/`fetchFleetChecks`
  * below both build on this rather than issuing their own requests. */
 export async function fetchMachinesHealth(): Promise<MachineQueryResult<MachinesHealthResponse>> {
-  return apiFetchOptional<MachinesHealthResponse>('/api/machines/health')
+  return apiFetchOptional<MachinesHealthResponse>(API_ROUTES.machinesHealth)
 }
 
 /** Fetch one machine's current health-check snapshot (severity/stale +
@@ -398,7 +447,7 @@ export function joinMachineSeverity(
  * per-machine convenience wrapper that also reshapes this into the named
  * series `MachineCharts.tsx` renders. */
 export async function fetchMachinesMetrics(): Promise<MachineQueryResult<MachinesMetricsResponse>> {
-  return apiFetchOptional<MachinesMetricsResponse>('/api/machines/metrics')
+  return apiFetchOptional<MachinesMetricsResponse>(API_ROUTES.machinesMetrics)
 }
 
 /** Reshape one machine's raw `MachineMetricsSample[]` into the two named
@@ -449,7 +498,7 @@ export async function fetchMachineMetrics(
  * `fetchMachineWorkStats`/`fetchMachineJobs`/`fetchFleetCapacity` below all
  * build on this. */
 export async function fetchMachinesStats(): Promise<MachineQueryResult<MachineStatsRow[]>> {
-  return apiFetchOptional<MachineStatsRow[]>('/api/machines/stats')
+  return apiFetchOptional<MachineStatsRow[]>(API_ROUTES.machinesStats)
 }
 
 /** Fetch a machine's completed/failed assignment counts, by name-lookup into
@@ -521,7 +570,7 @@ export async function fetchFleetCapacity(): Promise<MachineQueryResult<FleetCapa
  * metadata (kind/choices/default), so a client builds its picker and
  * parameter form from here rather than hardcoding a per-report field list. */
 export async function fetchReportCatalogue(): Promise<ReportCatalogue> {
-  return apiFetch<ReportCatalogue>('/api/report')
+  return apiFetch<ReportCatalogue>(API_ROUTES.reportCatalogue)
 }
 
 /**
@@ -544,9 +593,8 @@ export async function fetchReport(
     if (value) query.set(key, value)
   }
   const qs = query.toString()
-  return apiFetch<ReportResult>(
-    `/api/report/${encodeURIComponent(reportId)}${qs ? `?${qs}` : ''}`,
-  )
+  const path = buildPath(API_ROUTES.report, { report_id: reportId })
+  return apiFetch<ReportResult>(`${path}${qs ? `?${qs}` : ''}`)
 }
 
 /**
@@ -554,14 +602,14 @@ export async function fetchReport(
  * Prefers the GitHub PR diff; falls back to the compare API.
  */
 export async function fetchDiff(assignmentId: string): Promise<DiffResult> {
-  return apiFetch<DiffResult>(`/api/diff/${encodeURIComponent(assignmentId)}`)
+  return apiFetch<DiffResult>(buildPath(API_ROUTES.diff, { id: assignmentId }))
 }
 
 /** Advance an assignment through a pipeline gate. */
 export async function pipelineAction(
   body: PipelineActionRequest,
 ): Promise<PipelineActionResult> {
-  const res = await fetch(`${API_BASE}/api/pipeline/action`, {
+  const res = await fetch(`${API_BASE}${API_ROUTES.pipelineAction}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -577,7 +625,7 @@ export async function pipelineAction(
 export async function driveQueueAction(
   body: DriveQueueActionRequest,
 ): Promise<DriveQueueActionResult> {
-  const res = await fetch(`${API_BASE}/api/drive-queue/action`, {
+  const res = await fetch(`${API_BASE}${API_ROUTES.driveQueueAction}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -666,7 +714,7 @@ export interface PortalAnswerResult {
 /** Fetch the submissions currently sitting in `needs-input`, each with its
  * open question attached (#59). */
 export async function fetchPortalNeedsInput(): Promise<PortalNeedsInputItem[]> {
-  return apiFetch<PortalNeedsInputItem[]>('/api/portal/needs-input')
+  return apiFetch<PortalNeedsInputItem[]>(API_ROUTES.portalNeedsInput)
 }
 
 /**
@@ -683,7 +731,7 @@ export async function fetchPortalNeedsInput(): Promise<PortalNeedsInputItem[]> {
  * instruction not to second-guess it.
  */
 export async function submitPortalAnswer(body: PortalAnswerRequest): Promise<PortalAnswerResult> {
-  const res = await fetch(`${API_BASE}/api/portal/answer`, {
+  const res = await fetch(`${API_BASE}${API_ROUTES.portalAnswer}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
