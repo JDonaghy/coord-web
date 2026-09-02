@@ -181,23 +181,27 @@ test.describe('Machines panel — degraded states (#67, #76)', () => {
     await expect(page.getByText('No machines')).toHaveCount(0)
   })
 
-  test('an unreachable machine renders in the roster with unknown severity, and its detail page shows every underlying route degrading independently', async ({
+  test('an unreachable machine renders in the roster with unknown severity, and the three routes that are down degrade its detail sections independently', async ({
     page,
   }) => {
     await mockShellApi(page)
-    await mockRoster(
-      page,
-      [
+    // Only `/api/machines` is up. Post-#76 that single route is both the
+    // roster *and* the detail page's state + active-workers source, so it
+    // has to stay up for 'oldbox' to be on screen at all -- the case where
+    // it too is missing is the next test's job (and the whole-panel version
+    // of it is the previous test's). Health/stats/metrics all 404, which is
+    // what puts four of MachineDetail's six sections into their own honest
+    // "unavailable" note.
+    //
+    // 'oldbox' also has no health row to join (the whole route is gone), so
+    // its severity resolves to an explicit 'unknown' (`joinMachineSeverity`,
+    // `src/api/client.ts`), never a fabricated 'ok'.
+    await mockMachineDetailRoutes(page, {
+      machines: [
         machineState({ name: 'laptop', state: 'online' }),
         machineState({ name: 'oldbox', state: 'unreachable', reason: 'connection refused' }),
       ],
-      [{ machine: 'laptop', state: 'online', reason: '', severity: 'ok', stale: false, checked_at: NOW, results: [] }],
-      // 'oldbox' has no machine_health row at all -- resolves to an
-      // explicit 'unknown' severity (`fetchMachineHealth`'s "never
-      // reported" synthesis, `src/api/client.ts`), never a fabricated 'ok'.
-    )
-    // Every per-machine route for 'oldbox' unavailable at the detail level.
-    await mockMachineDetailRoutes(page, {})
+    })
 
     await page.goto('/machines')
 
@@ -209,19 +213,16 @@ test.describe('Machines panel — degraded states (#67, #76)', () => {
     await row.click()
     await expect(page).toHaveURL(/\/machines\/oldbox$/)
 
-    // Every one of MachineDetail's six independent sections reads its own
-    // honest "unavailable" note -- never a crash, never a blank section that
-    // could be mistaken for "this machine has none of this."
-    for (const label of [
-      'Machine state',
-      'Active workers',
-      'Job history',
-      'Health checks',
-      'Work stats',
-      'Metrics',
-    ]) {
+    // Each of the four sections whose route is missing reads its own honest
+    // "unavailable" note -- never a crash, never a blank section that could
+    // be mistaken for "this machine has none of this."
+    for (const label of ['Job history', 'Health checks', 'Work stats', 'Metrics']) {
       await expect(detail(page).getByText(`${label} unavailable`)).toBeVisible()
     }
+    // ...while the two sections fed by the route that IS up render their
+    // real content alongside them, rather than degrading in sympathy.
+    await expect(detail(page).getByText('connection refused')).toBeVisible()
+    await expect(detail(page).getByText('No active workers.')).toBeVisible()
   })
 
   test('the roster route alone degrading takes state and active workers down together, while health/stats/metrics stay independent', async ({
@@ -232,7 +233,22 @@ test.describe('Machines panel — degraded states (#67, #76)', () => {
     await mockMachineDetailRoutes(page, {
       // machines: undefined -> 404s, taking down both State and Active
       // workers (both read `/api/machines`, #76's mapping).
-      health: { machine_health: [{ machine: 'laptop', state: 'online', reason: '', severity: 'ok', stale: false, checked_at: NOW, results: [] }], fleet_checks: [] },
+      health: {
+        machine_health: [
+          {
+            machine: 'laptop',
+            state: 'online',
+            reason: '',
+            severity: 'ok',
+            stale: false,
+            checked_at: NOW,
+            results: [
+              { key: 'disk', check_id: 'disk', scope: 'machine', title: 'Disk', label: 'disk', severity: 'ok', headroom: '31% used (140G free)', detail: '' },
+            ],
+          },
+        ],
+        fleet_checks: [],
+      },
       stats: [{ name: 'laptop', capacity: { active: 0, max: 4 }, counts: { completed: 2, failed: 0 }, job_history: [] }],
       metrics: { machines: {} },
     })
@@ -241,9 +257,9 @@ test.describe('Machines panel — degraded states (#67, #76)', () => {
 
     await expect(detail(page).getByText('Machine state unavailable')).toBeVisible()
     await expect(detail(page).getByText('Active workers unavailable')).toBeVisible()
-    // The other three routes are up -- their sections render real content,
-    // not an unavailable note.
-    await expect(page.getByTestId('health-never-polled')).toBeVisible()
+    // The other three routes are up -- their sections render their real
+    // content, not an unavailable note.
+    await expect(page.getByTestId('health-row-disk')).toBeVisible()
     await expect(detail(page).getByText('2 completed · 0 failed')).toBeVisible()
     await expect(detail(page).getByText('No job history.')).toBeVisible()
   })
