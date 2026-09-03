@@ -5,7 +5,13 @@
  * held to (see the issue's "no UI in this issue" scope note).
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { fetchDriveQueue, driveQueueAction, type DriveQueueData } from '@/api/client'
+import {
+  fetchDriveQueue,
+  driveQueueAction,
+  fetchPortalNeedsInput,
+  type DriveQueueData,
+  type PortalNeedsInputItem,
+} from '@/api/client'
 
 function makeDriveQueueData(): DriveQueueData {
   return {
@@ -125,5 +131,61 @@ describe('driveQueueAction', () => {
     const result = await driveQueueAction({ repo_name: 'myrepo', issue_number: 42, action: 'move', to_position: 2 })
 
     expect(result).toEqual({ ok: false, error: 'HTTP 501' })
+  })
+})
+
+// Issue #84: `GET /api/portal/needs-input` responds with a `{submissions:
+// [...]}` object envelope (`coord/dashboard/server.py`'s
+// `JSONResponse({"submissions": submissions})`), not a bare array. A prior
+// version of `fetchPortalNeedsInput` cast the envelope straight to
+// `PortalNeedsInputItem[]` — `apiFetch` never validates a response against
+// its type parameter, so that mismatch reached a deployed bundle and
+// white-screened `AnswersPanel` on every render, including the empty-list
+// case. These tests mock the real wire shape (via global `fetch`, not the
+// client module) so a regression here would fail them again.
+describe('fetchPortalNeedsInput', () => {
+  function makeItem(overrides: Partial<PortalNeedsInputItem> = {}): PortalNeedsInputItem {
+    return {
+      submission_id: 'sub-1',
+      question: 'What is the shipping address?',
+      revision: 3,
+      repo_name: 'coord-portal',
+      issue_number: 159,
+      title: null,
+      opened_at: null,
+      ...overrides,
+    }
+  }
+
+  it('unwraps the {submissions: [...]} envelope into a bare array', async () => {
+    const item = makeItem()
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ submissions: [item] }), { status: 200 }),
+    )
+
+    const result = await fetchPortalNeedsInput()
+
+    expect(result).toEqual([item])
+  })
+
+  it('unwraps an empty {submissions: []} envelope into an empty array', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ submissions: [] }), { status: 200 }),
+    )
+
+    const result = await fetchPortalNeedsInput()
+
+    expect(result).toEqual([])
+  })
+
+  it('throws instead of silently returning a non-array when the envelope is malformed', async () => {
+    // A bare array — the shape this endpoint used to be (wrongly) assumed to
+    // return — must not be accepted either: the fix is to always expect the
+    // envelope, not to loosely accept either shape.
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify([makeItem()]), { status: 200 }),
+    )
+
+    await expect(fetchPortalNeedsInput()).rejects.toThrow(/submissions/)
   })
 })
