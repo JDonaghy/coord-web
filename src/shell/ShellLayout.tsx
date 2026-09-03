@@ -37,6 +37,7 @@ import { RAIL_VIEW_PATH, shellViewFromPath } from '@/routes/paths'
 import { AppShell } from './AppShell'
 import { ActivityRail } from './ActivityRail'
 import { ComingSoon } from './ComingSoon'
+import { ErrorBoundary } from './ErrorBoundary'
 import { RouteNotFound } from './RouteNotFound'
 import { StatusBar } from './StatusBar'
 import { useShellMode } from './breakpoints'
@@ -209,8 +210,26 @@ export function ShellLayout() {
           regionFocused={focusedRegion === 'rail'}
         />
       }
-      list={list}
-      detail={<Outlet />}
+      list={
+        // #87: a throw inside the list panel (e.g. #76's MachinesList bug)
+        // is contained to this slot -- the rail and status bar below are
+        // siblings of this boundary, not descendants, so they stay live.
+        // `resetKey` is the URL: it doesn't force a remount on ordinary
+        // navigation (see ErrorBoundary's doc comment), but if this slot
+        // *is* currently showing its fallback, the next navigation clears
+        // it instead of the fallback latching across every future route.
+        <ErrorBoundary label="list" resetKey={location.pathname}>
+          {list}
+        </ErrorBoundary>
+      }
+      detail={
+        // Same containment as the list boundary above, for the Outlet-filled
+        // detail slot (e.g. #84's AnswersPanel bug, or a per-item crash in
+        // Detail/SessionDetail/MachineDetail).
+        <ErrorBoundary label="detail" resetKey={location.pathname}>
+          <Outlet />
+        </ErrorBoundary>
+      }
       status={<StatusBar inFlight={inFlight} sessions={sessions?.length} machines={machines} />}
     />
   )
