@@ -1,5 +1,6 @@
 /**
- * Component tests for `DriveQueuePanel` (#7 QW-3, #9 QW-5).
+ * Component tests for `DriveQueuePanel` (#7 QW-3, #9 QW-5, expandable rows
+ * by #82).
  *
  * Mocks `@/api/client` entirely; wraps renders in a QueryClientProvider +
  * ThemeProvider + MemoryRouter, matching `Home.test.tsx`'s pattern
@@ -122,16 +123,28 @@ function createTestQueryClient() {
   })
 }
 
+/** Also returns the `QueryClient` instance -- some tests reach into the
+ * cache directly (`queryClient.setQueryData`) to simulate a background
+ * refetch, rather than driving one through a real network mock. */
 function renderPanel() {
-  return render(
+  const queryClient = createTestQueryClient()
+  const result = render(
     <MemoryRouter initialEntries={['/queue']}>
       <ThemeProvider>
-        <QueryClientProvider client={createTestQueryClient()}>
+        <QueryClientProvider client={queryClient}>
           <DriveQueuePanel />
         </QueryClientProvider>
       </ThemeProvider>
     </MemoryRouter>,
   )
+  return { ...result, queryClient }
+}
+
+/** Clicks the disclosure control for `entryRef` (e.g. `'RA#1'`), expanding
+ * its row so the detail `<dl>` and Actions buttons become queryable -- #82
+ * moved all of that out of the collapsed row. */
+async function expandRow(entryRef: string) {
+  await userEvent.click(await screen.findByRole('button', { name: `Expand details for ${entryRef}` }))
 }
 
 // ── tests ────────────────────────────────────────────────────────────────────
@@ -234,8 +247,8 @@ describe('DriveQueuePanel — repo-scope dropdown', () => {
   })
 })
 
-describe('DriveQueuePanel — nine-column grid', () => {
-  it('renders the column headers in column-parity order', async () => {
+describe('DriveQueuePanel — collapsed row (#82)', () => {
+  it('renders exactly the disclosure + Issue + Title + State column headers', async () => {
     vi.mocked(fetchDriveQueue).mockResolvedValue(makeData({ entries: [makeEntry()] }))
     vi.mocked(fetchPipeline).mockResolvedValue([])
 
@@ -245,21 +258,10 @@ describe('DriveQueuePanel — nine-column grid', () => {
     const headers = within(table)
       .getAllByRole('columnheader')
       .map((h) => h.textContent)
-    expect(headers).toEqual([
-      '#',
-      'Issue',
-      'Title',
-      'State',
-      'Machine',
-      'Tries',
-      'After',
-      'Hold',
-      'Reason',
-      'Actions',
-    ])
+    expect(headers).toEqual(['Expand', 'Issue', 'Title', 'State'])
   })
 
-  it('renders a row with the title resolved from the pipeline roster cache and the hold/reason cells formatted', async () => {
+  it('renders only Issue, Title and State cells at rest -- no Machine, Tries, After, Hold, Reason or Actions', async () => {
     vi.mocked(fetchDriveQueue).mockResolvedValue(
       makeData({
         entries: [
@@ -288,21 +290,125 @@ describe('DriveQueuePanel — nine-column grid', () => {
     const row = (await screen.findByText('RA#1')).closest('tr')
     expect(row).not.toBeNull()
     const cells = within(row as HTMLTableRowElement).getAllByRole('cell')
-    // First nine cells are the TUI-parity columns; the tenth is the Actions
-    // cell (#8 QW-4), covered by its own describe block below.
-    expect(cells.slice(0, 9).map((c) => c.textContent)).toEqual([
-      '3',
+    expect(cells.map((c) => c.textContent)).toEqual([
+      '▸', // disclosure cell's collapsed glyph -- aria-hidden, the a11y name lives on the button
       'RA#1',
       'Fix the grid',
       'blocked',
-      'desktop',
-      '2',
-      'RA#0',
-      'FIRED [fleet]',
-      // No `reason_at` on this fixture -> bare reason, no age suffix.
-      'checks_failed',
     ])
-    expect(cells).toHaveLength(10)
+
+    // None of the moved-out fields are *visible* at rest -- they're present
+    // in the DOM (the expanded `<dl>` is always mounted, see below) but sit
+    // inside a `hidden` <tr> until the row is expanded. `getByText` doesn't
+    // filter on visibility the way a role query does, so assert via
+    // `toBeVisible()` rather than presence.
+    expect(screen.getByText('desktop')).not.toBeVisible()
+    expect(screen.getByText('FIRED [fleet]')).not.toBeVisible()
+    expect(screen.getByText('checks_failed')).not.toBeVisible()
+    // Role queries, by contrast, already exclude inaccessible (hidden)
+    // elements by default -- the Move button simply isn't found at all.
+    expect(screen.queryByRole('button', { name: 'Move RA#1 up' })).not.toBeInTheDocument()
+
+    // Collapsed to start with -- aria-expanded false, detail region hidden.
+    const disclosure = screen.getByRole('button', { name: 'Expand details for RA#1' })
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false')
+    const detailId = disclosure.getAttribute('aria-controls')
+    expect(detailId).toBeTruthy()
+    // `hidden` isn't something a role/text query can assert on directly.
+    expect(document.getElementById(detailId as string)).toHaveAttribute('hidden')
+  })
+
+  it('expanding a row reveals position, After, Hold, Reason, timestamps, Machine and the Actions buttons', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({
+        entries: [
+          makeEntry({
+            repo_name: 'repo-a',
+            issue_number: 1,
+            position: 3,
+            state: 'blocked',
+            machine: 'desktop',
+            attempts: 2,
+            deferrals: 1,
+            resumes: 4,
+            after_json: ['repo-a#0'],
+            hold_after: 1,
+            hold_state: 'fired',
+            hold_scope: 'fleet',
+            last_reason: 'checks_failed',
+            enqueued_at: 1_699_999_000,
+          }),
+        ],
+      }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([
+      makeView({
+        repo_name: 'repo-a',
+        issue_number: 1,
+        issue_title: 'Fix the grid',
+        machine_name: 'ci-runner-2',
+      }),
+    ])
+
+    renderPanel()
+
+    await expandRow('RA#1')
+
+    const disclosure = screen.getByRole('button', { name: 'Collapse details for RA#1' })
+    expect(disclosure).toHaveAttribute('aria-expanded', 'true')
+    const detailId = disclosure.getAttribute('aria-controls') as string
+    const detail = document.getElementById(detailId) as HTMLElement
+    expect(detail).not.toHaveAttribute('hidden')
+
+    const within_ = within(detail)
+    expect(within_.getByText('3')).toBeInTheDocument() // position
+    expect(within_.getByText('RA#0')).toBeInTheDocument() // After
+    expect(within_.getByText('FIRED [fleet]')).toBeInTheDocument() // Hold
+    expect(within_.getByText('checks_failed')).toBeInTheDocument() // Reason
+    // The live machine (from PipelineView.machine_name), not the --machine
+    // pin -- the pin ('desktop') is surfaced separately as "Pinned to".
+    expect(within_.getByText('ci-runner-2')).toBeInTheDocument()
+    expect(within_.getByText('Pinned to')).toBeInTheDocument()
+    expect(within_.getByText('desktop')).toBeInTheDocument()
+    expect(within_.getByText('2')).toBeInTheDocument() // Attempts
+    expect(within_.getByText('1')).toBeInTheDocument() // Deferrals
+    expect(within_.getByText('4')).toBeInTheDocument() // Resumes
+
+    expect(within_.getByRole('button', { name: 'Move RA#1 up' })).toBeInTheDocument()
+    expect(within_.getByRole('button', { name: 'Move RA#1 down' })).toBeInTheDocument()
+    expect(within_.getByRole('button', { name: 'Unblock RA#1' })).toBeInTheDocument()
+    expect(within_.getByRole('button', { name: "Release RA#1's gate" })).toBeInTheDocument()
+  })
+
+  it('omits "Pinned to" for an unpinned entry rather than dashing it out', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({ entries: [makeEntry({ repo_name: 'repo-a', issue_number: 1, machine: null })] }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([])
+    renderPanel()
+
+    await expandRow('RA#1')
+
+    expect(screen.queryByText('Pinned to')).not.toBeInTheDocument()
+  })
+
+  it('multiple rows can be expanded at once, independently', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({
+        entries: [
+          makeEntry({ id: 1, repo_name: 'repo-a', issue_number: 1, position: 0 }),
+          makeEntry({ id: 2, repo_name: 'repo-a', issue_number: 2, position: 1 }),
+        ],
+      }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([])
+    renderPanel()
+
+    await expandRow('RA#1')
+    await expandRow('RA#2')
+
+    expect(screen.getByRole('button', { name: 'Collapse details for RA#1' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Collapse details for RA#2' })).toBeInTheDocument()
   })
 })
 
@@ -365,8 +471,11 @@ describe('DriveQueuePanel — active-entry filter', () => {
     expect(screen.getByText('RA#2')).toBeInTheDocument()
     expect(screen.queryByText('RA#1')).not.toBeInTheDocument()
 
+    // Each active entry contributes two <tr>s (collapsed + its hidden detail
+    // region) -- role queries exclude the `hidden` one, so this still reads
+    // as "header + 2 active rows" from an accessibility-tree point of view.
     const table = screen.getByRole('table')
-    expect(within(table).getAllByRole('row')).toHaveLength(3) // header + 2 active rows
+    expect(within(table).getAllByRole('row')).toHaveLength(3)
   })
 
   it('excludes a repo from the dropdown when its only entries are done and unheld', async () => {
@@ -409,6 +518,7 @@ describe('DriveQueuePanel — row actions: guard states', () => {
     )
     vi.mocked(fetchPipeline).mockResolvedValue([])
     renderPanel()
+    await expandRow('RA#1')
 
     const unblockBtn = await screen.findByRole('button', { name: 'Unblock RA#1' })
     expect(unblockBtn).toBeDisabled()
@@ -421,6 +531,7 @@ describe('DriveQueuePanel — row actions: guard states', () => {
     )
     vi.mocked(fetchPipeline).mockResolvedValue([])
     renderPanel()
+    await expandRow('RA#1')
 
     expect(await screen.findByRole('button', { name: 'Unblock RA#1' })).toBeEnabled()
   })
@@ -441,6 +552,7 @@ describe('DriveQueuePanel — row actions: guard states', () => {
     )
     vi.mocked(fetchPipeline).mockResolvedValue([])
     renderPanel()
+    await expandRow('RA#1')
 
     const releaseBtn = await screen.findByRole('button', { name: "Release RA#1's gate" })
     expect(releaseBtn).toBeDisabled()
@@ -463,6 +575,7 @@ describe('DriveQueuePanel — row actions: guard states', () => {
     )
     vi.mocked(fetchPipeline).mockResolvedValue([])
     renderPanel()
+    await expandRow('RA#1')
 
     expect(await screen.findByRole('button', { name: "Release RA#1's gate" })).toBeEnabled()
   })
@@ -481,6 +594,11 @@ describe('DriveQueuePanel — row actions: guard states', () => {
     renderPanel()
 
     await screen.findByText('RA#1')
+    // Expanding all three rows -- expansion is independent per row (#82),
+    // and every row's Move buttons need to be visible for this assertion.
+    await expandRow('RA#1')
+    await expandRow('RA#2')
+    await expandRow('RA#3')
     expect(screen.getByRole('button', { name: 'Move RA#1 up' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Move RA#1 down' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Move RA#2 up' })).toBeEnabled()
@@ -503,6 +621,7 @@ describe('DriveQueuePanel — row actions: request payload, busy state, toast', 
       }),
     )
     renderPanel()
+    await expandRow('RA#1')
 
     const unblockBtn = await screen.findByRole('button', { name: 'Unblock RA#1' })
     await userEvent.click(unblockBtn)
@@ -538,6 +657,7 @@ describe('DriveQueuePanel — row actions: request payload, busy state, toast', 
     vi.mocked(fetchPipeline).mockResolvedValue([])
     vi.mocked(driveQueueAction).mockResolvedValue({ ok: true })
     renderPanel()
+    await expandRow('RA#1')
 
     const releaseBtn = await screen.findByRole('button', { name: "Release RA#1's gate" })
     await userEvent.click(releaseBtn)
@@ -563,6 +683,7 @@ describe('DriveQueuePanel — row actions: request payload, busy state, toast', 
     vi.mocked(fetchPipeline).mockResolvedValue([])
     vi.mocked(driveQueueAction).mockResolvedValue({ ok: false, error: 'queue busy' })
     renderPanel()
+    await expandRow('RA#1')
 
     await userEvent.click(await screen.findByRole('button', { name: 'Unblock RA#1' }))
 
@@ -584,6 +705,7 @@ describe('DriveQueuePanel — row actions: request payload, busy state, toast', 
     vi.mocked(fetchPipeline).mockResolvedValue([])
     vi.mocked(driveQueueAction).mockRejectedValue(new Error('network down'))
     renderPanel()
+    await expandRow('RA#1')
 
     await userEvent.click(await screen.findByRole('button', { name: 'Unblock RA#1' }))
 
@@ -600,7 +722,7 @@ describe('DriveQueuePanel — row actions: request payload, busy state, toast', 
 })
 
 describe('DriveQueuePanel — row actions: optimistic reorder', () => {
-  it('clicking Move up swaps the row with its displayed neighbour immediately, before the request resolves', async () => {
+  it('clicking Move up swaps the row with its displayed neighbour immediately, before the request resolves, and both rows stay expanded through it', async () => {
     vi.mocked(fetchDriveQueue).mockResolvedValue(
       makeData({
         entries: [
@@ -622,6 +744,11 @@ describe('DriveQueuePanel — row actions: optimistic reorder', () => {
     const rowsBefore = within(screen.getByRole('table')).getAllByRole('row')
     expect(within(rowsBefore[1]).getByText('RA#1')).toBeInTheDocument()
 
+    // Both rows expanded (#82's "multiple rows open at once") -- reorder
+    // keyed by queueEntryKey must not disturb either's expansion state.
+    await expandRow('RA#1')
+    await expandRow('RA#2')
+
     await userEvent.click(screen.getByRole('button', { name: 'Move RA#2 up' }))
 
     // Optimistic: the swap is visible before the request settles at all.
@@ -637,9 +764,50 @@ describe('DriveQueuePanel — row actions: optimistic reorder', () => {
       to_position: 0,
     })
 
+    // The renumbering swap (position 0 <-> 1) didn't collapse either row --
+    // expansion is keyed by repo#issue, not position.
+    expect(screen.getByRole('button', { name: 'Collapse details for RA#1' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Collapse details for RA#2' })).toBeInTheDocument()
+
     resolveAction({ ok: true })
     await waitFor(() =>
       expect(toast).toHaveBeenCalledWith(expect.objectContaining({ variant: 'success', title: 'Moved up' })),
     )
+  })
+})
+
+describe('DriveQueuePanel — expansion state survives refetch/reorder, keyed by queueEntryKey (#82)', () => {
+  it('keeps a row expanded across a background refetch that renumbers every position', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({
+        entries: [
+          makeEntry({ id: 1, repo_name: 'repo-a', issue_number: 1, position: 0 }),
+          makeEntry({ id: 2, repo_name: 'repo-a', issue_number: 2, position: 1 }),
+        ],
+      }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([])
+    const { queryClient } = renderPanel()
+
+    await expandRow('RA#2')
+    expect(screen.getByRole('button', { name: 'Collapse details for RA#2' })).toBeInTheDocument()
+
+    // Simulate a background refetch landing with every position renumbered
+    // (e.g. another client reordered the queue meanwhile) -- expansion is
+    // keyed by `queueEntryKey` (repo#issue), not `position` or row index, so
+    // it must survive this untouched.
+    queryClient.setQueryData(
+      ['drive-queue'],
+      makeData({
+        entries: [
+          makeEntry({ id: 1, repo_name: 'repo-a', issue_number: 1, position: 1 }),
+          makeEntry({ id: 2, repo_name: 'repo-a', issue_number: 2, position: 0 }),
+        ],
+      }),
+    )
+
+    expect(screen.getByRole('button', { name: 'Collapse details for RA#2' })).toBeInTheDocument()
+    // RA#1 was never expanded and stays that way.
+    expect(screen.getByRole('button', { name: 'Expand details for RA#1' })).toBeInTheDocument()
   })
 })

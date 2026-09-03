@@ -16,6 +16,7 @@ import { describe, it, expect } from 'vitest'
 import type { BoardDriveQueueEntry, DriveQueueSummary, PipelineView } from '@/api/client'
 import {
   applyQueueMoveOptimistic,
+  buildQueueMachineLookup,
   buildQueueTitleLookup,
   canReleaseQueueGate,
   canUnblockQueueEntry,
@@ -26,10 +27,14 @@ import {
   formatQueueAge,
   QUEUE_EMPTY_CELL,
   queueAfterCell,
+  queueEnqueuedCell,
   queueEntryKey,
   queueHoldCell,
-  queueMachineCell,
+  queueLaunchedCell,
+  queueLiveMachineCell,
   queueMoveNeighbor,
+  queuePinnedMachine,
+  queueReasonAtCell,
   queueReasonCell,
   queueStateCell,
   queueTitleCell,
@@ -253,19 +258,74 @@ describe('queueEntryKey', () => {
   })
 })
 
-describe('queueStateCell / queueMachineCell / queueAfterCell', () => {
+describe('queueStateCell / queueAfterCell', () => {
   it('renders the raw state', () => {
     expect(queueStateCell(makeEntry({ state: 'running' }))).toBe('running')
-  })
-
-  it('dashes out a null machine', () => {
-    expect(queueMachineCell(makeEntry({ machine: null }))).toBe(QUEUE_EMPTY_CELL)
-    expect(queueMachineCell(makeEntry({ machine: 'laptop' }))).toBe('laptop')
   })
 
   it('dashes out an empty after_json and joins a populated one, each key aliased for display (#46)', () => {
     expect(queueAfterCell(makeEntry({ after_json: [] }))).toBe(QUEUE_EMPTY_CELL)
     expect(queueAfterCell(makeEntry({ after_json: ['repo-a#1', 'repo-b#2'] }))).toBe('RA#1, RB#2')
+  })
+})
+
+// ── expanded-region Machine fields (#82) ────────────────────────────────────
+
+describe('buildQueueMachineLookup / queueLiveMachineCell', () => {
+  it('resolves the live machine from the pipeline roster by repo#issue', () => {
+    const views = [makeView({ repo_name: 'coord-web', issue_number: 7, machine_name: 'desktop' })]
+    const machineByKey = buildQueueMachineLookup(views)
+    expect(
+      queueLiveMachineCell(makeEntry({ repo_name: 'coord-web', issue_number: 7 }), machineByKey),
+    ).toBe('desktop')
+  })
+
+  it('dashes out an entry with no matching pipeline row', () => {
+    const machineByKey = buildQueueMachineLookup([])
+    expect(
+      queueLiveMachineCell(makeEntry({ repo_name: 'coord-web', issue_number: 999 }), machineByKey),
+    ).toBe(QUEUE_EMPTY_CELL)
+  })
+})
+
+describe('queuePinnedMachine', () => {
+  it('is null for an unpinned entry -- the common case -- rather than a dashed-out value', () => {
+    expect(queuePinnedMachine(makeEntry({ machine: null }))).toBeNull()
+    expect(queuePinnedMachine(makeEntry({ machine: '' }))).toBeNull()
+  })
+
+  it('is the raw pin for a pinned entry', () => {
+    expect(queuePinnedMachine(makeEntry({ machine: 'laptop' }))).toBe('laptop')
+  })
+})
+
+// ── expanded-region timestamp fields (#82) ──────────────────────────────────
+
+describe('queueEnqueuedCell / queueLaunchedCell / queueReasonAtCell', () => {
+  const now = 1_700_000_000_000
+
+  it('ages enqueued_at', () => {
+    expect(queueEnqueuedCell(makeEntry({ enqueued_at: now / 1000 - 3600 }), now)).toBe('1h ago')
+  })
+
+  it('dashes out enqueued_at when it is 0 (a row predating #2133)', () => {
+    expect(queueEnqueuedCell(makeEntry({ enqueued_at: 0 }), now)).toBe(QUEUE_EMPTY_CELL)
+  })
+
+  it('dashes out a null launched_at (not yet launched)', () => {
+    expect(queueLaunchedCell(makeEntry({ launched_at: null }), now)).toBe(QUEUE_EMPTY_CELL)
+  })
+
+  it('ages launched_at once set', () => {
+    expect(queueLaunchedCell(makeEntry({ launched_at: now / 1000 - 60 }), now)).toBe('1m ago')
+  })
+
+  it('dashes out a null reason_at', () => {
+    expect(queueReasonAtCell(makeEntry({ reason_at: null }), now)).toBe(QUEUE_EMPTY_CELL)
+  })
+
+  it('ages reason_at once set, independent of queueReasonCell\'s own embedded age', () => {
+    expect(queueReasonAtCell(makeEntry({ reason_at: now / 1000 - 120 }), now)).toBe('2m ago')
   })
 })
 
