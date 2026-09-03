@@ -6,7 +6,10 @@
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import {
+  fetchBoard,
   fetchDriveQueue,
+  fetchMachines,
+  fetchPipeline,
   driveQueueAction,
   fetchPortalNeedsInput,
   type DriveQueueData,
@@ -187,5 +190,68 @@ describe('fetchPortalNeedsInput', () => {
     )
 
     await expect(fetchPortalNeedsInput()).rejects.toThrow(/submissions/)
+  })
+})
+
+// Issue #85: `apiFetch`/`apiFetchOptional` used to cast a `res.json()` result
+// straight to the declared type parameter with no runtime check at all — the
+// root cause both #76 (a field that was never sent) and #84 (an object
+// envelope cast to a bare array) share: the mismatch first surfaced as a
+// `TypeError` inside a component's render, not as an error naming the
+// endpoint. These tests drive the shape guard through a real `fetch` stub
+// (never by mocking `fetchBoard`/`fetchPipeline`/`fetchMachines` themselves)
+// -- mocking the fetcher instead of the wire is exactly the gap that let #76
+// and #84 ship green.
+describe('apiFetch / apiFetchOptional shape guard (#85)', () => {
+  it('fetchBoard passes a correctly-shaped object response through untouched', async () => {
+    const board = { round_number: 3, active: [], completed: [] }
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify(board), { status: 200 }))
+
+    expect(await fetchBoard()).toEqual(board)
+  })
+
+  it('fetchBoard throws an error naming the endpoint and both shapes when the response is an array instead of the expected object', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify([1, 2, 3]), { status: 200 }))
+
+    await expect(fetchBoard()).rejects.toThrow(
+      /\/api\/board.*expected an object with key "active".*got array/,
+    )
+  })
+
+  it('fetchPipeline passes a correctly-shaped array response through untouched', async () => {
+    const pipeline = [{ id: 'a' }]
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify(pipeline), { status: 200 }))
+
+    expect(await fetchPipeline()).toEqual(pipeline)
+  })
+
+  it('fetchPipeline throws an error naming the endpoint and both shapes when the response is an object instead of the expected array', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ pipeline: [] }), { status: 200 }),
+    )
+
+    await expect(fetchPipeline()).rejects.toThrow(
+      /\/api\/pipeline.*expected an array.*got object with keys \[pipeline\]/,
+    )
+  })
+
+  it('fetchMachines (apiFetchOptional) throws when the response is an object instead of the expected array', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ machines: [] }), { status: 200 }),
+    )
+
+    await expect(fetchMachines()).rejects.toThrow(/\/api\/machines.*expected an array/)
+  })
+
+  it("apiFetchOptional's 404 -> {available: false} path is unchanged by the shape guard", async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response('not found', { status: 404 }))
+
+    expect(await fetchMachines()).toEqual({ available: false })
+  })
+
+  it('a non-2xx response still throws what it throws today, before any shape check runs', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response('boom', { status: 500 }))
+
+    await expect(fetchBoard()).rejects.toThrow(/HTTP 500.*boom/)
   })
 })
