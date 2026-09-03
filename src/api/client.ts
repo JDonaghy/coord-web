@@ -262,13 +262,65 @@ function buildPath(template: string, params: Readonly<Record<string, string>>): 
   )
 }
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+/**
+ * A minimal runtime check on an `apiFetch`/`apiFetchOptional` response,
+ * applied before it's handed to the caller as `T` — the guardrail issue #85
+ * asks for, in response to #76 and #84 each shipping a declared shape that
+ * disagreed with what the server actually sent (a bare array declared where
+ * the wire sent an object envelope, or vice versa) and reaching a
+ * component's render as a `TypeError` instead of a legible error.
+ *
+ * Deliberately narrow: this distinguishes "array" from "object carrying key
+ * `k`", nothing finer — not a schema validator, not a replacement for
+ * `generated.ts` staying in sync with the server by hand (see this file's
+ * header). "Object with key k" rather than "object with exactly these
+ * keys" is intentional: the server is free to add fields (or this client to
+ * lag reading one) without every call site's guard going stale.
+ */
+export type ShapeGuard = { kind: 'array' } | { kind: 'object'; key: string }
+
+/** Describe an actual response value for an `assertShape` error — `typeof`/
+ * top-level keys only, per issue #85's acceptance bar: never the whole body,
+ * which can be large and, for endpoints like the portal ones, may carry
+ * user-entered issue text. */
+function describeShape(data: unknown): string {
+  if (Array.isArray(data)) return `array(length ${data.length})`
+  if (data === null) return 'null'
+  if (typeof data !== 'object') return typeof data
+  return `object with keys [${Object.keys(data).join(', ')}]`
+}
+
+function describeExpectedShape(shape: ShapeGuard): string {
+  return shape.kind === 'array' ? 'an array' : `an object with key "${shape.key}"`
+}
+
+/** Throws a descriptive `Error` — naming the request, the expected shape,
+ * and the actual shape — when `data` doesn't match `shape`. A no-op when
+ * `shape` is omitted: not every response has a guard defined yet, and an
+ * absent guard must stay silent rather than reject. */
+function assertShape(label: string, data: unknown, shape: ShapeGuard | undefined): void {
+  if (!shape) return
+  const matches =
+    shape.kind === 'array'
+      ? Array.isArray(data)
+      : typeof data === 'object' && data !== null && !Array.isArray(data) && shape.key in data
+  if (!matches) {
+    throw new Error(
+      `${label} → expected ${describeExpectedShape(shape)}, got ${describeShape(data)}`,
+    )
+  }
+}
+
+async function apiFetch<T>(path: string, init?: RequestInit, shape?: ShapeGuard): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, init)
+  const label = `${init?.method ?? 'GET'} ${path}`
   if (!res.ok) {
     const text = await res.text().catch(() => '')
-    throw new Error(`${init?.method ?? 'GET'} ${path} → HTTP ${res.status}: ${text}`)
+    throw new Error(`${label} → HTTP ${res.status}: ${text}`)
   }
-  return res.json() as Promise<T>
+  const data = await res.json()
+  assertShape(label, data, shape)
+  return data as T
 }
 
 /**
@@ -298,7 +350,7 @@ export type MachineQueryResult<T> = { available: true; data: T } | { available: 
  * "this route doesn't exist," not "the machine doesn't exist," a distinction
  * a 5xx or a malformed request can't claim.
  */
-async function apiFetchOptional<T>(path: string): Promise<MachineQueryResult<T>> {
+async function apiFetchOptional<T>(path: string, shape?: ShapeGuard): Promise<MachineQueryResult<T>> {
   const res = await fetch(`${API_BASE}${path}`)
   if (res.status === 404) {
     return { available: false }
@@ -307,19 +359,21 @@ async function apiFetchOptional<T>(path: string): Promise<MachineQueryResult<T>>
     const text = await res.text().catch(() => '')
     throw new Error(`GET ${path} → HTTP ${res.status}: ${text}`)
   }
-  return { available: true, data: (await res.json()) as T }
+  const data = await res.json()
+  assertShape(`GET ${path}`, data, shape)
+  return { available: true, data: data as T }
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /** Fetch the full board state (active + last-20 completed assignments). */
 export async function fetchBoard(): Promise<BoardData> {
-  return apiFetch<BoardData>(API_ROUTES.board)
+  return apiFetch<BoardData>(API_ROUTES.board, undefined, { kind: 'object', key: 'active' })
 }
 
 /** Fetch pipeline views for all work-type assignments. */
 export async function fetchPipeline(): Promise<PipelineView[]> {
-  return apiFetch<PipelineView[]>(API_ROUTES.pipeline)
+  return apiFetch<PipelineView[]>(API_ROUTES.pipeline, undefined, { kind: 'array' })
 }
 
 /**
@@ -330,12 +384,15 @@ export async function fetchPipeline(): Promise<PipelineView[]> {
  */
 export async function fetchDriveQueue(repo?: string): Promise<DriveQueueData> {
   const query = repo ? `?repo=${encodeURIComponent(repo)}` : ''
-  return apiFetch<DriveQueueData>(`${API_ROUTES.driveQueue}${query}`)
+  return apiFetch<DriveQueueData>(`${API_ROUTES.driveQueue}${query}`, undefined, {
+    kind: 'object',
+    key: 'entries',
+  })
 }
 
 /** Fetch live coord-* interactive sessions the phone can take over (#1066). */
 export async function fetchSessions(): Promise<SessionInfo[]> {
-  return apiFetch<SessionInfo[]>(API_ROUTES.sessions)
+  return apiFetch<SessionInfo[]>(API_ROUTES.sessions, undefined, { kind: 'array' })
 }
 
 // ── GET /api/machines, /api/machines/health, /api/machines/metrics, ────────
@@ -361,7 +418,7 @@ export async function fetchSessions(): Promise<SessionInfo[]> {
  * `./generated.ts`). Carries no `severity` — join `fetchMachinesHealth()`
  * onto this by name (`joinMachineSeverity`) for that. */
 export async function fetchMachines(): Promise<MachineQueryResult<MachineState[]>> {
-  return apiFetchOptional<MachineState[]>(API_ROUTES.machines)
+  return apiFetchOptional<MachineState[]>(API_ROUTES.machines, { kind: 'array' })
 }
 
 /** Fetch one machine's roster entry by name — filters `fetchMachines()`'s
@@ -379,7 +436,10 @@ export async function fetchMachine(name: string): Promise<MachineQueryResult<Mac
  * `./generated.ts`). Low-level: `fetchMachineHealth`/`fetchFleetChecks`
  * below both build on this rather than issuing their own requests. */
 export async function fetchMachinesHealth(): Promise<MachineQueryResult<MachinesHealthResponse>> {
-  return apiFetchOptional<MachinesHealthResponse>(API_ROUTES.machinesHealth)
+  return apiFetchOptional<MachinesHealthResponse>(API_ROUTES.machinesHealth, {
+    kind: 'object',
+    key: 'machine_health',
+  })
 }
 
 /** Fetch one machine's current health-check snapshot (severity/stale +
@@ -447,7 +507,10 @@ export function joinMachineSeverity(
  * per-machine convenience wrapper that also reshapes this into the named
  * series `MachineCharts.tsx` renders. */
 export async function fetchMachinesMetrics(): Promise<MachineQueryResult<MachinesMetricsResponse>> {
-  return apiFetchOptional<MachinesMetricsResponse>(API_ROUTES.machinesMetrics)
+  return apiFetchOptional<MachinesMetricsResponse>(API_ROUTES.machinesMetrics, {
+    kind: 'object',
+    key: 'machines',
+  })
 }
 
 /** Reshape one machine's raw `MachineMetricsSample[]` into the two named
@@ -498,7 +561,7 @@ export async function fetchMachineMetrics(
  * `fetchMachineWorkStats`/`fetchMachineJobs`/`fetchFleetCapacity` below all
  * build on this. */
 export async function fetchMachinesStats(): Promise<MachineQueryResult<MachineStatsRow[]>> {
-  return apiFetchOptional<MachineStatsRow[]>(API_ROUTES.machinesStats)
+  return apiFetchOptional<MachineStatsRow[]>(API_ROUTES.machinesStats, { kind: 'array' })
 }
 
 /** Fetch a machine's completed/failed assignment counts, by name-lookup into
@@ -570,7 +633,10 @@ export async function fetchFleetCapacity(): Promise<MachineQueryResult<FleetCapa
  * metadata (kind/choices/default), so a client builds its picker and
  * parameter form from here rather than hardcoding a per-report field list. */
 export async function fetchReportCatalogue(): Promise<ReportCatalogue> {
-  return apiFetch<ReportCatalogue>(API_ROUTES.reportCatalogue)
+  return apiFetch<ReportCatalogue>(API_ROUTES.reportCatalogue, undefined, {
+    kind: 'object',
+    key: 'reports',
+  })
 }
 
 /**
@@ -594,7 +660,10 @@ export async function fetchReport(
   }
   const qs = query.toString()
   const path = buildPath(API_ROUTES.report, { report_id: reportId })
-  return apiFetch<ReportResult>(`${path}${qs ? `?${qs}` : ''}`)
+  return apiFetch<ReportResult>(`${path}${qs ? `?${qs}` : ''}`, undefined, {
+    kind: 'object',
+    key: 'columns',
+  })
 }
 
 /**
@@ -602,7 +671,10 @@ export async function fetchReport(
  * Prefers the GitHub PR diff; falls back to the compare API.
  */
 export async function fetchDiff(assignmentId: string): Promise<DiffResult> {
-  return apiFetch<DiffResult>(buildPath(API_ROUTES.diff, { id: assignmentId }))
+  return apiFetch<DiffResult>(buildPath(API_ROUTES.diff, { id: assignmentId }), undefined, {
+    kind: 'object',
+    key: 'diff',
+  })
 }
 
 /** Advance an assignment through a pipeline gate. */
@@ -729,17 +801,22 @@ interface PortalNeedsInputResponse {
  *
  * Unwraps the server's `{submissions: [...]}` envelope into the bare array
  * `AnswersPanel` wants (#84: the previous version cast the envelope directly
- * to `PortalNeedsInputItem[]`, which `apiFetch` never validates against —
+ * to `PortalNeedsInputItem[]`, which `apiFetch` never validated against —
  * TypeScript believed it, react-query handed the object straight to
  * `.map()`, and the panel white-screened on every render, including the
- * empty-list case). The `Array.isArray` check below is a narrow runtime
- * assertion at this one boundary, not a general `apiFetch` validator — see
- * this file's own header re: generated-type drift, which nothing here
- * guards against automatically.
+ * empty-list case). The `{kind: 'object', key: 'submissions'}` guard passed
+ * to `apiFetch` below is #85's general top-level shape check (array vs.
+ * object-with-key) applied at this one boundary; the `Array.isArray` check
+ * that follows it is the one thing that guard doesn't cover — that
+ * `submissions` itself is an array, not just present — kept so this
+ * endpoint's protection is no weaker than #84's original bespoke check.
  */
 export async function fetchPortalNeedsInput(): Promise<PortalNeedsInputItem[]> {
-  const data = await apiFetch<PortalNeedsInputResponse>(API_ROUTES.portalNeedsInput)
-  if (!data || !Array.isArray(data.submissions)) {
+  const data = await apiFetch<PortalNeedsInputResponse>(API_ROUTES.portalNeedsInput, undefined, {
+    kind: 'object',
+    key: 'submissions',
+  })
+  if (!Array.isArray(data.submissions)) {
     throw new Error(
       `GET ${API_ROUTES.portalNeedsInput} → expected {submissions: [...]}, got ${JSON.stringify(data)}`,
     )
