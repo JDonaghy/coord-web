@@ -20,10 +20,14 @@
  *   separate concern, handled by `filterActiveQueueEntries` below, which
  *   mirrors the TUI's `queue_rows()` instead.
  *
- * Column parity with the TUI's `QUEUE_COLUMNS`: `#`, `Issue`, `Title`,
- * `State`, `Machine`, `Tries`, `After`, `Hold`, `Reason` -- nine columns, same
- * order. No issue hyperlink (QW-5) lives here yet; every *cell* above is a
- * plain formatted string.
+ * #82 deliberately broke TUI column parity: the grid now collapses to three
+ * columns at rest (`#`, `Issue`, `Title`, `State` minus the position, which
+ * moved into the expanded region) with everything else -- `Machine`, `Tries`,
+ * `After`, `Hold`, `Reason`, timestamps, `Actions` -- revealed per-row on
+ * demand. `Machine` and `Tries` are gone outright (see `queueLiveMachineCell`
+ * / `queuePinnedMachine` and the honest `attempts`/`deferrals`/`resumes`
+ * fields below for why). Every *cell* helper below still formats a plain
+ * string; which column or region it lands in is `DriveQueuePanel`'s call.
  *
  * Row *actions* (#8 QW-4) live at the bottom of this module: the same guards
  * the TUI's `queue_unblock_selected` / `queue_resume_selected` enforce before
@@ -163,9 +167,45 @@ export function queueStateCell(entry: BoardDriveQueueEntry): string {
   return entry.state || QUEUE_EMPTY_CELL
 }
 
-/** The `Machine` cell. */
-export function queueMachineCell(entry: BoardDriveQueueEntry): string {
-  return entry.machine || QUEUE_EMPTY_CELL
+/**
+ * `repo#issue -> machine_name`, built from the same `/api/pipeline` roster
+ * `buildQueueTitleLookup` reads (#82). `drive_queue.machine` is only the
+ * optional `--machine` *pin* (`QueueEntry.machine`, default `""`,
+ * `coord/drive_queue.py`) -- unpinned entries, i.e. effectively all of them,
+ * have nothing there, which is a structural fact about the pin column, not a
+ * transient gap in the live machine. `PipelineView.machine_name` names the
+ * machine actually running the entry's current leg, which is what an
+ * operator expanding a row wants to read as "Machine".
+ */
+export function buildQueueMachineLookup(views: readonly PipelineView[]): Record<string, string> {
+  const map: Record<string, string> = {}
+  for (const v of views) {
+    map[repoIssueKey(v.repo_name, v.issue_number)] = v.machine_name
+  }
+  return map
+}
+
+/** The expanded region's `Machine` field, resolved against
+ * `buildQueueMachineLookup`'s map -- the *live* machine, not the pin. An
+ * entry with no matching pipeline row (never yet dispatched, or dispatched
+ * to a leg the roster no longer carries) renders the empty cell rather than
+ * a guess, same fallback posture as `queueTitleCell`. */
+export function queueLiveMachineCell(
+  entry: BoardDriveQueueEntry,
+  machineByKey: Readonly<Record<string, string>>,
+): string {
+  return machineByKey[queueEntryKey(entry)] || QUEUE_EMPTY_CELL
+}
+
+/**
+ * The expanded region's `Pinned to` field -- the raw `--machine` pin, or
+ * `null` when unset. Deliberately `null` rather than the em-dash empty cell:
+ * the issue's ask is to show this field "only when non-empty", i.e. omit the
+ * `<dt>`/`<dd>` pair entirely on an unpinned (the common) row, not render it
+ * dashed out like a value that's merely unknown.
+ */
+export function queuePinnedMachine(entry: BoardDriveQueueEntry): string | null {
+  return entry.machine ? entry.machine : null
 }
 
 /** The `After` cell -- pre-req keys, comma-joined, each aliased for display
@@ -221,6 +261,35 @@ export function queueReasonCell(entry: BoardDriveQueueEntry, now: number = Date.
   if (!entry.last_reason) return QUEUE_EMPTY_CELL
   const age = formatQueueAge(entry.reason_at, now)
   return age ? `${entry.last_reason} (${age})` : entry.last_reason
+}
+
+/**
+ * The expanded region's `Enqueued` field -- age of `enqueued_at`, an
+ * epoch-seconds timestamp that (unlike `reason_at`) is never null on the
+ * wire (`BoardDriveQueueEntry.enqueued_at: number`). Still routed through
+ * `formatQueueAge` rather than assumed non-zero: a row predating #2133's
+ * migration can carry `0`, which reads the same as "unknown" here as it does
+ * for `reason_at`.
+ */
+export function queueEnqueuedCell(entry: BoardDriveQueueEntry, now: number = Date.now()): string {
+  return formatQueueAge(entry.enqueued_at, now) || QUEUE_EMPTY_CELL
+}
+
+/** The expanded region's `Launched` field -- age of `launched_at`, empty
+ * cell for a row that hasn't launched yet (`launched_at === null`). */
+export function queueLaunchedCell(entry: BoardDriveQueueEntry, now: number = Date.now()): string {
+  return formatQueueAge(entry.launched_at, now) || QUEUE_EMPTY_CELL
+}
+
+/**
+ * The expanded region's `Reason updated` field -- age of `reason_at` on its
+ * own, separate from the age already folded into `queueReasonCell`'s prose
+ * (`"checks_failed (3h ago)"`). The issue asks for the row's timestamps to be
+ * surfaced in the expanded region in their own right, not just embedded
+ * inside another field's text.
+ */
+export function queueReasonAtCell(entry: BoardDriveQueueEntry, now: number = Date.now()): string {
+  return formatQueueAge(entry.reason_at, now) || QUEUE_EMPTY_CELL
 }
 
 // ── title lookup ─────────────────────────────────────────────────────────────

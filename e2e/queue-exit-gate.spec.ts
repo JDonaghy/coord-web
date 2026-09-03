@@ -21,6 +21,10 @@
  * is present. `e2e/fixtures/drive-queue-basic.json`'s header comment
  * explains why each seeded row exists.
  *
+ * #82 moved the Move/Unblock/Release buttons out of the collapsed row into
+ * each row's per-row expanded region -- every action below now expands its
+ * row's disclosure control first, exactly as a real operator would.
+ *
  * Run: npm run test:e2e (requires `coord` on $PATH, see fixtureServer.ts)
  */
 import { test, expect } from '@playwright/test'
@@ -87,6 +91,10 @@ test.describe('Queue panel exit gate (#9 QW-5)', () => {
     // already covers the optimistic-swap rendering in isolation.
     const table = page.getByRole('table')
     await expect(table.getByRole('row').nth(1)).toContainText('RA#9101')
+
+    // The Move button lives in #9102's expanded region (#82) -- open its
+    // disclosure control first, same as a real operator would.
+    await page.getByRole('button', { name: 'Expand details for RA#9102' }).click()
     const [moveRequest] = await Promise.all([
       page.waitForRequest(
         (req) => req.url().includes('/api/drive-queue/action') && req.method() === 'POST',
@@ -105,6 +113,7 @@ test.describe('Queue panel exit gate (#9 QW-5)', () => {
     // reaches the real POST /api/drive-queue/action handler, which reports
     // success (recorded, not executed, in fixture mode).
     await repoSelect.selectOption('repo-beta')
+    await page.getByRole('button', { name: 'Expand details for RB#9201' }).click()
     const unblockBtn = page.getByRole('button', { name: 'Unblock RB#9201' })
     await expect(unblockBtn).toBeEnabled()
     await unblockBtn.click()

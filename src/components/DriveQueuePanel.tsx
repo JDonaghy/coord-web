@@ -1,5 +1,6 @@
 /**
- * DriveQueuePanel — the Queue panel's list-slot content (#7 QW-3).
+ * DriveQueuePanel — the Queue panel's list-slot content (#7 QW-3, reworked
+ * to expandable rows by #82).
  *
  * It is the *list panel's* content, not a screen (#1547, same convention
  * `Home.tsx` documents): `ShellLayout` owns the frame and renders this
@@ -16,10 +17,28 @@
  *  2. A **repo-scope dropdown** ("All repos" | one repo at a time), filtering
  *     the grid client-side over a single unscoped fetch (again, see
  *     `src/lib/driveQueue.ts`).
- *  3. The **grid** itself: nine columns in column-for-column parity with the
- *     TUI's `QUEUE_COLUMNS` (`tui/src/app/drive_queue.rs`) -- `#`, `Issue`,
- *     `Title`, `State`, `Machine`, `Tries`, `After`, `Hold`, `Reason` -- plus
- *     a tenth, web-only `Actions` column (see below).
+ *  3. The **grid** itself, now **expandable rows** (#82, superseding #10's
+ *     "same nine columns as the TUI, same order" parity rule by deliberate
+ *     operator decision -- the TUI's Queue panel lives in a different repo
+ *     now, JDonaghy/coord-tui, and isn't required to follow this redesign).
+ *     At rest a row renders exactly three columns -- `Issue`, `Title`,
+ *     `State` -- plus a disclosure control; everything else (`#` position,
+ *     `After`, `Hold`, `Reason` wrapped in full, the `enqueued_at`
+ *     /`launched_at`/`reason_at` timestamps, the live `Machine` +
+ *     optional `--machine` pin, the honest `attempts`/`deferrals`/`resumes`
+ *     counts, and the `Actions` buttons) lives in a `<dl>` revealed per-row
+ *     on demand. `Machine` (always empty in the old column -- it rendered
+ *     the pin, not the live machine) and `Tries` (a single relaunch counter,
+ *     actively misleading per claude-coordinator#2972) are dropped outright;
+ *     `#work`/`#smoke`/`#reviews` leg counts are gated on
+ *     JDonaghy/code-coordinator#3060 landing a coordinator-side field and are
+ *     NOT shipped here as a guess -- see `src/lib/driveQueue.ts`'s doc
+ *     comment.
+ *
+ * Expansion state (`expandedKeys`) is keyed by `queueEntryKey(entry)`
+ * (`repo#issue`), never by row index or `position` -- it must survive both a
+ * background refetch and a ▲/▼ reorder that renumbers rows. Multiple rows
+ * can be open at once; nothing auto-collapses on poll.
  *
  * Both the dropdown and the grid are fed `entries` only after
  * `filterActiveQueueEntries` has dropped terminal (`done`) rows -- see that
@@ -27,9 +46,10 @@
  * marked `done` in place rather than deleted, so without this filter the
  * grid would accumulate every completed queue entry ever recorded.
  *
- * A tenth **Actions** column (#8 QW-4) rounds out the grid: per-row ▲/▼
- * reorder, unblock and release-gate mini buttons. Every guard mirrors what
- * the TUI itself enforces before mutating (`canUnblockQueueEntry` /
+ * The **Actions** region (#8 QW-4, moved into the expanded `<dl>` by #82 as a
+ * direct consequence of "only three columns at rest"): per-row ▲/▼ reorder,
+ * unblock and release-gate mini buttons. Every guard mirrors what the TUI
+ * itself enforces before mutating (`canUnblockQueueEntry` /
  * `canReleaseQueueGate` / `queueMoveNeighbor` in `src/lib/driveQueue.ts`) --
  * a button that doesn't apply to a row renders *disabled with a tooltip*,
  * never hidden, so the action's existence stays discoverable (the standing
@@ -42,7 +62,7 @@
  * make new-tab *possible* -- it's there to make it *discoverable* without
  * relying on a modifier click nobody's told about.
  */
-import { useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useMemo, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ExternalLink } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -58,10 +78,10 @@ import { PanelHeader } from '@/components/PanelHeader'
 import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { toast } from '@/components/ui/use-toast'
 import { paths } from '@/routes/paths'
-import { cn } from '@/lib/utils'
 import { issueRef } from '@/lib/repoRef'
 import {
   applyQueueMoveOptimistic,
+  buildQueueMachineLookup,
   buildQueueTitleLookup,
   canReleaseQueueGate,
   canUnblockQueueEntry,
@@ -71,10 +91,14 @@ import {
   filterQueueEntriesByRepo,
   QUEUE_EMPTY_CELL,
   queueAfterCell,
+  queueEnqueuedCell,
   queueEntryKey,
   queueHoldCell,
-  queueMachineCell,
+  queueLaunchedCell,
+  queueLiveMachineCell,
   queueMoveNeighbor,
+  queuePinnedMachine,
+  queueReasonAtCell,
   queueReasonCell,
   queueStateCell,
   queueTitleCell,
@@ -87,25 +111,26 @@ const ALL_REPOS = ''
 interface GridColumn {
   key: string
   label: string
-  align?: 'right'
+  /** Visually hidden (but still in the accessible name) -- the leading
+   * disclosure column has no need for a printed header, but a screen reader
+   * user tabbing through `<th>`s still deserves to know what it is. */
+  srOnly?: boolean
 }
 
-/** Column parity with `Self::QUEUE_COLUMNS` in `tui/src/app/drive_queue.rs`
- * for the first nine -- `Actions` (#8 QW-4) is a web-only tenth column, the
- * TUI's own reorder/unblock/release affordances are key bindings rather than
- * a rendered column. */
+/** The three columns visible at rest (#82) -- `#`, `Machine`, `Tries` and
+ * `Actions` all moved into the per-row expanded `<dl>`; see this file's own
+ * doc comment for the full rationale and JDonaghy/coord-tui for where the
+ * old nine-column TUI parity now lives instead. */
 const GRID_COLUMNS: readonly GridColumn[] = [
-  { key: 'position', label: '#', align: 'right' },
+  { key: 'disclosure', label: 'Expand', srOnly: true },
   { key: 'issue', label: 'Issue' },
   { key: 'title', label: 'Title' },
   { key: 'state', label: 'State' },
-  { key: 'machine', label: 'Machine' },
-  { key: 'tries', label: 'Tries', align: 'right' },
-  { key: 'after', label: 'After' },
-  { key: 'hold', label: 'Hold' },
-  { key: 'reason', label: 'Reason' },
-  { key: 'actions', label: 'Actions' },
 ]
+
+/** `colSpan` for the expanded-detail `<td>` -- one cell wide per collapsed
+ * column, so the `<dl>` spans the full table width. */
+const GRID_COLSPAN = GRID_COLUMNS.length
 
 /** State -> `Badge` variant. An unrecognised state renders `outline`
  * (neutral) rather than silently reading as healthy -- same posture
@@ -130,6 +155,16 @@ function stateBadgeVariant(state: string): BadgeProps['variant'] {
  * visible text, aria-labels and toast descriptions only. */
 function entryRef(entry: BoardDriveQueueEntry): string {
   return issueRef(entry.repo_name, entry.issue_number)
+}
+
+/** DOM `id` for a row's expanded-detail region, derived from
+ * `queueEntryKey(entry)` -- stable across reorders/refetches for the same
+ * reason `expandedKeys` itself is keyed that way (#82), and sanitised to
+ * only the characters HTML `id`/`aria-controls` linking should rely on
+ * (`repo#issue` contains a `#`, which is valid but needlessly fragile to
+ * carry into a selector-adjacent attribute). */
+function queueRowDetailId(entry: BoardDriveQueueEntry): string {
+  return `queue-row-detail-${queueEntryKey(entry).replace(/[^A-Za-z0-9_-]/g, '-')}`
 }
 
 // ── row actions (#8 QW-4) ───────────────────────────────────────────────────
@@ -207,7 +242,27 @@ export default function DriveQueuePanel() {
     [activeEntries, repoScope],
   )
   const titleByKey = useMemo(() => buildQueueTitleLookup(pipeline ?? []), [pipeline])
+  const machineByKey = useMemo(() => buildQueueMachineLookup(pipeline ?? []), [pipeline])
   const summaryStats = data ? driveQueueSummaryStats(data.summary) : []
+
+  // ── per-row expand/collapse (#82) ─────────────────────────────────────────
+  // Keyed by `queueEntryKey(entry)` (`repo#issue`), never row index or
+  // `position` -- both change under a background refetch or a ▲/▼ reorder,
+  // and expansion must survive either. A `Set` (not a single "which row is
+  // open" value) so multiple rows can be open at once, and nothing
+  // auto-collapses on poll since this state never gets cleared by a refetch.
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set())
+
+  const toggleExpanded = (key: string) =>
+    setExpandedKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      return next
+    })
 
   // ── row actions (#8 QW-4) ─────────────────────────────────────────────────
 
@@ -357,105 +412,202 @@ export default function DriveQueuePanel() {
             </select>
           </div>
 
-          {/* Grid — responsive: scrolls horizontally rather than squeezing
-              columns below readability on a narrow viewport. */}
+          {/* Grid — three columns at rest, no min-width floor (#82): the
+              collapsed row never needs a horizontal scroller, at any of the
+              three shell breakpoints (src/shell/breakpoints.ts). The wrapper
+              stays `overflow-x-auto` only as a defensive fallback, not
+              because the grid is expected to overflow in normal use. */}
           {scopedEntries.length > 0 ? (
             <div className="overflow-x-auto rounded-lg border border-border">
-              <table className="w-full min-w-[720px] border-collapse text-left text-xs">
+              <table className="w-full border-collapse text-left text-xs">
                 <thead>
                   <tr className="border-b border-border bg-secondary/40 text-muted-foreground">
                     {GRID_COLUMNS.map((col) => (
-                      <th
-                        key={col.key}
-                        scope="col"
-                        className={cn('px-3 py-2 font-medium', col.align === 'right' && 'text-right')}
-                      >
-                        {col.label}
+                      <th key={col.key} scope="col" className="px-3 py-2 font-medium">
+                        {col.srOnly ? <span className="sr-only">{col.label}</span> : col.label}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {scopedEntries.map((entry) => {
+                    const key = queueEntryKey(entry)
+                    const expanded = expandedKeys.has(key)
+                    const detailId = queueRowDetailId(entry)
                     const canMoveUp = queueMoveNeighbor(scopedEntries, entry, 'up') !== null
                     const canMoveDown = queueMoveNeighbor(scopedEntries, entry, 'down') !== null
                     const canUnblock = canUnblockQueueEntry(entry)
                     const canRelease = canReleaseQueueGate(entry)
+                    const pinnedMachine = queuePinnedMachine(entry)
                     return (
-                      <tr key={queueEntryKey(entry)} className="border-b border-border/60 last:border-0">
-                        <td className="px-3 py-2 text-right font-mono">{entry.position}</td>
-                        <td className="px-3 py-2 font-mono">
-                          <div className="flex items-center gap-1">
-                            <Link
-                              to={paths.pipelineItem(entry.repo_name, entry.issue_number)}
-                              className="hover:underline"
+                      <Fragment key={key}>
+                        <tr className="border-b border-border/60 last:border-0">
+                          <td className="px-3 py-2">
+                            <button
+                              type="button"
+                              onClick={() => toggleExpanded(key)}
+                              aria-expanded={expanded}
+                              aria-controls={detailId}
+                              aria-label={`${expanded ? 'Collapse' : 'Expand'} details for ${entryRef(entry)}`}
+                              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground"
                             >
-                              {entryRef(entry)}
-                            </Link>
-                            <a
-                              href={paths.pipelineItem(entry.repo_name, entry.issue_number)}
-                              target="_blank"
-                              rel="noreferrer"
-                              aria-label={`Open ${entryRef(entry)} in a new tab`}
-                              title="Open in new tab"
-                              className="text-muted-foreground hover:text-foreground"
-                            >
-                              <ExternalLink className="h-3 w-3" aria-hidden="true" />
-                            </a>
-                          </div>
-                        </td>
-                        <td className="max-w-[220px] truncate px-3 py-2">
-                          {queueTitleCell(entry, titleByKey)}
-                        </td>
-                        <td className="px-3 py-2">
-                          <Badge variant={stateBadgeVariant(entry.state)}>{queueStateCell(entry)}</Badge>
-                        </td>
-                        <td className="px-3 py-2">{queueMachineCell(entry)}</td>
-                        <td className="px-3 py-2 text-right font-mono">{entry.attempts}</td>
-                        <td className="px-3 py-2">{queueAfterCell(entry)}</td>
-                        <td className="px-3 py-2">{queueHoldCell(entry)}</td>
-                        <td className="max-w-[320px] px-3 py-2">{queueReasonCell(entry)}</td>
-                        <td className="px-3 py-2">
-                          <div className="flex items-center gap-1">
-                            <QueueActionButton
-                              label={`Move ${entryRef(entry)} up`}
-                              disabledReason="Already first in view"
-                              onClick={() => handleMove(entry, 'up')}
-                              disabled={!canMoveUp}
-                              busy={busyKeys.has(busyKey(entry, 'move-up'))}
-                            >
-                              ▲
-                            </QueueActionButton>
-                            <QueueActionButton
-                              label={`Move ${entryRef(entry)} down`}
-                              disabledReason="Already last in view"
-                              onClick={() => handleMove(entry, 'down')}
-                              disabled={!canMoveDown}
-                              busy={busyKeys.has(busyKey(entry, 'move-down'))}
-                            >
-                              ▼
-                            </QueueActionButton>
-                            <QueueActionButton
-                              label={`Unblock ${entryRef(entry)}`}
-                              disabledReason={`Only a blocked row can be unblocked (state: ${entry.state || QUEUE_EMPTY_CELL})`}
-                              onClick={() => handleUnblock(entry)}
-                              disabled={!canUnblock}
-                              busy={busyKeys.has(busyKey(entry, 'unblock'))}
-                            >
-                              Unblock
-                            </QueueActionButton>
-                            <QueueActionButton
-                              label={`Release ${entryRef(entry)}'s gate`}
-                              disabledReason="Only a fired gate can be released"
-                              onClick={() => handleReleaseGate(entry)}
-                              disabled={!canRelease}
-                              busy={busyKeys.has(busyKey(entry, 'resume'))}
-                            >
-                              Release
-                            </QueueActionButton>
-                          </div>
-                        </td>
-                      </tr>
+                              <span aria-hidden="true">{expanded ? '▾' : '▸'}</span>
+                            </button>
+                          </td>
+                          <td className="px-3 py-2 font-mono">
+                            <div className="flex items-center gap-1">
+                              <Link
+                                to={paths.pipelineItem(entry.repo_name, entry.issue_number)}
+                                className="hover:underline"
+                              >
+                                {entryRef(entry)}
+                              </Link>
+                              <a
+                                href={paths.pipelineItem(entry.repo_name, entry.issue_number)}
+                                target="_blank"
+                                rel="noreferrer"
+                                aria-label={`Open ${entryRef(entry)} in a new tab`}
+                                title="Open in new tab"
+                                className="text-muted-foreground hover:text-foreground"
+                              >
+                                <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                              </a>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2">{queueTitleCell(entry, titleByKey)}</td>
+                          <td className="px-3 py-2">
+                            <Badge variant={stateBadgeVariant(entry.state)}>{queueStateCell(entry)}</Badge>
+                          </td>
+                        </tr>
+                        {/* Expanded detail region -- always in the DOM (not
+                            conditionally mounted) so `aria-controls` always
+                            addresses a real element; visibility is the
+                            native `hidden` attribute, same posture a table
+                            row needs to disappear cleanly (`[hidden]`'s
+                            `display: none` beats the UA `display:
+                            table-row`). */}
+                        <tr id={detailId} hidden={!expanded} className="border-b border-border/60 last:border-0">
+                          <td colSpan={GRID_COLSPAN} className="bg-secondary/20 px-3 py-3">
+                            <dl className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+                              <div>
+                                <dt className="text-[.65rem] uppercase tracking-wide text-muted-foreground">
+                                  #
+                                </dt>
+                                <dd className="font-mono">{entry.position}</dd>
+                              </div>
+                              <div>
+                                <dt className="text-[.65rem] uppercase tracking-wide text-muted-foreground">
+                                  After
+                                </dt>
+                                <dd>{queueAfterCell(entry)}</dd>
+                              </div>
+                              <div>
+                                <dt className="text-[.65rem] uppercase tracking-wide text-muted-foreground">
+                                  Hold
+                                </dt>
+                                <dd>{queueHoldCell(entry)}</dd>
+                              </div>
+                              <div>
+                                <dt className="text-[.65rem] uppercase tracking-wide text-muted-foreground">
+                                  Machine
+                                </dt>
+                                <dd>{queueLiveMachineCell(entry, machineByKey)}</dd>
+                              </div>
+                              {pinnedMachine && (
+                                <div>
+                                  <dt className="text-[.65rem] uppercase tracking-wide text-muted-foreground">
+                                    Pinned to
+                                  </dt>
+                                  <dd>{pinnedMachine}</dd>
+                                </div>
+                              )}
+                              <div>
+                                <dt className="text-[.65rem] uppercase tracking-wide text-muted-foreground">
+                                  Enqueued
+                                </dt>
+                                <dd>{queueEnqueuedCell(entry)}</dd>
+                              </div>
+                              <div>
+                                <dt className="text-[.65rem] uppercase tracking-wide text-muted-foreground">
+                                  Launched
+                                </dt>
+                                <dd>{queueLaunchedCell(entry)}</dd>
+                              </div>
+                              <div>
+                                <dt className="text-[.65rem] uppercase tracking-wide text-muted-foreground">
+                                  Reason updated
+                                </dt>
+                                <dd>{queueReasonAtCell(entry)}</dd>
+                              </div>
+                              <div>
+                                <dt className="text-[.65rem] uppercase tracking-wide text-muted-foreground">
+                                  Attempts
+                                </dt>
+                                <dd className="font-mono">{entry.attempts}</dd>
+                              </div>
+                              <div>
+                                <dt className="text-[.65rem] uppercase tracking-wide text-muted-foreground">
+                                  Deferrals
+                                </dt>
+                                <dd className="font-mono">{entry.deferrals}</dd>
+                              </div>
+                              <div>
+                                <dt className="text-[.65rem] uppercase tracking-wide text-muted-foreground">
+                                  Resumes
+                                </dt>
+                                <dd className="font-mono">{entry.resumes}</dd>
+                              </div>
+                              <div className="col-span-full">
+                                <dt className="text-[.65rem] uppercase tracking-wide text-muted-foreground">
+                                  Reason
+                                </dt>
+                                <dd className="whitespace-pre-wrap break-words">
+                                  {queueReasonCell(entry)}
+                                </dd>
+                              </div>
+                            </dl>
+
+                            <div className="mt-3 flex items-center gap-1">
+                              <QueueActionButton
+                                label={`Move ${entryRef(entry)} up`}
+                                disabledReason="Already first in view"
+                                onClick={() => handleMove(entry, 'up')}
+                                disabled={!canMoveUp}
+                                busy={busyKeys.has(busyKey(entry, 'move-up'))}
+                              >
+                                ▲
+                              </QueueActionButton>
+                              <QueueActionButton
+                                label={`Move ${entryRef(entry)} down`}
+                                disabledReason="Already last in view"
+                                onClick={() => handleMove(entry, 'down')}
+                                disabled={!canMoveDown}
+                                busy={busyKeys.has(busyKey(entry, 'move-down'))}
+                              >
+                                ▼
+                              </QueueActionButton>
+                              <QueueActionButton
+                                label={`Unblock ${entryRef(entry)}`}
+                                disabledReason={`Only a blocked row can be unblocked (state: ${entry.state || QUEUE_EMPTY_CELL})`}
+                                onClick={() => handleUnblock(entry)}
+                                disabled={!canUnblock}
+                                busy={busyKeys.has(busyKey(entry, 'unblock'))}
+                              >
+                                Unblock
+                              </QueueActionButton>
+                              <QueueActionButton
+                                label={`Release ${entryRef(entry)}'s gate`}
+                                disabledReason="Only a fired gate can be released"
+                                onClick={() => handleReleaseGate(entry)}
+                                disabled={!canRelease}
+                                busy={busyKeys.has(busyKey(entry, 'resume'))}
+                              >
+                                Release
+                              </QueueActionButton>
+                            </div>
+                          </td>
+                        </tr>
+                      </Fragment>
                     )
                   })}
                 </tbody>
