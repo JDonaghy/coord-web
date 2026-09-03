@@ -818,7 +818,7 @@ export async function fetchPortalNeedsInput(): Promise<PortalNeedsInputItem[]> {
   })
   if (!Array.isArray(data.submissions)) {
     throw new Error(
-      `GET ${API_ROUTES.portalNeedsInput} → expected {submissions: [...]}, got ${JSON.stringify(data)}`,
+      `GET ${API_ROUTES.portalNeedsInput} → expected {submissions: [...]}, got ${describeShape(data)}`,
     )
   }
   return data.submissions

@@ -191,6 +191,26 @@ describe('fetchPortalNeedsInput', () => {
 
     await expect(fetchPortalNeedsInput()).rejects.toThrow(/submissions/)
   })
+
+  it('never leaks the response body — including question text — when submissions is present but not an array', async () => {
+    // Passes the top-level `{kind: 'object', key: 'submissions'}` guard (the
+    // key is present) but fails the follow-up `Array.isArray` check. The
+    // error message must describe the shape (typeof/top-level keys), never
+    // serialize the body itself — this endpoint's submissions carry
+    // user-entered question text (#85's own risk callout) that must never
+    // land in a thrown `Error`'s message or downstream logs.
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({ submissions: 'not an array', question: 'super secret user text' }),
+        { status: 200 },
+      ),
+    )
+
+    await expect(fetchPortalNeedsInput()).rejects.toThrow(
+      /object with keys \[submissions, question\]/,
+    )
+    await expect(fetchPortalNeedsInput()).rejects.not.toThrow(/super secret user text/)
+  })
 })
 
 // Issue #85: `apiFetch`/`apiFetchOptional` used to cast a `res.json()` result
