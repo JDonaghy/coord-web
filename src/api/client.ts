@@ -711,10 +711,40 @@ export interface PortalAnswerResult {
   status?: number
 }
 
-/** Fetch the submissions currently sitting in `needs-input`, each with its
- * open question attached (#59). */
+/**
+ * `GET /api/portal/needs-input`'s actual response shape — an object
+ * envelope, not a bare array (issue #84). `coord/dashboard/server.py`
+ * returns `JSONResponse({"submissions": submissions})`, and the daemon's
+ * `/portal-needs-input` (`coord/serve_app.py`) mirrors it — this is the
+ * landed contract on both sides of the thin-client seam, not a shape to
+ * "fix" server-side.
+ */
+interface PortalNeedsInputResponse {
+  submissions: PortalNeedsInputItem[]
+}
+
+/**
+ * Fetch the submissions currently sitting in `needs-input`, each with its
+ * open question attached (#59).
+ *
+ * Unwraps the server's `{submissions: [...]}` envelope into the bare array
+ * `AnswersPanel` wants (#84: the previous version cast the envelope directly
+ * to `PortalNeedsInputItem[]`, which `apiFetch` never validates against —
+ * TypeScript believed it, react-query handed the object straight to
+ * `.map()`, and the panel white-screened on every render, including the
+ * empty-list case). The `Array.isArray` check below is a narrow runtime
+ * assertion at this one boundary, not a general `apiFetch` validator — see
+ * this file's own header re: generated-type drift, which nothing here
+ * guards against automatically.
+ */
 export async function fetchPortalNeedsInput(): Promise<PortalNeedsInputItem[]> {
-  return apiFetch<PortalNeedsInputItem[]>(API_ROUTES.portalNeedsInput)
+  const data = await apiFetch<PortalNeedsInputResponse>(API_ROUTES.portalNeedsInput)
+  if (!data || !Array.isArray(data.submissions)) {
+    throw new Error(
+      `GET ${API_ROUTES.portalNeedsInput} → expected {submissions: [...]}, got ${JSON.stringify(data)}`,
+    )
+  }
+  return data.submissions
 }
 
 /**

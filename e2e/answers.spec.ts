@@ -33,6 +33,13 @@ const NEEDS_INPUT_ITEM = {
   opened_at: null,
 }
 
+// `GET /api/portal/needs-input` responds with `{submissions: [...]}`, not a
+// bare array (issue #84 — the client used to assume a bare array and
+// white-screened on `.map`, even against `{submissions: []}`). Every mock
+// below wraps `NEEDS_INPUT_ITEM` in that envelope so this spec would have
+// caught the regression instead of standing in for a server shape nothing
+// actually serves.
+
 async function mockShellApi(page: Page): Promise<void> {
   await page.route('**/api/pipeline', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
@@ -60,7 +67,7 @@ test.describe('Answers screen (#59)', () => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([NEEDS_INPUT_ITEM]),
+        body: JSON.stringify({ submissions: [NEEDS_INPUT_ITEM] }),
       }),
     )
 
@@ -111,11 +118,15 @@ test.describe('Answers screen (#59)', () => {
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify([NEEDS_INPUT_ITEM]),
+          body: JSON.stringify({ submissions: [NEEDS_INPUT_ITEM] }),
         })
       }
       await refetchGate
-      return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ submissions: [] }),
+      })
     })
 
     await page.route('**/api/portal/answer', (route) =>
@@ -157,7 +168,11 @@ test.describe('Answers screen (#59)', () => {
   test('a 409 (question moved on) shows a re-read prompt on that card, not a generic error', async ({ page }) => {
     await mockShellApi(page)
     await page.route('**/api/portal/needs-input', (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([NEEDS_INPUT_ITEM]) }),
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ submissions: [NEEDS_INPUT_ITEM] }),
+      }),
     )
     await page.route('**/api/portal/answer', (route) =>
       route.fulfill({
