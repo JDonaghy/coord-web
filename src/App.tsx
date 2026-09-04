@@ -16,6 +16,11 @@ import { Toaster } from '@/components/ui/toaster'
 // of shipping the terminal renderer to everyone up front.
 const Terminal = lazy(() => import('@/components/Terminal'))
 
+// Lazy for the same reason as Terminal above: react-markdown + remark-gfm
+// (#90) are only needed once a reviewer actually opens a Gate-A packet link,
+// not on the app's main bundle every visitor loads.
+const GateAPanel = lazy(() => import('@/components/GateAPanel'))
+
 // Dev-only component gallery (#1546) — renders every ui/* primitive in both
 // themes, so a human (or a Playwright acceptance slice) can see the whole
 // system at once without hunting through the app for each one. Route-guarded
@@ -80,6 +85,15 @@ const Gallery = lazy(() => import('@/components/Gallery'))
  *                                        state for a genuinely unknown path,
  *                                        rendered inside the shell (rail,
  *                                        status bar) rather than a blank page
+ *   /gate-a/:repo/:trackingIssue     -> GateAPanel (#90) -- a milestone's
+ *                                        Gate-A review packet (verdict,
+ *                                        contract, mocks). Outside the shell,
+ *                                        same as /terminal below: this is a
+ *                                        link a reviewer opens directly, not
+ *                                        somewhere the app's own nav sends
+ *                                        anyone, and the width control it
+ *                                        ships needs the full viewport, not
+ *                                        rail+list+detail chrome eating into it.
  *
  * Every route below `/pipeline` is a child of `ShellLayout`, the react-router
  * *layout route*: the child fills the detail slot (rail + list + detail on
@@ -186,6 +200,16 @@ export default function App() {
                 <div className="min-h-screen bg-background text-foreground">
                   <Suspense fallback={null}>
                     <Terminal />
+                  </Suspense>
+                </div>
+              }
+            />
+            <Route
+              path="/gate-a/:repo/:trackingIssue"
+              element={
+                <div className="min-h-screen bg-background text-foreground">
+                  <Suspense fallback={null}>
+                    <GateAPanel />
                   </Suspense>
                 </div>
               }

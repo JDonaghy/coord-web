@@ -63,6 +63,14 @@ export const paths = {
    * story's own choice. */
   answers: () => '/answers',
   settings: () => '/settings',
+  /** #90 — a milestone's Gate-A review packet (verdict, contract, mocks),
+   * standalone like `terminal()` above rather than a rail-nav'd `ShellView`:
+   * the point is a link a reviewer opens directly (phone, screen share), not
+   * a place someone browses to from the app's own nav — see App.tsx's route
+   * comment for why `/terminal/:sessionId` and this route both sit outside
+   * `ShellLayout`. */
+  gateA: (repo: string, trackingIssue: number | string) =>
+    `/gate-a/${encodeURIComponent(repo)}/${encodeURIComponent(String(trackingIssue))}`,
 } as const
 
 /**
