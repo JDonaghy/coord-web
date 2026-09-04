@@ -30,6 +30,7 @@ import SessionsList from '@/components/SessionsList'
 import DriveQueuePanel from '@/components/DriveQueuePanel'
 import ReportsPanel from '@/components/ReportsPanel'
 import AnswersPanel from '@/components/AnswersPanel'
+import JournalPanel from '@/components/JournalPanel'
 import MachinesPanel from '@/components/MachinesPanel'
 import { fetchPipeline, fetchSessions } from '@/api/client'
 import { isActive, needsMe, latestPerIssue } from '@/lib/pipeline'
@@ -178,6 +179,17 @@ export function ShellLayout() {
     // and `AppShell` lets this list pane fill the width that would
     // otherwise sit empty next to it.
     list = <AnswersPanel />
+  } else if (currentView === 'journal') {
+    // #93: same list-only posture as Queue/Reports/Answers above. The
+    // `/journal/:submissionId` segment selects *which run this panel is
+    // showing*, it does not open a detail view — so `journal` stays out of
+    // `VIEWS_WITH_DETAIL_ROUTE` and out of the `detailActive` matches, and
+    // `AppShell` lets this pane fill the width an empty detail column would
+    // otherwise take (#17 QW-6). Eagerly imported, unlike `GateAPanel`/
+    // `Terminal` in `App.tsx`: this panel pulls in no dependency the main
+    // bundle doesn't already ship (no react-markdown, no xterm), so
+    // code-splitting it would buy nothing and cost a Suspense boundary.
+    list = <JournalPanel />
   } else if (currentView === null) {
     list = <RouteNotFound />
   } else {

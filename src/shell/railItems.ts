@@ -14,6 +14,7 @@
  */
 import {
   BarChart3,
+  BookOpen,
   FileBarChart2,
   GitMerge,
   LayoutDashboard,
@@ -64,6 +65,21 @@ export const RAIL_ITEMS: readonly RailItem[] = [
     icon: PhoneCall,
     status: 'ready',
     hint: 'Record an out-of-band client answer — #59',
+  },
+  {
+    // #93 — one submission's whole run as an ordered narrative. Ungrouped,
+    // next to Answers, for the same reason Answers is: the audience is a
+    // client on a call or someone watching a screen share, not an operator
+    // browsing Flow/Insight — it needs the same one-tap-from-anywhere reach,
+    // not the lower priority a grouped entry implies.
+    id: 'journal',
+    // `BookOpen`, not `ScrollText`: Audit below already owns the scroll, and
+    // two rail entries wearing the same glyph is exactly the kind of thing a
+    // 60px collapsed rail turns into a coin flip.
+    label: 'Journal',
+    icon: BookOpen,
+    status: 'ready',
+    hint: "One submission's run, in order — #93",
   },
   {
     id: 'terminal',
