@@ -663,3 +663,73 @@ export interface MachineWorkStats {
  * counting rule client-side: one unit per machine's joined severity, plus
  * one unit per entry here. */
 export type FleetChecks = MachineHealthCheckResult[]
+
+// ── GET /api/gate-a/{repo}/{tracking_issue} (claude-coordinator#3069 / coord-web#90) ──
+//
+// Hand-spliced, not a full regeneration of this file. A real
+// `python -m coord.codegen --out src/api/generated.ts` run (installed
+// `code-coordinator==0.5.359`, the version this line was verified against)
+// DOES now work from this checkout — claude-coordinator#3045/coord-web#77's
+// blocker is resolved — but running it wholesale rewrites/renames dozens of
+// unrelated types this file's other sections hand-maintain (Machines panel,
+// Reports panel, DriveQueue, Assignment's newer fields), breaking every
+// consumer of those sections (`client.ts`, `MachinesPanel.tsx`,
+// `MachineHealth.tsx`, `MachineCharts.tsx`, `MachineDetail.tsx`,
+// `ReportsPanel.tsx`, `DriveQueuePanel.tsx` and their tests). That drift
+// predates this issue and fixing it is a real, separate, repo-wide task —
+// not something to fold silently into a Gate-A review panel PR. The three
+// interfaces below ARE the generator's real, verbatim output for this one
+// route (copied field-for-field from that run, not hand-guessed — see this
+// repo's CLAUDE.md "three separate incidents" note) and should be replaced
+// wholesale, not re-diffed, whenever the full-file regeneration above
+// finally happens.
+
+/** `GET /api/gate-a/{repo}/{tracking_issue}`'s full response shape — see
+ * `coord/dashboard/server.py`'s `GateAPacket` dataclass. `state`/`ok`/
+ * `stale`/`contract_sha`/`reason`/`approval` are read straight off
+ * `coord.gate_a.evaluate()` — the same decision `coord gate-a` prints — so
+ * this can never disagree with the CLI. `stale` is the one field worth
+ * rendering unmissably: it's `state === 'stale'` spelled out as a plain
+ * bool so a client doesn't have to import the state enum just to ask one
+ * question. `mocks` arrive fully self-contained (every relative stylesheet
+ * already inlined server-side) — render each directly, no further
+ * fetching. */
+export interface GateAPacket {
+  repo_name: string
+  milestone_number: number
+  milestone_title: string
+  tracking_issue: number
+  tracking_issue_title: string
+  state: 'approved' | 'missing' | 'stale' | 'changes' | 'exempt'
+  ok: boolean
+  stale: boolean
+  contract_sha: string
+  reason: string | null
+  approval: GateAApprovalWire | null
+  contract_markdown: string
+  mocks: GateAMockWire[]
+  mocks_note: string
+}
+
+/** Wire shape of `coord.gate_a.GateAApproval` — the recorded human verdict
+ * on a Gate-A contract. Present on `GateAPacket.approval` only when a
+ * verdict has actually been recorded (`coord gate-a --approved` /
+ * `--changes`, not reachable from this read-only panel — see issue #90's
+ * "Not in this slice"). */
+export interface GateAApprovalWire {
+  verdict: 'approved' | 'changes'
+  contract_sha: string
+  tracking_issue: number | null
+  note: string
+  actor: string
+  recorded_at: number
+}
+
+/** One rendered Gate-A mock, self-contained (`GateAPacket.mocks[]`) — `html`
+ * has already had every relatively-linked stylesheet inlined server-side, so
+ * it renders correctly with zero further fetches. */
+export interface GateAMockWire {
+  name: string
+  title: string
+  html: string
+}

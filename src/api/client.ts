@@ -27,6 +27,9 @@ import type {
   DriveQueueSummary,
   FleetCapacity,
   FleetChecks,
+  GateAApprovalWire,
+  GateAMockWire,
+  GateAPacket,
   MachineActiveWorker,
   MachineAssignmentSpec,
   MachineAssignments,
@@ -68,6 +71,9 @@ export type {
   DriveQueueSummary,
   FleetCapacity,
   FleetChecks,
+  GateAApprovalWire,
+  GateAMockWire,
+  GateAPacket,
   MachineActiveWorker,
   MachineAssignmentSpec,
   MachineAssignments,
@@ -247,6 +253,7 @@ export const API_ROUTES = {
   pipelineAction: '/api/pipeline/action',
   portalNeedsInput: '/api/portal/needs-input',
   portalAnswer: '/api/portal/answer',
+  gateA: '/api/gate-a/{repo}/{tracking_issue}',
 } as const satisfies Record<string, string>
 
 /**
@@ -854,6 +861,41 @@ export async function submitPortalAnswer(body: PortalAnswerRequest): Promise<Por
     return { ok: false, status: res.status, error: data.error ?? `HTTP ${res.status}` }
   }
   return { ok: true, status: res.status, entry: data.entry }
+}
+
+// ── GET /api/gate-a/{repo}/{tracking_issue} (claude-coordinator#3069 / #90) ─
+
+/**
+ * The result of fetching a Gate-A packet — a `404` (unknown repo/issue, or
+ * the tracking issue has no milestone: `coord/dashboard/server.py`'s
+ * `api_gate_a`) is a real, legible outcome to show, not a thrown error, so
+ * this mirrors `submitPortalAnswer`'s `{ok, status, error}` shape rather than
+ * `apiFetch`'s throw-on-non-2xx posture.
+ */
+export type GateAFetchResult =
+  | { ok: true; data: GateAPacket }
+  | { ok: false; status: number; error: string }
+
+/**
+ * Fetch a milestone's Gate-A packet — live verdict/stale state, the
+ * contract, and every rendered mock, self-contained (#90). No local
+ * checkout, no further fetches: `data.mocks[*].html` already has every
+ * relatively-linked stylesheet inlined server-side.
+ */
+export async function fetchGateA(repo: string, trackingIssue: number): Promise<GateAFetchResult> {
+  const path = buildPath(API_ROUTES.gateA, { repo, tracking_issue: String(trackingIssue) })
+  const res = await fetch(`${API_BASE}${path}`)
+  let data: Partial<GateAPacket> & { error?: string } = {}
+  try {
+    data = await res.json()
+  } catch {
+    // No/invalid JSON body — fall through, the status code alone still
+    // reports failure below.
+  }
+  if (!res.ok) {
+    return { ok: false, status: res.status, error: data.error ?? `HTTP ${res.status}` }
+  }
+  return { ok: true, data: data as GateAPacket }
 }
 
 // ── WS /ws/terminal/{session_id} ────────────────────────────────────────────
