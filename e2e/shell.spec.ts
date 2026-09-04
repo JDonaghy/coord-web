@@ -139,7 +139,9 @@ test.describe('shell — wide viewport', () => {
     await mockApi(page)
     await page.goto('/')
 
-    await expect(rail(page).getByRole('button', { name: /Milestones/ })).toHaveAttribute(
+    // Board, not Milestones: #91 flipped Milestones to 'ready' once
+    // claude-coordinator#3072 shipped the API behind it.
+    await expect(rail(page).getByRole('button', { name: /Board/ })).toHaveAttribute(
       'aria-disabled',
       'true',
     )
@@ -293,7 +295,7 @@ test.describe('shell — narrow viewport', () => {
     expect(railBox!.width).toBeGreaterThan(300)
 
     await expect(rail(page).getByRole('button', { name: /Pipeline/ })).toBeVisible()
-    await expect(rail(page).getByRole('button', { name: /Milestones/ })).toHaveCount(0)
+    await expect(rail(page).getByRole('button', { name: /Board/ })).toHaveCount(0)
   })
 
   test('switches views from the bottom row', async ({ page }) => {

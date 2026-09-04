@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Routes, Route } from 'react-router-dom'
 import Detail from '@/components/Detail'
 import SessionDetail from '@/components/SessionDetail'
 import MachineDetail from '@/components/MachineDetail'
+import MilestoneDetailPanel from '@/components/MilestoneDetail'
 import { ShellLayout } from '@/shell/ShellLayout'
 import { EmptyDetail } from '@/shell/EmptyDetail'
 import { ErrorBoundary } from '@/shell/ErrorBoundary'
@@ -60,8 +61,17 @@ const Gallery = lazy(() => import('@/components/Gallery'))
  *                                        honest "unavailable" note against a
  *                                        coord server old enough to predate
  *                                        the real Machines API (#76)
+ *   /milestones                      -> EmptyDetail in the detail slot,
+ *                                        `MilestonesPanel` (#91) in the list
+ *                                        slot (wired in `ShellLayout`)
+ *   /milestones/:repo/:number        -> MilestoneDetailPanel (#91) -- the
+ *                                        ordered work order + Gate-A
+ *                                        sign-off, degrading to an
+ *                                        explanatory empty state on a coord
+ *                                        server predating
+ *                                        claude-coordinator#3072
  *   /board /merge-queue
- *   /milestones /audit /spend
+ *   /audit /spend
  *   /settings                        -> ComingSoon(view) -- placeholders for
  *                                        the M-W2+ panels, addressable today
  *                                        so a link to one isn't a 404 while
@@ -154,6 +164,14 @@ export default function App() {
               <Route path="/machines" element={<EmptyDetail />} />
               <Route path="/machines/:name" element={<MachineDetail />} />
 
+              {/* #91 -- Milestones gets the same list/detail split, for the
+                  same reason: the ordered work order and the Gate-A sign-off
+                  are real detail content this story ships, not a later
+                  addition. `MilestonesPanel` fills the list slot (wired in
+                  `ShellLayout`); this route pair fills the detail slot. */}
+              <Route path="/milestones" element={<EmptyDetail />} />
+              <Route path="/milestones/:repo/:number" element={<MilestoneDetailPanel />} />
+
               {/* Placeholders for the M-W2+ panels (#1548) -- addressable now,
                   not a 404, so a bookmark or a pasted link survives the panel
                   shipping later. The rail marks each of these 'soon' and won't
@@ -161,7 +179,6 @@ export default function App() {
                   or pasted link to one lands on in the meantime. */}
               <Route path="/board" element={null} />
               <Route path="/merge-queue" element={null} />
-              <Route path="/milestones" element={null} />
               <Route path="/audit" element={null} />
               <Route path="/spend" element={null} />
               <Route path="/settings" element={null} />
