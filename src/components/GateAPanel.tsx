@@ -50,7 +50,16 @@
  * exercised is a deliberate decision for a future issue, not a rendering one
  * for this panel to take on its own.
  */
-import { Children, isValidElement, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  Children,
+  isValidElement,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
@@ -149,7 +158,17 @@ function MockFrame({ mock, widthPx, theme }: MockFrameProps) {
           data-testid={`gate-a-mock-frame-${mock.name}`}
           srcDoc={mock.html}
           onLoad={applyTheme}
-          sandbox="allow-same-origin allow-scripts"
+          // `allow-same-origin` without `allow-scripts` is intentional: a `srcDoc`
+          // iframe has no external URL to derive an opaque origin from, so
+          // `allow-same-origin` gives the framed document the same effective
+          // origin as this page. Combined with `allow-scripts` that's the
+          // anti-pattern MDN warns about -- script in the mock would get a full
+          // same-origin foothold back into the parent (window.parent.document,
+          // cookies, localStorage). `mock.html` is server-fetched, not-yet-signed-off
+          // content, so scripts must never run here. `applyTheme` above only needs
+          // same-origin DOM access *from the parent into the frame*, which doesn't
+          // require the frame's own content to be allowed to execute script.
+          sandbox="allow-same-origin"
           style={{ width: widthPx ? `${widthPx}px` : '100%', height: '640px' }}
           className="mx-auto block max-w-full rounded-md border border-line-strong bg-background"
         />
@@ -158,7 +177,7 @@ function MockFrame({ mock, widthPx, theme }: MockFrameProps) {
   )
 }
 
-function AmendmentQuickNav({ headings, contractRef }: { headings: string[]; contractRef: React.RefObject<HTMLDivElement> }) {
+function AmendmentQuickNav({ headings, contractRef }: { headings: string[]; contractRef: RefObject<HTMLDivElement> }) {
   if (headings.length === 0) return null
 
   const scrollToHeading = (text: string) => {
