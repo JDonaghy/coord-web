@@ -204,6 +204,18 @@ export default function App() {
                   composer lives inline in the list itself. */}
               <Route path="/answers" element={null} />
 
+              {/* #93 — the Journal screen. The list slot's `JournalPanel` is
+                  wired in `ShellLayout`, same `element={null}` posture as
+                  `/queue`/`/reports`/`/answers` above. `:submissionId` is a
+                  *selection on this screen*, not a detail route: it is
+                  declared here purely so the URL carries which run is being
+                  read (bookmarkable, pasteable into a chat), and it is
+                  deliberately absent from `ShellLayout`'s `detailActive`
+                  matches so narrow keeps showing the timeline itself rather
+                  than swapping to an empty detail column. */}
+              <Route path="/journal" element={null} />
+              <Route path="/journal/:submissionId" element={null} />
+
               {/* Genuinely unknown path under the shell -- a typo'd URL, or a
                   link to a feature that no longer exists. `ShellLayout` puts
                   `RouteNotFound` in the *list* slot for this case (there is no

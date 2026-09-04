@@ -39,6 +39,13 @@
  * toggle both need proving at both breakpoints, not just the default
  * viewport `machines.spec.ts` (functional coverage, not breakpoint-specific)
  * runs under.
+ *
+ * `journal.spec.ts` (#93) joins it too, and this one is the clearest case
+ * yet: the Journal panel is the app's only view meant for someone who is
+ * *not* an operator — a client asking what is happening, on their own phone,
+ * or a screen share — so "reads correctly at 390px, in both themes" is that
+ * panel's requirement rather than a general responsiveness sweep, and issue
+ * #93 asks for both axes by name.
  */
 
 import { defineConfig, devices } from '@playwright/test'
@@ -56,6 +63,7 @@ const BREAKPOINT_PROJECT_FILES = [
   // theme block covers dark/light at whichever breakpoint the project is,
   // which is why there is no third project for themes.
   'milestones.spec.ts',
+  'journal.spec.ts',
 ]
 
 export default defineConfig({

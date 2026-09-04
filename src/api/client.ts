@@ -30,6 +30,9 @@ import type {
   GateAApprovalWire,
   GateAMockWire,
   GateAPacket,
+  JournalEntryWire,
+  JournalLinkWire,
+  JournalResponse,
   MachineActiveWorker,
   MachineAssignmentSpec,
   MachineAssignments,
@@ -80,6 +83,9 @@ export type {
   GateAApprovalWire,
   GateAMockWire,
   GateAPacket,
+  JournalEntryWire,
+  JournalLinkWire,
+  JournalResponse,
   MachineActiveWorker,
   MachineAssignmentSpec,
   MachineAssignments,
@@ -266,6 +272,7 @@ export const API_ROUTES = {
   portalNeedsInput: '/api/portal/needs-input',
   portalAnswer: '/api/portal/answer',
   gateA: '/api/gate-a/{repo}/{tracking_issue}',
+  journal: '/api/journal/{submission_id}',
   milestones: '/api/milestones',
   milestoneDetail: '/api/milestones/{repo}/{number}',
 } as const satisfies Record<string, string>
@@ -912,6 +919,129 @@ export async function fetchGateA(repo: string, trackingIssue: number): Promise<G
   return { ok: true, data: data as GateAPacket }
 }
 
+// ── GET /api/journal/{submission_id} (#93, claude-coordinator#3091) ──────────
+
+/**
+ * The Journal panel's read of one submission's whole run (#93).
+ *
+ * Three outcomes, kept apart on purpose — they are three *different* things
+ * to tell a human, and collapsing them is how #76 presented:
+ *
+ *  - `{ available: false }` — the coord server answering this request does
+ *    not serve `/api/journal/...` at all (HTTP 404). Expected, and for as
+ *    long as the fleet roll lags behind this bundle it is the *common* case:
+ *    coord-web auto-deploys on its own timer, decoupled from any
+ *    claude-coordinator release (see CLAUDE.md). Same `apiFetchOptional`
+ *    posture every `fetchMachines*` call above uses, for the same reason.
+ *    Note this is genuinely unambiguous here: claude-coordinator#3091's spec
+ *    declares **only** a `200` for this route ("Never raises: an unlinked or
+ *    unknown submission_id comes back 200 with an empty `entries`"), so a
+ *    404 can only mean the route is absent, never "no such submission".
+ *  - a thrown `Error` — any other non-2xx, a body that isn't JSON, or a body
+ *    whose shape disagrees with `JournalResponse` (see `validateJournal`
+ *    below). Surfaced by the panel as a legible failure.
+ *  - `{ available: true, data }` — a validated payload, which may legally be
+ *    an *empty* timeline (`entries: []` with a `gaps` note). That is a true
+ *    answer about a submission coord has not done anything with yet, and the
+ *    panel must render it as "nothing has happened yet", never as an error.
+ */
+export type JournalFetchResult = MachineQueryResult<JournalResponse>
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** Every string in `value`, or `null` if it isn't an array of strings. */
+function asStringArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null
+  return value.every((v) => typeof v === 'string') ? (value as string[]) : null
+}
+
+/**
+ * Validate — not cast (#85) — one `JournalEntryWire` off the wire.
+ *
+ * Returns `null` for an entry that doesn't match, so `validateJournal` can
+ * drop it and report it as a gap rather than throwing the whole timeline
+ * away: a run that renders 39 of its 40 moments plus an honest "1 entry was
+ * unreadable" note is strictly more useful to the person watching than a
+ * blank panel. The type-level shape here is exactly `generated.ts`'s.
+ */
+function validateJournalEntry(value: unknown): JournalEntryWire | null {
+  if (!isRecord(value)) return null
+  const { ts, kind, actor, text, artifact, source, details } = value
+  if (typeof ts !== 'number' || !Number.isFinite(ts)) return null
+  if (typeof kind !== 'string' || typeof actor !== 'string' || typeof text !== 'string') return null
+  if (typeof source !== 'string') return null
+  if (artifact !== null && typeof artifact !== 'string') return null
+  return {
+    ts,
+    kind,
+    actor,
+    text,
+    artifact,
+    source,
+    // `details` is free-form (`Record<string, unknown>`) and purely
+    // supplementary — a server that omits it, or sends a non-object, costs
+    // this entry nothing worth dropping it over.
+    details: isRecord(details) ? details : {},
+  }
+}
+
+/**
+ * Validate a `GET /api/journal/{submission_id}` body against
+ * `JournalResponse`, field by field.
+ *
+ * `apiFetchOptional`'s `ShapeGuard` only distinguishes "array" from
+ * "object carrying key k" — deliberately (see `ShapeGuard`'s doc comment) —
+ * which is not enough here: this endpoint's whole contract is that `entries`
+ * is an ordered array of a specific record shape, and #84's bug was exactly
+ * a present-but-wrong-typed field surviving into a `.map()`. So this is a
+ * real check, and a mismatched top-level field throws with the same
+ * name-the-request/expected/actual detail `assertShape` gives.
+ *
+ * Exported for `src/api/__tests__/journal.test.ts`, which drives it directly
+ * with the malformed bodies a fetch mock can't easily reach.
+ */
+export function validateJournal(path: string, data: unknown): JournalResponse {
+  const fail = (detail: string): never => {
+    throw new Error(`GET ${path} → ${detail}, got ${describeShape(data)}`)
+  }
+  if (!isRecord(data)) return fail('expected a JournalResponse object')
+  if (typeof data.submission_id !== 'string') return fail('expected a string "submission_id"')
+  if (!Array.isArray(data.entries)) return fail('expected an array "entries"')
+
+  const entries: JournalEntryWire[] = []
+  let dropped = 0
+  for (const raw of data.entries) {
+    const entry = validateJournalEntry(raw)
+    if (entry) entries.push(entry)
+    else dropped += 1
+  }
+
+  const gaps = asStringArray(data.gaps) ?? []
+  if (dropped > 0) {
+    gaps.push(
+      `${dropped} timeline ${dropped === 1 ? 'entry was' : 'entries were'} unreadable and ` +
+        'have been left out — this coord server may be newer than this app',
+    )
+  }
+
+  return {
+    submission_id: data.submission_id,
+    // `title`/`customer_status` are display context the server fills in
+    // around #3071's aggregator; an older or partial server that omits one
+    // is not a reason to refuse to render the run.
+    title: typeof data.title === 'string' ? data.title : '',
+    customer_status: typeof data.customer_status === 'string' ? data.customer_status : '',
+    link: isRecord(data.link) ? (data.link as unknown as JournalLinkWire) : null,
+    gaps,
+    // Oldest-first is the server's documented ordering, but it costs nothing
+    // to be certain of it here rather than trusting it — the panel's
+    // day-grouping reads as nonsense if a single row arrives out of order.
+    entries: entries.sort((a, b) => a.ts - b.ts),
+  }
+}
+
 // ── GET /api/milestones{,/{repo}/{number}} (claude-coordinator#3072 / #91) ──
 //
 // The Milestones panel's whole data layer. Three things this section does
@@ -1065,6 +1195,32 @@ function parseGateA(raw: unknown, path: string): MilestoneGateAWire | null {
     approved_contract_sha: nullableStr(o.approved_contract_sha, `${path}.approved_contract_sha`),
     href: nullableStr(o.href, `${path}.href`),
   }
+}
+
+/**
+ * Fetch one submission's whole run as an ordered narrative (#93).
+ *
+ * `apiFetchOptional`-shaped rather than `apiFetch`-shaped — see
+ * `JournalFetchResult` above for the three outcomes and why a 404 is an
+ * honest "this server doesn't serve the journal yet", not a failure.
+ */
+export async function fetchJournal(submissionId: string): Promise<JournalFetchResult> {
+  const path = buildPath(API_ROUTES.journal, { submission_id: submissionId })
+  const res = await fetch(`${API_BASE}${path}`)
+  if (res.status === 404) {
+    return { available: false }
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`GET ${path} → HTTP ${res.status}: ${text}`)
+  }
+  let body: unknown
+  try {
+    body = await res.json()
+  } catch {
+    throw new Error(`GET ${path} → response body was not JSON`)
+  }
+  return { available: true, data: validateJournal(path, body) }
 }
 
 /**

@@ -734,6 +734,59 @@ export interface GateAMockWire {
   html: string
 }
 
+// ── GET /api/journal/{submission_id} (claude-coordinator#3091) ────────────────
+//
+// The three interfaces below are COPIED VERBATIM from what the generator
+// emits today —
+//
+//     python -m coord.codegen --out src/api/generated.ts
+//
+// run against `code-coordinator` 0.5.368 (the version installed on this
+// machine, i.e. the one already published to PyPI and serving the endpoint),
+// then spliced in here rather than replacing this whole file with that run's
+// output. Why the splice: as of 0.5.368 the generator emits a materially
+// different Machines/Reports vocabulary than the block above (it drops
+// `MachineState`, `MachinesHealthResponse`, `MachineMetricsSeries`,
+// `ReportCatalogue`, `Severity`, … in favour of `MachineRow`,
+// `FleetHealthResponse`, `MachineMetricsResponse`, …), so a wholesale
+// regeneration is a Machines-panel type migration — the exact panel #76
+// white-screened — and belongs in coord-web#77 (the drift-gate story), not
+// in a Journal panel. These three schemas have no such collision: they are
+// net-new, nothing else in this file or in `client.ts` refers to them, and
+// they are byte-identical to the generator's own output for
+// `JournalResponse`/`JournalEntryWire`/`JournalLinkWire`. Verified against a
+// live `coord web --fixture` process with `curl /api/journal/<id>` before
+// anything was written against them (issue #93's precondition 3).
+
+export interface JournalResponse {
+  submission_id: string
+  title: string
+  customer_status: string
+  link: JournalLinkWire | null
+  gaps: string[]
+  entries: JournalEntryWire[]
+}
+
+export interface JournalEntryWire {
+  ts: number
+  kind: string
+  actor: string
+  text: string
+  artifact: string | null
+  source: string
+  details: Record<string, unknown>
+}
+
+export interface JournalLinkWire {
+  repo_name: string
+  milestone_number: number | null
+  issue_number: number | null
+  submission_id: string
+  linked_at: number
+  actor: string
+  schema: number
+}
+
 // ── GET /api/milestones{,/{repo}/{number}} (claude-coordinator#3072 / coord-web#91) ──
 //
 // Hand-spliced from a real generator run, exactly as the Gate-A block above

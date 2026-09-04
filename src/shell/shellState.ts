@@ -38,6 +38,7 @@ export type ShellView =
   | 'spend'
   | 'reports'
   | 'answers'
+  | 'journal'
   | 'settings'
 
 export const LIST_WIDTH_MIN_PX = 260

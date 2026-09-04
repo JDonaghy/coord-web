@@ -70,6 +70,17 @@ export const paths = {
    * `queue()`/`reports()` above: no issue body names the path, this is this
    * story's own choice. */
   answers: () => '/answers',
+  /** #93 — the Journal screen with no submission selected (the picker's
+   * landing state). Same route-naming posture as `answers()` above. */
+  journal: () => '/journal',
+  /** #93 — one submission's whole run. A *selected item on the Journal
+   * screen*, not a detail route: `ShellLayout` keeps Journal in the
+   * list-only posture Queue/Reports/Answers use, and the id lives in the
+   * URL purely so the run someone is reading is bookmarkable and pasteable
+   * into a chat — the same reason `pipelineItem` keys on repo+issue. A
+   * portal submission id is opaque (`sub_0f2a`, or whatever the portal
+   * minted), so it is encoded rather than trusted to be path-safe. */
+  journalItem: (submissionId: string) => `/journal/${encodeURIComponent(submissionId)}`,
   settings: () => '/settings',
   /** #90 — a milestone's Gate-A review packet (verdict, contract, mocks),
    * standalone like `terminal()` above rather than a rail-nav'd `ShellView`:
@@ -102,6 +113,7 @@ export const RAIL_VIEW_PATH: Partial<Record<ShellView, string>> = {
   spend: paths.spend(),
   reports: paths.reports(),
   answers: paths.answers(),
+  journal: paths.journal(),
   settings: paths.settings(),
 }
 
