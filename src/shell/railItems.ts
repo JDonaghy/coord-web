@@ -109,12 +109,20 @@ export const RAIL_ITEMS: readonly RailItem[] = [
     hint: 'Merge queue panel — M-W2',
   },
   {
+    // #91: flipped from 'soon' to 'ready' the day the backend it needs
+    // actually shipped — claude-coordinator#3072's `GET /api/milestones` +
+    // `GET /api/milestones/{repo}/{number}`. The old `soon` label was
+    // misleading in a specific way this repo has been burned by three times
+    // (#76/#84/#85): it implied a panel merely awaiting UI work, when there
+    // was no route of any kind behind it. The panel below is written against
+    // a live, curled endpoint, and still degrades to an explanatory empty
+    // state on a coord server too old to serve it.
     id: 'milestones',
     label: 'Milestones',
     icon: Milestone,
-    status: 'soon',
+    status: 'ready',
     group: 'Flow',
-    hint: 'Milestone DAG — M-W3',
+    hint: 'Milestone roster, work order & Gate-A sign-off — #91',
   },
   {
     id: 'queue',

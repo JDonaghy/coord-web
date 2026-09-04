@@ -57,6 +57,12 @@ const BREAKPOINT_PROJECT_FILES = [
   'theme.spec.ts',
   'machine-charts.spec.ts',
   'machines-responsive.spec.ts',
+  // #91: issue asks for "Playwright e2e across breakpoints and both themes,
+  // including every degraded state" for the Milestones panel — so it joins
+  // this list rather than running once at the default viewport. Its own
+  // theme block covers dark/light at whichever breakpoint the project is,
+  // which is why there is no third project for themes.
+  'milestones.spec.ts',
   'journal.spec.ts',
 ]
 
