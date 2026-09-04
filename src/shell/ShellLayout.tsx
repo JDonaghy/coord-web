@@ -31,6 +31,7 @@ import DriveQueuePanel from '@/components/DriveQueuePanel'
 import ReportsPanel from '@/components/ReportsPanel'
 import AnswersPanel from '@/components/AnswersPanel'
 import MachinesPanel from '@/components/MachinesPanel'
+import MilestonesPanel from '@/components/MilestonesPanel'
 import { fetchPipeline, fetchSessions } from '@/api/client'
 import { isActive, needsMe, latestPerIssue } from '@/lib/pipeline'
 import { RAIL_VIEW_PATH, shellViewFromPath } from '@/routes/paths'
@@ -67,6 +68,11 @@ const VIEWS_WITH_DETAIL_ROUTE: ReadonlySet<ShellView> = new Set<ShellView>([
   'pipeline',
   'sessions',
   'machines',
+  // #91: `/milestones/:repo/:number` (`MilestoneDetailPanel`) is real
+  // content shipped in that same story — the ordered work order and the
+  // Gate-A sign-off — so Milestones joins the list/detail split rather than
+  // the list-only posture Queue/Reports/Answers take.
+  'milestones',
 ])
 
 export function ShellLayout() {
@@ -91,11 +97,13 @@ export function ShellLayout() {
   const pipelineItemTabMatch = useMatch('/pipeline/:repo/:issue/:tab')
   const sessionItemMatch = useMatch('/sessions/:id')
   const machineItemMatch = useMatch('/machines/:name')
+  const milestoneItemMatch = useMatch('/milestones/:repo/:number')
   const detailActive = !!(
     pipelineItemMatch ||
     pipelineItemTabMatch ||
     sessionItemMatch ||
-    machineItemMatch
+    machineItemMatch ||
+    milestoneItemMatch
   )
 
   // Whether the current view's detail route is real content at all (see
@@ -156,6 +164,12 @@ export function ShellLayout() {
     // Sessions have (see `VIEWS_WITH_DETAIL_ROUTE` above) -- `machineItemMatch`
     // drives `detailActive` when a specific machine is selected.
     list = <MachinesPanel />
+  } else if (currentView === 'milestones') {
+    // #91: same list/detail split as Machines above — `milestoneItemMatch`
+    // drives `detailActive` when a specific milestone is selected, and
+    // `/milestones/:repo/:number` renders `MilestoneDetailPanel` in the
+    // detail slot (see `VIEWS_WITH_DETAIL_ROUTE`).
+    list = <MilestonesPanel />
   } else if (currentView === 'queue') {
     // QW-2 was the rail entry + route; QW-3 is this line — the summary
     // block + repo-scope dropdown + nine-column grid itself. There is still

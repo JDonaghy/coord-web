@@ -50,6 +50,14 @@ export const paths = {
   machineItem: (name: string) => `/machines/${encodeURIComponent(name)}`,
   mergeQueue: () => '/merge-queue',
   milestones: () => '/milestones',
+  /** #91 — one milestone's ordered work order + Gate-A sign-off. Keyed on
+   * `repo` + GitHub's own milestone *number* (not the tracking issue, and
+   * not a slug): that pair is what `GET /api/milestones/{repo}/{number}`
+   * takes and what `ms-N` means everywhere else in the system
+   * (`tests/acceptance/ms-N/`, `coord gate-a`'s own messages). Same
+   * list -> detail addressing convention `machineItem`/`session` use. */
+  milestoneItem: (repo: string, number: number | string): string =>
+    `/milestones/${encodeURIComponent(repo)}/${encodeURIComponent(String(number))}`,
   queue: () => '/queue',
   audit: () => '/audit',
   spend: () => '/spend',

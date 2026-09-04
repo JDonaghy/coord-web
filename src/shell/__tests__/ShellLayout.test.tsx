@@ -218,7 +218,10 @@ describe('shell — wide (>= 1024px)', () => {
     // Built.
     expect(await screen.findByRole('button', { name: /Pipeline/ })).toBeInTheDocument()
     // Not built yet, but visibly coming rather than silently absent.
-    for (const label of ['Board', 'Merge queue', 'Milestones', 'Audit', 'Spend']) {
+    // #91 flipped Milestones to 'ready' (its backend, claude-coordinator#3072,
+    // shipped), so it is no longer one of these — the list is the entries
+    // that still have no panel behind them.
+    for (const label of ['Board', 'Merge queue', 'Audit', 'Spend']) {
       const item = screen.getByRole('button', { name: new RegExp(label) })
       expect(item).toHaveAttribute('aria-disabled', 'true')
     }
@@ -396,7 +399,7 @@ describe('shell — narrow (< 768px): the phone app, preserved', () => {
     expect(screen.getByRole('button', { name: /Pipeline/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Sessions/ })).toBeInTheDocument()
     // A dimmed, un-tappable placeholder is noise on a phone's bottom nav.
-    expect(screen.queryByRole('button', { name: /Milestones/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Board/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^Spend/ })).not.toBeInTheDocument()
   })
 
@@ -482,7 +485,7 @@ describe('shell — activity rail view selection', () => {
     renderShell()
     await screen.findByRole('heading', { name: 'Pipeline' })
 
-    // Unlike the 'soon' entries (Board, Milestones, ...), Queue's rail entry
+    // Unlike the 'soon' entries (Board, Merge queue, ...), Queue's rail entry
     // is 'ready' (railItems.ts) -- the route + nav are this story's whole
     // scope, even though the grid behind it (QW-3) isn't built yet.
     const queueButton = screen.getByRole('button', { name: /^Queue/ })
@@ -501,7 +504,7 @@ describe('shell — activity rail view selection', () => {
     renderShell()
     await screen.findByRole('heading', { name: 'Pipeline' })
 
-    // Unlike the 'soon' entries (Board, Milestones, ...), Machines' rail
+    // Unlike the 'soon' entries (Board, Merge queue, ...), Machines' rail
     // entry is 'ready' (railItems.ts) -- the route + nav + API client wiring
     // are this story's scope, even though the metrics/health grid behind it
     // (later milestone #4 stories) isn't built yet.

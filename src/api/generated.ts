@@ -733,3 +733,136 @@ export interface GateAMockWire {
   title: string
   html: string
 }
+
+// ── GET /api/milestones{,/{repo}/{number}} (claude-coordinator#3072 / coord-web#91) ──
+//
+// Hand-spliced from a real generator run, exactly as the Gate-A block above
+// documents and for the same reason: `python -m coord.codegen --out
+// src/api/generated.ts` against installed `code-coordinator==0.5.368` (the
+// version these types were verified against) rewrites/renames dozens of
+// unrelated types the Machines/Reports/DriveQueue sections hand-maintain,
+// which is a separate repo-wide task (coord-web#77 / claude-coordinator#2258)
+// and not something to fold into a Milestones panel PR. The six interfaces
+// below are that run's verbatim output for these two routes — copied
+// field-for-field, never hand-authored — and were additionally checked
+// against a LIVE server: `coord web` on `coord==0.5.368`, curling
+// `GET /api/milestones?repo=coord-web` and `GET /api/milestones/coord-web/1`
+// and diffing the returned keys against these declarations. Replace them
+// wholesale, not by re-diffing, when the full-file regeneration happens.
+//
+// Two 404 shapes exist on these routes and the client has to tell them
+// apart (see `client.ts`'s `fetchMilestones`): a *handled* 404 (unknown repo
+// or unknown milestone) answers `application/json` with `{"error": "..."}`,
+// while a coord server too old to have the route at all answers Starlette's
+// default `text/plain` "Not Found". Both were curled on that same server.
+
+/** `GET /api/milestones` — the milestone roster. `warnings` carries per-repo
+ * fetch failures (a `gh` outage, an unreadable repo) as strings instead of
+ * failing the whole roster, mirroring `coord plans`: one unreachable repo
+ * must not blank the other five. A repo with no milestones contributes no
+ * rows and no warning, so an empty roster is `{milestones: [], warnings: []}`
+ * — never an error. */
+export interface MilestoneListResponse {
+  milestones: MilestoneSummaryWire[]
+  warnings: string[]
+}
+
+/** One roster row. `open_issues`/`closed_issues` are GitHub's own counters
+ * for the whole milestone; `work_order_total`/`work_order_done` and the
+ * ready/in-flight/blocked trio are **work-order-scoped**. The two scopes are
+ * different on purpose and are routinely different numbers — the work order
+ * is the declared scope of automated dispatch, the milestone is whatever has
+ * been filed under it. `oracle` is whether the repo is opted into the oracle
+ * loop (`config.acceptance.has_driver`). */
+export interface MilestoneSummaryWire {
+  repo_name: string
+  milestone_number: number
+  title: string
+  state: 'open' | 'closed'
+  tracking_issue: number | null
+  open_issues: number
+  closed_issues: number
+  oracle: boolean
+  has_work_order: boolean
+  work_order_total: number
+  work_order_done: number
+  ready_frontier: number
+  in_flight: number
+  blocked: number
+  needs_you: string[]
+}
+
+/** `GET /api/milestones/{repo}/{number}` — one milestone's story. `entries`
+ * is the tracking epic's `## Work order` block **in declared order**, not
+ * GitHub milestone membership (a set with no sequence); render it in the
+ * order received and never re-sort client-side. Empty when the milestone has
+ * no tracking epic or its epic has no parseable work-order block —
+ * `has_work_order` tells those apart from a genuinely empty one. `gate_a` is
+ * `null` for a repo not opted into the oracle loop, which is a fact, not an
+ * error. */
+export interface MilestoneDetail {
+  repo_name: string
+  milestone_number: number
+  title: string
+  state: 'open' | 'closed'
+  tracking_issue: number | null
+  open_issues: number
+  closed_issues: number
+  oracle: boolean
+  has_work_order: boolean
+  entries: MilestoneEntryWire[]
+  gate_a: MilestoneGateAWire | null
+  warnings: string[]
+}
+
+/** One node of the `## Work order`. `position` is its 1-based index in that
+ * block. `state` is `"open"`/`"closed"` as GitHub reports it, or `null` for a
+ * declared node that could not be resolved to a live issue (a typo'd number,
+ * or one that has since moved repos) — reported as unknown rather than
+ * guessed closed. */
+export interface MilestoneEntryWire {
+  issue_number: number
+  title: string
+  state: 'open' | 'closed' | null
+  position: number
+  after: number[]
+  group: string | null
+  gates: MilestoneGateColumnsWire | null
+}
+
+/** One entry's gate columns, as `coord gates` reports them — deliberately
+ * the *columns*, not a live gate decision (rendering a roster must not fan
+ * out one `gh` SHA comparison per entry). `null` on an entry means the board
+ * has no work-like row for that issue at all (never dispatched), which is a
+ * different fact from "dispatched, no verdict yet" (a row here with every
+ * verdict column `null`). */
+export interface MilestoneGateColumnsWire {
+  assignment_id: string | null
+  status: AssignmentStatus | null
+  branch: string | null
+  machine_name: string | null
+  test_state: TestVerdict | null
+  smoke_test: 'pass' | 'fail' | null
+  review_state: 'pending' | 'dispatched' | 'done' | null
+  review_verdict: 'approve' | 'request-changes' | null
+}
+
+/** A milestone's Gate-A sign-off, summarised — deliberately a SUMMARY, not a
+ * second copy of `GateAPacket`: `href` points at
+ * `GET /api/gate-a/{repo}/{tracking_issue}` for the full packet (contract
+ * markdown + every rendered mock), and this carries only what a roster row
+ * shows. `verdict` is `null` when nobody has recorded one yet;
+ * `approved_contract_sha` is the sha that verdict was recorded against,
+ * which differs from `contract_sha` exactly when the contract was amended
+ * after sign-off (`state === 'stale'`). */
+export interface MilestoneGateAWire {
+  state: 'approved' | 'missing' | 'stale' | 'changes' | 'exempt'
+  ok: boolean
+  contract_sha: string
+  reason: string | null
+  verdict: 'approved' | 'changes' | null
+  actor: string | null
+  recorded_at: number | null
+  approved_contract_sha: string | null
+  href: string | null
+}

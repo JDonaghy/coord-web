@@ -80,6 +80,15 @@ describe('shellViewFromPath', () => {
     expect(shellViewFromPath(paths.pipelineItem('myrepo', 42, 'log'))).toBe('pipeline')
     expect(shellViewFromPath(paths.session('sess-1'))).toBe('sessions')
     expect(shellViewFromPath(paths.machineItem('laptop'))).toBe('machines')
+    expect(shellViewFromPath(paths.milestoneItem('coord-web', 4))).toBe('milestones')
+  })
+
+  it('encodes a milestone item route’s repo slug (#91)', () => {
+    // A repo configured by its `owner/name` slug would otherwise inject a
+    // path segment — the whole reason this module exists rather than
+    // template literals at each call site.
+    expect(paths.milestoneItem('coord-web', 4)).toBe('/milestones/coord-web/4')
+    expect(paths.milestoneItem('JDonaghy/coord-web', 4)).toBe('/milestones/JDonaghy%2Fcoord-web/4')
   })
 
   it('does not let one view path prefix-match another', () => {

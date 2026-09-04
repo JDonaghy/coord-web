@@ -47,6 +47,12 @@ import type {
   MachineState,
   MachineStatsRow,
   MachineWorkStats,
+  MilestoneDetail,
+  MilestoneEntryWire,
+  MilestoneGateAWire,
+  MilestoneGateColumnsWire,
+  MilestoneListResponse,
+  MilestoneSummaryWire,
   PipelineAction,
   PipelineGate,
   PipelineStage,
@@ -91,6 +97,12 @@ export type {
   MachineState,
   MachineStatsRow,
   MachineWorkStats,
+  MilestoneDetail,
+  MilestoneEntryWire,
+  MilestoneGateAWire,
+  MilestoneGateColumnsWire,
+  MilestoneListResponse,
+  MilestoneSummaryWire,
   PipelineAction,
   PipelineGate,
   PipelineStage,
@@ -254,6 +266,8 @@ export const API_ROUTES = {
   portalNeedsInput: '/api/portal/needs-input',
   portalAnswer: '/api/portal/answer',
   gateA: '/api/gate-a/{repo}/{tracking_issue}',
+  milestones: '/api/milestones',
+  milestoneDetail: '/api/milestones/{repo}/{number}',
 } as const satisfies Record<string, string>
 
 /**
@@ -896,6 +910,300 @@ export async function fetchGateA(repo: string, trackingIssue: number): Promise<G
     return { ok: false, status: res.status, error: data.error ?? `HTTP ${res.status}` }
   }
   return { ok: true, data: data as GateAPacket }
+}
+
+// ── GET /api/milestones{,/{repo}/{number}} (claude-coordinator#3072 / #91) ──
+//
+// The Milestones panel's whole data layer. Three things this section does
+// differently from every other endpoint above, each of them a direct
+// response to a real incident this repo has already had:
+//
+//  1. **Nothing is cast.** `#85` (and `#76`/`#84` before it) shipped a panel
+//     that took `res.json()` and asserted it into the declared type; a wrong
+//     shape then reached render as a blank screen. `parseMilestoneList` /
+//     `parseMilestoneDetail` below walk the response field by field and
+//     return a *value* built from what was actually there — a bad field is a
+//     legible `{ok: false, kind: 'invalid'}` state the panel renders as a
+//     message, never a `TypeError` 3 components deep.
+//  2. **"Route absent" is a first-class outcome, not an error.** coord-web
+//     auto-deploys on its own timer (CLAUDE.md "Deploy"), decoupled from any
+//     claude-coordinator release, so this bundle *will* run against a coord
+//     server that predates claude-coordinator#3072 — for weeks, realistically.
+//     That case must render an explanatory empty state. The two 404s are told
+//     apart by their body, verified by curling a real `coord==0.5.368`
+//     server: a *handled* 404 (unknown repo / unknown milestone) answers
+//     `application/json` `{"error": "..."}`, an unrouted path answers
+//     Starlette's default `text/plain` "Not Found".
+//  3. **Order is preserved verbatim.** `MilestoneDetail.entries` arrives in
+//     the tracking epic's `## Work order` sequence, which GitHub milestone
+//     membership cannot express. Nothing in this client or the panel sorts
+//     it.
+
+/**
+ * The outcome of a milestone query. Four states, all of them things that
+ * genuinely happen against a real fleet — see this section's header:
+ *
+ *  - `ok`         — a validated response.
+ *  - `absent`     — this coord server has no such route (pre-#3072).
+ *  - `not-found`  — the route exists and answered a handled 404 (unknown
+ *                   repo, unknown milestone number).
+ *  - `invalid`    — the route answered 2xx with a body that isn't the
+ *                   declared shape (#85). `error` names the offending field.
+ *
+ * Anything else (5xx, a network failure) still throws, so react-query's
+ * `isError` keeps its usual meaning: "something is broken", as distinct from
+ * these four, which are all "the server told us something true".
+ */
+export type MilestoneQueryResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; kind: 'absent' }
+  | { ok: false; kind: 'not-found'; error: string }
+  | { ok: false; kind: 'invalid'; error: string }
+
+/** Thrown internally by the parsers below and converted to an `invalid`
+ * result by the fetchers — never escapes this module. */
+class WireShapeError extends Error {}
+
+function fail(path: string, expected: string): never {
+  throw new WireShapeError(`${path}: expected ${expected}`)
+}
+
+function obj(value: unknown, path: string): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    fail(path, 'an object')
+  }
+  return value as Record<string, unknown>
+}
+
+function arr(value: unknown, path: string): unknown[] {
+  if (!Array.isArray(value)) fail(path, 'an array')
+  return value
+}
+
+function str(value: unknown, path: string): string {
+  if (typeof value !== 'string') fail(path, 'a string')
+  return value
+}
+
+function num(value: unknown, path: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) fail(path, 'a number')
+  return value
+}
+
+function bool(value: unknown, path: string): boolean {
+  if (typeof value !== 'boolean') fail(path, 'a boolean')
+  return value
+}
+
+function nullableStr(value: unknown, path: string): string | null {
+  return value === null || value === undefined ? null : str(value, path)
+}
+
+function nullableNum(value: unknown, path: string): number | null {
+  return value === null || value === undefined ? null : num(value, path)
+}
+
+/** A nullable string constrained to a known set. An *unknown* member is
+ * deliberately narrowed to `null` rather than rejected: the server is free to
+ * introduce a new gate state or milestone state, and a roster that refuses to
+ * render because one row carries a value this bundle predates would be a
+ * worse bug than a row showing that one cell as unknown. Rejecting is
+ * reserved for shape errors (a number where a string belongs), which are
+ * always a real mismatch. */
+function oneOf<T extends string>(value: unknown, path: string, allowed: readonly T[]): T | null {
+  const s = nullableStr(value, path)
+  if (s === null) return null
+  return (allowed as readonly string[]).includes(s) ? (s as T) : null
+}
+
+const MILESTONE_STATES = ['open', 'closed'] as const
+const GATE_A_STATES = ['approved', 'missing', 'stale', 'changes', 'exempt'] as const
+const GATE_A_VERDICTS = ['approved', 'changes'] as const
+const REVIEW_STATES = ['pending', 'dispatched', 'done'] as const
+const REVIEW_VERDICTS = ['approve', 'request-changes'] as const
+const SMOKE_RESULTS = ['pass', 'fail'] as const
+const TEST_VERDICTS = ['passed', 'failed', 'skipped', 'running'] as const satisfies readonly TestVerdict[]
+/** `AssignmentStatus`'s own value set, spelled out for the runtime check —
+ * `generated.ts` declares it as a type, and a type cannot be iterated at
+ * runtime. Kept in the same order as the declaration there. */
+const ASSIGNMENT_STATUSES = [
+  'pending',
+  'running',
+  'done',
+  'failed',
+  'cancelled',
+  'advisory',
+  'merged',
+] as const satisfies readonly AssignmentStatus[]
+
+function parseGateColumns(raw: unknown, path: string): MilestoneGateColumnsWire | null {
+  if (raw === null || raw === undefined) return null
+  const o = obj(raw, path)
+  return {
+    assignment_id: nullableStr(o.assignment_id, `${path}.assignment_id`),
+    status: oneOf(o.status, `${path}.status`, ASSIGNMENT_STATUSES),
+    branch: nullableStr(o.branch, `${path}.branch`),
+    machine_name: nullableStr(o.machine_name, `${path}.machine_name`),
+    test_state: oneOf(o.test_state, `${path}.test_state`, TEST_VERDICTS),
+    smoke_test: oneOf(o.smoke_test, `${path}.smoke_test`, SMOKE_RESULTS),
+    review_state: oneOf(o.review_state, `${path}.review_state`, REVIEW_STATES),
+    review_verdict: oneOf(o.review_verdict, `${path}.review_verdict`, REVIEW_VERDICTS),
+  }
+}
+
+function parseGateA(raw: unknown, path: string): MilestoneGateAWire | null {
+  if (raw === null || raw === undefined) return null
+  const o = obj(raw, path)
+  return {
+    state: oneOf(o.state, `${path}.state`, GATE_A_STATES) ?? 'missing',
+    ok: bool(o.ok, `${path}.ok`),
+    contract_sha: str(o.contract_sha, `${path}.contract_sha`),
+    reason: nullableStr(o.reason, `${path}.reason`),
+    verdict: oneOf(o.verdict, `${path}.verdict`, GATE_A_VERDICTS),
+    actor: nullableStr(o.actor, `${path}.actor`),
+    recorded_at: nullableNum(o.recorded_at, `${path}.recorded_at`),
+    approved_contract_sha: nullableStr(o.approved_contract_sha, `${path}.approved_contract_sha`),
+    href: nullableStr(o.href, `${path}.href`),
+  }
+}
+
+/**
+ * Validate `GET /api/milestones`. Exported for its own unit tests — the
+ * point of #85's fix is that this is testable in isolation, not buried in a
+ * fetch call nobody can reach without a network.
+ */
+export function parseMilestoneList(raw: unknown): MilestoneListResponse {
+  const o = obj(raw, 'response')
+  return {
+    milestones: arr(o.milestones, 'response.milestones').map((entry, i) => {
+      const path = `response.milestones[${String(i)}]`
+      const m = obj(entry, path)
+      return {
+        repo_name: str(m.repo_name, `${path}.repo_name`),
+        milestone_number: num(m.milestone_number, `${path}.milestone_number`),
+        title: str(m.title, `${path}.title`),
+        state: oneOf(m.state, `${path}.state`, MILESTONE_STATES) ?? 'open',
+        tracking_issue: nullableNum(m.tracking_issue, `${path}.tracking_issue`),
+        open_issues: num(m.open_issues, `${path}.open_issues`),
+        closed_issues: num(m.closed_issues, `${path}.closed_issues`),
+        oracle: bool(m.oracle, `${path}.oracle`),
+        has_work_order: bool(m.has_work_order, `${path}.has_work_order`),
+        work_order_total: num(m.work_order_total, `${path}.work_order_total`),
+        work_order_done: num(m.work_order_done, `${path}.work_order_done`),
+        ready_frontier: num(m.ready_frontier, `${path}.ready_frontier`),
+        in_flight: num(m.in_flight, `${path}.in_flight`),
+        blocked: num(m.blocked, `${path}.blocked`),
+        needs_you: arr(m.needs_you, `${path}.needs_you`).map((n, j) =>
+          str(n, `${path}.needs_you[${String(j)}]`),
+        ),
+      }
+    }),
+    warnings: arr(o.warnings ?? [], 'response.warnings').map((w, i) =>
+      str(w, `response.warnings[${String(i)}]`),
+    ),
+  }
+}
+
+/**
+ * Validate `GET /api/milestones/{repo}/{number}`. `entries` keeps the order
+ * it arrived in — the `## Work order` sequence is the whole reason this
+ * endpoint exists rather than reading GitHub milestone membership.
+ */
+export function parseMilestoneDetail(raw: unknown): MilestoneDetail {
+  const o = obj(raw, 'response')
+  return {
+    repo_name: str(o.repo_name, 'response.repo_name'),
+    milestone_number: num(o.milestone_number, 'response.milestone_number'),
+    title: str(o.title, 'response.title'),
+    state: oneOf(o.state, 'response.state', MILESTONE_STATES) ?? 'open',
+    tracking_issue: nullableNum(o.tracking_issue, 'response.tracking_issue'),
+    open_issues: num(o.open_issues, 'response.open_issues'),
+    closed_issues: num(o.closed_issues, 'response.closed_issues'),
+    oracle: bool(o.oracle, 'response.oracle'),
+    has_work_order: bool(o.has_work_order, 'response.has_work_order'),
+    entries: arr(o.entries, 'response.entries').map((entry, i) => {
+      const path = `response.entries[${String(i)}]`
+      const e = obj(entry, path)
+      return {
+        issue_number: num(e.issue_number, `${path}.issue_number`),
+        title: str(e.title, `${path}.title`),
+        state: oneOf(e.state, `${path}.state`, MILESTONE_STATES),
+        position: num(e.position, `${path}.position`),
+        after: arr(e.after ?? [], `${path}.after`).map((a, j) =>
+          num(a, `${path}.after[${String(j)}]`),
+        ),
+        group: nullableStr(e.group, `${path}.group`),
+        gates: parseGateColumns(e.gates, `${path}.gates`),
+      }
+    }),
+    gate_a: parseGateA(o.gate_a, 'response.gate_a'),
+    warnings: arr(o.warnings ?? [], 'response.warnings').map((w, i) =>
+      str(w, `response.warnings[${String(i)}]`),
+    ),
+  }
+}
+
+/**
+ * Fetch a milestone endpoint and validate it, mapping every honest outcome
+ * onto `MilestoneQueryResult`. Shared by both fetchers below so the
+ * absent-vs-not-found discrimination lives in exactly one place.
+ */
+async function fetchMilestoneJson<T>(
+  path: string,
+  parse: (raw: unknown) => T,
+): Promise<MilestoneQueryResult<T>> {
+  const res = await fetch(`${API_BASE}${path}`)
+  if (res.status === 404) {
+    // A handled 404 carries a JSON `{"error": ...}` body; an unrouted path on
+    // a coord server predating claude-coordinator#3072 answers Starlette's
+    // default `text/plain` "Not Found". Both verified against a real server.
+    let error: string | null = null
+    try {
+      const body: unknown = await res.json()
+      if (typeof body === 'object' && body !== null && typeof (body as { error?: unknown }).error === 'string') {
+        error = (body as { error: string }).error
+      }
+    } catch {
+      // Not JSON at all — the unrouted case.
+    }
+    return error === null ? { ok: false, kind: 'absent' } : { ok: false, kind: 'not-found', error }
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`GET ${path} → HTTP ${String(res.status)}: ${text}`)
+  }
+  let raw: unknown
+  try {
+    raw = await res.json()
+  } catch {
+    return { ok: false, kind: 'invalid', error: `GET ${path}: response was not JSON` }
+  }
+  try {
+    return { ok: true, data: parse(raw) }
+  } catch (err) {
+    if (err instanceof WireShapeError) {
+      return { ok: false, kind: 'invalid', error: `GET ${path} → ${err.message}` }
+    }
+    throw err
+  }
+}
+
+/** Fetch the milestone roster across every tracked repo. Pass `repo` to
+ * scope to one (mirrors `coord plans --repo`; an unknown repo is a handled
+ * 404 → `not-found`, not `absent`). */
+export async function fetchMilestones(repo?: string): Promise<MilestoneQueryResult<MilestoneListResponse>> {
+  const query = repo ? `?repo=${encodeURIComponent(repo)}` : ''
+  return fetchMilestoneJson(`${API_ROUTES.milestones}${query}`, parseMilestoneList)
+}
+
+/** Fetch one milestone's ordered work order, per-entry gate columns and
+ * Gate-A summary. */
+export async function fetchMilestoneDetail(
+  repo: string,
+  number: number,
+): Promise<MilestoneQueryResult<MilestoneDetail>> {
+  const path = buildPath(API_ROUTES.milestoneDetail, { repo, number: String(number) })
+  return fetchMilestoneJson(path, parseMilestoneDetail)
 }
 
 // ── WS /ws/terminal/{session_id} ────────────────────────────────────────────
