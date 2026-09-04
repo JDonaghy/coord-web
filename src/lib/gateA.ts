@@ -12,6 +12,7 @@
  * and it sits 200 lines down").
  */
 import type { GateAPacket } from '@/api/client'
+import { BREAKPOINT_MEDIUM_PX } from '@/shell/breakpoints'
 
 // ── Verdict / state display ─────────────────────────────────────────────────
 
@@ -96,7 +97,7 @@ export interface GateAWidthPreset {
 
 export const GATE_A_WIDTH_PRESETS: readonly GateAWidthPreset[] = [
   { id: 'phone', label: 'Phone (390px)', px: 390 },
-  { id: 'tablet', label: 'Tablet (768px)', px: 768 },
+  { id: 'tablet', label: `Tablet (${BREAKPOINT_MEDIUM_PX}px)`, px: BREAKPOINT_MEDIUM_PX },
   { id: 'full', label: 'Full width', px: null },
 ]
 
