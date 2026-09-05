@@ -14,12 +14,15 @@ import {
   buildReportChartAriaLabel,
   buildReportParamDefaults,
   DEFAULT_REPORT_ID,
+  defaultReportSort,
   defaultSelectedReportId,
   formatReportChartValue,
   formatReportDuration,
   formatReportList,
   formatReportMoney,
+  formatReportRelativeAge,
   formatReportTimestamp,
+  isReportRelativeAgeColumn,
   reportCellAlign,
   reportCellIsMono,
   reportCellText,
@@ -29,6 +32,7 @@ import {
   reportEnumBadgeVariant,
   reportListOptions,
   reportParamIsChoice,
+  reportRelativeAgeCellText,
   reportRowCountLabel,
   REPORT_EMPTY_CELL,
   type ReportChartRenderPlan,
@@ -73,6 +77,90 @@ describe('formatReportTimestamp', () => {
     const text = formatReportTimestamp(1704164640)
     expect(text).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)
     expect(text).not.toMatch(/-\d-|:\d$/)
+  })
+})
+
+// ── formatReportRelativeAge (#96 -- completed's Started/Ended) ──────────────
+
+describe('formatReportRelativeAge', () => {
+  // `now` is epoch MILLISECONDS; each case fixes `epochSeconds` at 0 and
+  // drives the age purely off `now`, so the boundary under test is exactly
+  // the number of elapsed seconds named in the case.
+  const agoAt = (elapsedSeconds: number) => formatReportRelativeAge(0, elapsedSeconds * 1000)
+
+  it('under a minute -> seconds, e.g. 43s ago', () => {
+    expect(agoAt(43)).toBe('43s ago')
+  })
+
+  it('59s stays in the seconds bucket', () => {
+    expect(agoAt(59)).toBe('59s ago')
+  })
+
+  it('60s rolls into the minutes bucket', () => {
+    expect(agoAt(60)).toBe('1m ago')
+  })
+
+  it('under an hour -> minutes only, e.g. 12m ago', () => {
+    expect(agoAt(12 * 60)).toBe('12m ago')
+  })
+
+  it('3599s stays in the minutes bucket', () => {
+    expect(agoAt(3599)).toBe('59m ago')
+  })
+
+  it('3600s rolls into the hours+minutes bucket', () => {
+    expect(agoAt(3600)).toBe('1h0m ago')
+  })
+
+  it('under a day -> hours+minutes, no space, e.g. 8h20m ago', () => {
+    expect(agoAt(8 * 3600 + 20 * 60)).toBe('8h20m ago')
+  })
+
+  it('86399s stays in the hours+minutes bucket', () => {
+    expect(agoAt(86399)).toBe('23h59m ago')
+  })
+
+  it('86400s rolls into the days bucket', () => {
+    expect(agoAt(86400)).toBe('1d ago')
+  })
+
+  it('a year-old row rolls up to days alone, not an unbounded hour count', () => {
+    expect(agoAt(406 * 86400)).toBe('406d ago')
+  })
+
+  it('clamps a future timestamp to the zero-age rendering rather than going negative', () => {
+    // epochSeconds is 100s AHEAD of now -- must read as "just happened", not "-100s ago".
+    expect(formatReportRelativeAge(100, 0)).toBe('0s ago')
+  })
+})
+
+describe('reportRelativeAgeCellText', () => {
+  it('a present value delegates to formatReportRelativeAge', () => {
+    expect(reportRelativeAgeCellText(0, 60_000)).toBe('1m ago')
+  })
+
+  it('a missing value renders the empty cell, not "NaNs ago"', () => {
+    expect(reportRelativeAgeCellText(null)).toBe(REPORT_EMPTY_CELL)
+    expect(reportRelativeAgeCellText(undefined)).toBe(REPORT_EMPTY_CELL)
+  })
+})
+
+describe('isReportRelativeAgeColumn', () => {
+  it('true for completed\'s started_at/ended_at only', () => {
+    expect(isReportRelativeAgeColumn('completed', 'started_at')).toBe(true)
+    expect(isReportRelativeAgeColumn('completed', 'ended_at')).toBe(true)
+  })
+
+  it('false for every other completed column', () => {
+    expect(isReportRelativeAgeColumn('completed', 'issue')).toBe(false)
+    expect(isReportRelativeAgeColumn('completed', 'cost_total')).toBe(false)
+  })
+
+  it('false for the same column ids on a different report -- scoped, not structural', () => {
+    // §96's own scoping: the generic `timestamp` kind (e.g. issue-activity's
+    // `timestamp` column) must keep rendering via formatReportTimestamp.
+    expect(isReportRelativeAgeColumn('issue-activity', 'started_at')).toBe(false)
+    expect(isReportRelativeAgeColumn('drive-queue-status', 'ended_at')).toBe(false)
   })
 })
 
@@ -369,6 +457,50 @@ describe('sortReportRows', () => {
     const textRows = [{ state: 'waiting' }, { state: 'blocked' }, { state: 'running' }]
     const sorted = sortReportRows(textRows, 'state', 'enum', 'ascending')
     expect(sorted.map((r) => r.state)).toEqual(['blocked', 'running', 'waiting'])
+  })
+
+  it('a row with a missing numeric cell sorts last, both ascending and descending (#96)', () => {
+    const timestampRows = [
+      { issue: 'api#51', ended_at: 1787222400 },
+      { issue: 'coord-web#9', ended_at: null },
+      { issue: 'coord-web#19', ended_at: 1787068500 },
+    ]
+    const ascending = sortReportRows(timestampRows, 'ended_at', 'timestamp', 'ascending')
+    expect(ascending.map((r) => r.issue)).toEqual(['coord-web#19', 'api#51', 'coord-web#9'])
+
+    const descending = sortReportRows(timestampRows, 'ended_at', 'timestamp', 'descending')
+    expect(descending.map((r) => r.issue)).toEqual(['api#51', 'coord-web#19', 'coord-web#9'])
+  })
+})
+
+// ── default grid sort (#96) ──────────────────────────────────────────────────
+
+describe('defaultReportSort', () => {
+  it('completed opens Ended descending -- most recently completed first', () => {
+    const result: Pick<ReportResult, 'report_id' | 'column_meta'> = {
+      report_id: 'completed',
+      column_meta: [
+        { id: 'issue', label: 'Issue', kind: 'text', align: 'left', weight: 1 },
+        { id: 'started_at', label: 'Started', kind: 'timestamp', align: 'left', weight: 1 },
+        { id: 'ended_at', label: 'Ended', kind: 'timestamp', align: 'left', weight: 1 },
+      ],
+    }
+    expect(defaultReportSort(result)).toEqual({ columnId: 'ended_at', direction: 'descending' })
+  })
+
+  it('every other report keeps the original ascending-on-first-column default', () => {
+    const result: Pick<ReportResult, 'report_id' | 'column_meta'> = {
+      report_id: 'drive-queue-status',
+      column_meta: [
+        { id: 'position', label: '#', kind: 'int', align: 'right', weight: 1 },
+        { id: 'issue', label: 'Issue', kind: 'text', align: 'left', weight: 1 },
+      ],
+    }
+    expect(defaultReportSort(result)).toEqual({ columnId: 'position', direction: 'ascending' })
+  })
+
+  it('an empty column_meta yields no default sort', () => {
+    expect(defaultReportSort({ report_id: 'usage', column_meta: [] })).toBeNull()
   })
 })
 

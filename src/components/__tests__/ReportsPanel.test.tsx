@@ -369,3 +369,139 @@ describe('ReportsPanel — chart rendering (§8)', () => {
     expect(screen.queryByTestId('reports-chart-degraded')).not.toBeInTheDocument()
   })
 })
+
+// ── completed's relative-age cells and default sort (#96) ──────────────────
+//
+// `formatReportRelativeAge`'s own bucket-boundary cases live in
+// `src/lib/__tests__/reports.test.ts` with an injected `now`; these drive
+// the same rendering through the real component tree (`ReportsPanel` calls
+// the default, wall-clock `now`), so deltas below are chosen well inside a
+// bucket rather than on a boundary -- the few milliseconds between building
+// a fixture and the component reading `Date.now()` must never be able to
+// tip a bucket.
+
+function completedRow(issue: string, endedAgoSeconds: number | null, startedAgoSeconds: number): Record<string, unknown> {
+  const nowSeconds = Date.now() / 1000
+  return {
+    issue,
+    repo: 'api',
+    title: `Row ${issue}`,
+    started_at: nowSeconds - startedAgoSeconds,
+    ended_at: endedAgoSeconds == null ? null : nowSeconds - endedAgoSeconds,
+  }
+}
+
+function makeCompletedResult(rows: Record<string, unknown>[]): ReportResult {
+  return makeResult({
+    report_id: 'completed',
+    columns: ['issue', 'started_at', 'ended_at'],
+    column_meta: [
+      { id: 'issue', label: 'Issue', kind: 'text', align: 'left', weight: 1 },
+      { id: 'started_at', label: 'Started', kind: 'timestamp', align: 'left', weight: 1 },
+      { id: 'ended_at', label: 'Ended', kind: 'timestamp', align: 'left', weight: 1 },
+    ],
+    rows,
+  })
+}
+
+describe('ReportsPanel — completed: relative-age cells and default sort (#96)', () => {
+  it("renders Started/Ended as TUI-style relative ages, not absolute YYYY-MM-DD timestamps", async () => {
+    const completed = makeReportDef({ id: 'completed', title: 'Completed' })
+    vi.mocked(fetchReportCatalogue).mockResolvedValue(makeCatalogue([completed]))
+    vi.mocked(fetchReport).mockResolvedValue(
+      makeCompletedResult([completedRow('api#51', 3 * 3600 + 20 * 60, 8 * 3600 + 20 * 60)]),
+    )
+
+    renderPanel()
+    await screen.findByTestId('reports-tab-completed')
+    await clickRunReport()
+
+    const grid = await screen.findByTestId('reports-grid')
+    const row = grid.querySelector('tbody tr')
+    expect(row?.textContent ?? '').toMatch(/8h20m ago/)
+    expect(row?.textContent ?? '').toMatch(/3h20m ago/)
+    // Never the generic timestamp kind's absolute rendering.
+    expect(row?.textContent ?? '').not.toMatch(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/)
+  })
+
+  it('keeps the absolute timestamp on the cell title for hovering', async () => {
+    const completed = makeReportDef({ id: 'completed', title: 'Completed' })
+    vi.mocked(fetchReportCatalogue).mockResolvedValue(makeCatalogue([completed]))
+    vi.mocked(fetchReport).mockResolvedValue(makeCompletedResult([completedRow('api#51', 3600, 7200)]))
+
+    renderPanel()
+    await screen.findByTestId('reports-tab-completed')
+    await clickRunReport()
+
+    const grid = await screen.findByTestId('reports-grid')
+    const endedCell = grid.querySelectorAll('tbody tr')[0]?.querySelectorAll('td')[2]
+    expect(endedCell).toHaveAttribute('title', expect.stringMatching(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/))
+  })
+
+  it('opens sorted by Ended descending -- most recently completed first -- and a header click still toggles', async () => {
+    const completed = makeReportDef({ id: 'completed', title: 'Completed' })
+    vi.mocked(fetchReportCatalogue).mockResolvedValue(makeCatalogue([completed]))
+    // Declared out of Ended order on the wire -- the client must not just
+    // trust server row order (#96's own explicit ask).
+    vi.mocked(fetchReport).mockResolvedValue(
+      makeCompletedResult([
+        completedRow('oldest', 3 * 3600, 4 * 3600),
+        completedRow('newest', 1 * 3600, 2 * 3600),
+        completedRow('middle', 2 * 3600, 3 * 3600),
+      ]),
+    )
+
+    renderPanel()
+    await screen.findByTestId('reports-tab-completed')
+    await clickRunReport()
+
+    const grid = await screen.findByTestId('reports-grid')
+    const issueTextOf = (rows: NodeListOf<Element>) => Array.from(rows).map((r) => r.textContent ?? '')
+
+    await waitFor(() => {
+      const rows = grid.querySelectorAll('tbody tr')
+      expect(issueTextOf(rows)[0]).toMatch(/newest/)
+      expect(issueTextOf(rows)[1]).toMatch(/middle/)
+      expect(issueTextOf(rows)[2]).toMatch(/oldest/)
+    })
+
+    const endedHeader = screen.getByTestId('reports-col-ended_at')
+    expect(endedHeader).toHaveAttribute('aria-sort', 'descending')
+    expect(endedHeader).toHaveTextContent('▼')
+
+    // Clicking the already-sorted Ended header toggles to ascending.
+    await userEvent.click(endedHeader)
+    expect(endedHeader).toHaveAttribute('aria-sort', 'ascending')
+    expect(endedHeader).toHaveTextContent('▲')
+    await waitFor(() => {
+      const rows = grid.querySelectorAll('tbody tr')
+      expect(issueTextOf(rows)[0]).toMatch(/oldest/)
+      expect(issueTextOf(rows)[1]).toMatch(/middle/)
+      expect(issueTextOf(rows)[2]).toMatch(/newest/)
+    })
+  })
+
+  it('a row with a missing ended_at sorts last, never first', async () => {
+    const completed = makeReportDef({ id: 'completed', title: 'Completed' })
+    vi.mocked(fetchReportCatalogue).mockResolvedValue(makeCatalogue([completed]))
+    vi.mocked(fetchReport).mockResolvedValue(
+      makeCompletedResult([
+        completedRow('still-running', null, 3600),
+        completedRow('done-recently', 3600, 7200),
+        completedRow('done-earlier', 2 * 3600, 4 * 3600),
+      ]),
+    )
+
+    renderPanel()
+    await screen.findByTestId('reports-tab-completed')
+    await clickRunReport()
+
+    const grid = await screen.findByTestId('reports-grid')
+    await waitFor(() => {
+      const rows = Array.from(grid.querySelectorAll('tbody tr')).map((r) => r.textContent ?? '')
+      expect(rows[0]).toMatch(/done-recently/)
+      expect(rows[1]).toMatch(/done-earlier/)
+      expect(rows[2]).toMatch(/still-running/)
+    })
+  })
+})

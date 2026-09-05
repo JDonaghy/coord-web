@@ -69,6 +69,15 @@
  * `reports.ts`'s own "chart rendering" section header for the full
  * three-outcome contract and where this web port deliberately diverges from
  * the Rust source.
+ *
+ * #96 makes two narrow, `completed`-scoped changes: its `Started`/`Ended`
+ * cells render as TUI-style relative ages (`8h20m ago`, `isReportRelativeAgeColumn`/
+ * `reportRelativeAgeCellText` in `src/lib/reports.ts`) instead of every
+ * other `timestamp` column's absolute `YYYY-MM-DD HH:MM`, and the grid opens
+ * `Ended`-descending by default (`defaultReportSort`) rather than ascending
+ * on the first column — most-recently-completed first, without relying on
+ * the daemon's own row order. Header-click sort (contract §6c) is otherwise
+ * unchanged, including for `completed` itself once a header is clicked.
  */
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
@@ -84,8 +93,11 @@ import { cn } from '@/lib/utils'
 import {
   buildReportChartAriaLabel,
   buildReportParamDefaults,
+  defaultReportSort,
   defaultSelectedReportId,
   formatReportChartValue,
+  formatReportTimestamp,
+  isReportRelativeAgeColumn,
   isReportRowIdentityColumn,
   reportCellAlign,
   reportCellIsMono,
@@ -96,6 +108,7 @@ import {
   reportEnumBadgeVariant,
   reportListOptions,
   reportParamIsChoice,
+  reportRelativeAgeCellText,
   reportRowCountLabel,
   reportRowIdentityFor,
   reportRowIdentityKey,
@@ -292,7 +305,7 @@ export default function ReportsPanel() {
       setResult(next)
       setHasRun(true)
       setExportParams({ ...paramValues })
-      setSort(next.column_meta[0] ? { columnId: next.column_meta[0].id, direction: 'ascending' } : null)
+      setSort(defaultReportSort(next))
     } catch (e) {
       if (runTokenRef.current !== runToken) return
       toast({
@@ -538,7 +551,25 @@ export default function ReportsPanel() {
                           // instead of falling through to the plain-text/
                           // comma-join path every other `list` column uses.
                           const options = meta.kind === 'list' ? reportListOptions(cellValue) : null
-                          const text = reportCellText(cellValue, meta.kind)
+                          // #96 — `completed`'s `Started`/`Ended` cells
+                          // render as a relative age (`8h20m ago`) instead
+                          // of every other `timestamp` column's absolute
+                          // `YYYY-MM-DD HH:MM`. Scoped to exactly those two
+                          // columns of exactly that report (see
+                          // `isReportRelativeAgeColumn`'s own doc comment)
+                          // — every other `timestamp`-kind cell still goes
+                          // through `reportCellText` unchanged.
+                          const isRelativeAgeCell = isReportRelativeAgeColumn(result.report_id, meta.id)
+                          const text = isRelativeAgeCell
+                            ? reportRelativeAgeCellText(cellValue)
+                            : reportCellText(cellValue, meta.kind)
+                          // Optional per #96's own text: the exact absolute
+                          // timestamp survives on hover even once the cell
+                          // itself reads as a relative age.
+                          const title =
+                            isRelativeAgeCell && typeof cellValue === 'number'
+                              ? formatReportTimestamp(cellValue)
+                              : undefined
                           // #23 RPT-4 — this report's identifying cell (the
                           // one column `RowIdentity.issue_column` names, §7b)
                           // renders as a Link + open-in-new-tab affordance
@@ -556,6 +587,7 @@ export default function ReportsPanel() {
                             <td
                               key={meta.id}
                               data-testid={options ? `reports-options-cell-${index}` : undefined}
+                              title={title}
                               className={cn(
                                 'px-3 py-2',
                                 align === 'right' && 'text-right',
