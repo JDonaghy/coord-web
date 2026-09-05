@@ -74,6 +74,72 @@ export function formatReportTimestamp(epochSeconds: number): string {
 }
 
 /**
+ * `completed`'s `Started`/`Ended` cell text (#96) — `8h20m ago`-style
+ * relative age, a port of `format_unix_time` / `fmt_dur` in coord-tui's
+ * `src/app/format.rs:150` (`fmt_dur(now - ts)` plus a literal `" ago"`).
+ * Deliberately NOT `formatRelativeTime` (`src/lib/time.ts`) — that helper
+ * rounds to whole hours (`8h ago`) and drops the minutes the TUI shows.
+ *
+ * Four buckets, `fmt_dur`'s own:
+ *   - `< 60s` -> `43s ago`
+ *   - `< 1h` -> `12m ago`
+ *   - `< 24h` -> `8h20m ago` (hours+minutes, no space, no leading `0h`)
+ *   - `>= 24h` -> `406d ago` (days alone)
+ *
+ * The day roll-up is deliberate, not laziness: `fmt_dur`'s hour count is
+ * otherwise unbounded, and a year-old row would render `9732h35m ago`.
+ *
+ * `now` is injectable (epoch MILLISECONDS, `Date.now()`-shaped — same
+ * convention `formatRelativeTime`/`formatQueueAge` already use) so tests
+ * don't depend on the wall clock. A future `epochSeconds` (clock skew, or a
+ * row whose `ended_at` briefly reads ahead of `now`) clamps to zero rather
+ * than a negative age, mirroring `format_unix_time`'s own `(now -
+ * ts).max(0.0)`.
+ */
+export function formatReportRelativeAge(epochSeconds: number, now: number = Date.now()): string {
+  const secs = Math.max(0, Math.floor(now / 1000 - epochSeconds))
+  if (secs < 60) return `${secs}s ago`
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`
+  if (secs < 86400) {
+    const hours = Math.floor(secs / 3600)
+    const minutes = Math.floor((secs % 3600) / 60)
+    return `${hours}h${minutes}m ago`
+  }
+  return `${Math.floor(secs / 86400)}d ago`
+}
+
+/**
+ * `completed`'s `Started`/`Ended` cell text, missing-value included — the
+ * same `REPORT_EMPTY_CELL` short-circuit every other kind in
+ * `reportCellText` takes for `null`/absent, wrapping
+ * `formatReportRelativeAge` for a present value. Kept separate from
+ * `reportCellText` itself rather than added as a new `ColumnMeta.kind`:
+ * this rendering is specific to two named columns of one report (#96's own
+ * scoping — see `isReportRelativeAgeColumn`), not a wire-level kind every
+ * `timestamp` column should adopt.
+ */
+export function reportRelativeAgeCellText(value: unknown, now: number = Date.now()): string {
+  if (value == null) return REPORT_EMPTY_CELL
+  return formatReportRelativeAge(Number(value), now)
+}
+
+/**
+ * Is `columnId` one of `completed`'s two relative-age columns (#96)? Keyed
+ * on BOTH `reportId === 'completed'` AND the column id itself, deliberately
+ * narrower than the structural, kind-driven detectors elsewhere in this
+ * module (`reportListOptions`, `isReportRowIdentityColumn`) — every other
+ * `timestamp`-kind column (including any `completed` grows in the future)
+ * still renders through `formatReportTimestamp`'s absolute
+ * `YYYY-MM-DD HH:MM`, which the sealed suite pins directly
+ * (`tests/acceptance/ms-2/rpt-2-drive-queue-status.spec.ts`'s `Updated`
+ * cell, contract.md §6b). Widening this to every `timestamp` column is
+ * explicitly out of scope for #96 — see that issue's own text.
+ */
+export function isReportRelativeAgeColumn(reportId: string, columnId: string): boolean {
+  return reportId === 'completed' && (columnId === 'started_at' || columnId === 'ended_at')
+}
+
+/**
  * `1` → `"—"` (a literal zero never renders `$0.0000`, contract §6b),
  * `4.821` → `"$4.8210"` — 4 decimal places, port of `format_money` /
  * `tui/src/app/format.rs`.
@@ -306,14 +372,47 @@ export function sortReportRows<T extends Record<string, unknown>>(
   const numeric = isNumericKind(kind)
   return [...rows].sort((a, b) => {
     if (numeric) {
-      const av = Number(a[columnId])
-      const bv = Number(b[columnId])
-      return (av - bv) * sign
+      const rawA = a[columnId]
+      const rawB = b[columnId]
+      // A missing cell (`null`/`undefined` -- e.g. a `completed` row with no
+      // `ended_at` yet) sorts last regardless of direction — never flipped
+      // to the front by a descending sort, and never left to whatever order
+      // an unmarked `NaN`-returning comparator happens to produce
+      // (unspecified per spec; #96). Checked BEFORE `Number()` coercion: a
+      // bare `Number(null)` is `0`, not `NaN`, so it would otherwise sort as
+      // a real zero rather than as missing.
+      const aMissing = rawA == null || Number.isNaN(Number(rawA))
+      const bMissing = rawB == null || Number.isNaN(Number(rawB))
+      if (aMissing || bMissing) {
+        if (aMissing && bMissing) return 0
+        return aMissing ? 1 : -1
+      }
+      return (Number(rawA) - Number(rawB)) * sign
     }
     const at = reportCellText(a[columnId], kind)
     const bt = reportCellText(b[columnId], kind)
     return at.localeCompare(bt) * sign
   })
+}
+
+/** The sort a freshly-run report's grid opens with (#96). Contract §6c
+ * doesn't pin a default column for most reports — `rpt-3`'s own header test
+ * strips the sort glyph before comparing precisely so "which column sorts
+ * by default" stays unpinned — so every report keeps the original
+ * "ascending on the first declared column" default, EXCEPT `completed`
+ * (when it declares an `ended_at` column, which it always does today):
+ * that one opens `Ended` descending, most-recently-finished first. The
+ * daemon's own row order (`coord/reports.py`'s `run_completed`) already
+ * happens to match this, but that must not be the only thing keeping the
+ * grid's opening order correct once a client-side sort exists at all — see
+ * #96's own text. */
+export function defaultReportSort(
+  result: Pick<ReportResult, 'report_id' | 'column_meta'>,
+): { columnId: string; direction: SortDirection } | null {
+  if (result.report_id === 'completed' && result.column_meta.some((m) => m.id === 'ended_at')) {
+    return { columnId: 'ended_at', direction: 'descending' }
+  }
+  return result.column_meta[0] ? { columnId: result.column_meta[0].id, direction: 'ascending' } : null
 }
 
 // ── header count (contract §2c) ─────────────────────────────────────────────
