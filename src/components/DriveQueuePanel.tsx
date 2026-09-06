@@ -225,9 +225,10 @@ export default function DriveQueuePanel() {
 
   // Cache read, not a second fetch: `ShellLayout` already keeps `['pipeline']`
   // warm (for the rail's in-flight count) on every route under the shell,
-  // `/queue` included -- this borrows it to resolve issue titles the raw
-  // `drive_queue` table doesn't carry. See `buildQueueTitleLookup`'s doc
-  // comment.
+  // `/queue` included -- this borrows it as the *fallback* title source for
+  // rows `data.titles` (#98) doesn't cover, e.g. an older daemon predating
+  // claude-coordinator#3160, or an issue the coordinator hasn't synced yet.
+  // See `buildQueueTitleLookup`'s and `queueTitleCell`'s doc comments.
   const { data: pipeline } = useQuery({ queryKey: ['pipeline'], queryFn: fetchPipeline })
 
   const entries = useMemo<BoardDriveQueueEntry[]>(() => data?.entries ?? [], [data])
@@ -474,7 +475,9 @@ export default function DriveQueuePanel() {
                               </a>
                             </div>
                           </td>
-                          <td className="px-3 py-2">{queueTitleCell(entry, titleByKey)}</td>
+                          <td className="px-3 py-2">
+                            {queueTitleCell(entry, titleByKey, data?.titles)}
+                          </td>
                           <td className="px-3 py-2">
                             <Badge variant={stateBadgeVariant(entry.state)}>{queueStateCell(entry)}</Badge>
                           </td>

@@ -414,6 +414,78 @@ describe('DriveQueuePanel — collapsed row (#82)', () => {
 
 // ── issue hyperlink + new-tab affordance (#9 QW-5) ──────────────────────────
 
+// ── server-supplied Title (#98) ─────────────────────────────────────────────
+
+describe('DriveQueuePanel — Title cell resolves from the server titles map (#98)', () => {
+  it('shows a waiting row\'s title from data.titles even though it has no pipeline row (never dispatched)', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({
+        entries: [makeEntry({ id: 1, repo_name: 'quadraui', issue_number: 813, state: 'waiting' })],
+        titles: { 'quadraui#813': 'Finish #496: tidy the astroseek copy' },
+      }),
+    )
+    // Nothing in the pipeline roster -- a `waiting` row is by definition
+    // never dispatched, so this is empty exactly as it would be live.
+    vi.mocked(fetchPipeline).mockResolvedValue([])
+
+    renderPanel()
+
+    const row = (await screen.findByText('Q#813')).closest('tr')
+    expect(row).not.toBeNull()
+    expect(within(row as HTMLTableRowElement).getByText('Finish #496: tidy the astroseek copy')).toBeInTheDocument()
+    expect(within(row as HTMLTableRowElement).queryByText('—')).not.toBeInTheDocument()
+  })
+
+  it('falls back to the pipeline roster when data.titles is absent entirely (an older daemon)', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({
+        entries: [makeEntry({ id: 1, repo_name: 'repo-a', issue_number: 1, state: 'running' })],
+      }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([
+      makeView({ repo_name: 'repo-a', issue_number: 1, issue_title: 'Fix the grid' }),
+    ])
+
+    renderPanel()
+
+    const row = (await screen.findByText('RA#1')).closest('tr')
+    expect(within(row as HTMLTableRowElement).getByText('Fix the grid')).toBeInTheDocument()
+  })
+
+  it('dashes out a row present in neither data.titles nor the pipeline roster', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({
+        entries: [makeEntry({ id: 1, repo_name: 'repo-a', issue_number: 1, state: 'waiting' })],
+        titles: {},
+      }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([])
+
+    renderPanel()
+
+    const row = (await screen.findByText('RA#1')).closest('tr')
+    expect(within(row as HTMLTableRowElement).getByText('—')).toBeInTheDocument()
+  })
+
+  it('renders a title containing angle brackets as literal text (quadraui#812)', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({
+        entries: [makeEntry({ id: 1, repo_name: 'quadraui', issue_number: 812, state: 'waiting' })],
+        titles: {
+          'quadraui#812': 'NativeSurface Phase 3: impl<S: NativeSurface> Backend for Raster<S>',
+        },
+      }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([])
+
+    renderPanel()
+
+    expect(
+      await screen.findByText('NativeSurface Phase 3: impl<S: NativeSurface> Backend for Raster<S>'),
+    ).toBeInTheDocument()
+  })
+})
+
 describe('DriveQueuePanel — Issue cell hyperlink', () => {
   it('links the Issue cell to the pipeline detail route for in-app navigation', async () => {
     vi.mocked(fetchDriveQueue).mockResolvedValue(
