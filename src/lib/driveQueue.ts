@@ -316,12 +316,31 @@ export function buildQueueTitleLookup(views: readonly PipelineView[]): Record<st
   return map
 }
 
-/** The `Title` cell, resolved against `buildQueueTitleLookup`'s map. */
+/**
+ * The `Title` cell (#98). Prefers the server-supplied `titles` map from `GET
+ * /api/drive-queue`'s response envelope (`DriveQueueData.titles`,
+ * claude-coordinator#3160) -- resolved from the coordinator's `issues` table,
+ * so it covers a `waiting` row that has never been dispatched and therefore
+ * can never appear in the `/api/pipeline` roster (see this module's doc
+ * comment and `buildQueueTitleLookup`'s). Falls back to
+ * `buildQueueTitleLookup`'s pipeline-roster map -- already warm in cache --
+ * when the server map is absent (an older daemon predating #3160) or simply
+ * doesn't have this row (an issue the coordinator hasn't synced yet). Only
+ * renders the empty cell when both miss.
+ *
+ * `serverTitles` is optional, not just possibly-empty: `undefined` (the key
+ * absent entirely, an older daemon) and `{}` (present but genuinely empty)
+ * both fall through to the pipeline lookup the same way -- neither should
+ * ever be treated as "no title exists", only as "this source has nothing to
+ * say about this row".
+ */
 export function queueTitleCell(
   entry: BoardDriveQueueEntry,
   titleByKey: Readonly<Record<string, string>>,
+  serverTitles?: Readonly<Record<string, string>>,
 ): string {
-  return titleByKey[queueEntryKey(entry)] || QUEUE_EMPTY_CELL
+  const key = queueEntryKey(entry)
+  return serverTitles?.[key] || titleByKey[key] || QUEUE_EMPTY_CELL
 }
 
 // ── row actions (#8 QW-4) ────────────────────────────────────────────────────

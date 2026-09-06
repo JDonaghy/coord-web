@@ -415,6 +415,51 @@ describe('buildQueueTitleLookup / queueTitleCell', () => {
       QUEUE_EMPTY_CELL,
     )
   })
+
+  // ── #98: server-supplied titles map (`DriveQueueData.titles`) ─────────────
+
+  it('prefers the server-supplied titles map -- this is the case that fixes #98: a `waiting` row has no pipeline row at all, since it has never been dispatched', () => {
+    const titleByKey = buildQueueTitleLookup([]) // empty: nothing dispatched yet
+    const serverTitles = { 'quadraui#813': 'Finish #496: tidy the astroseek copy' }
+    expect(
+      queueTitleCell(makeEntry({ repo_name: 'quadraui', issue_number: 813 }), titleByKey, serverTitles),
+    ).toBe('Finish #496: tidy the astroseek copy')
+  })
+
+  it('falls back to the pipeline roster when the server titles map is absent entirely -- an older daemon predating claude-coordinator#3160, not just an empty map', () => {
+    const views = [makeView({ repo_name: 'coord-web', issue_number: 7, issue_title: 'Grid + dropdown' })]
+    const titleByKey = buildQueueTitleLookup(views)
+    expect(
+      queueTitleCell(makeEntry({ repo_name: 'coord-web', issue_number: 7 }), titleByKey, undefined),
+    ).toBe('Grid + dropdown')
+  })
+
+  it('falls back to the pipeline roster when the server titles map is present but has no entry for this row', () => {
+    const views = [makeView({ repo_name: 'coord-web', issue_number: 7, issue_title: 'Grid + dropdown' })]
+    const titleByKey = buildQueueTitleLookup(views)
+    const serverTitles = { 'other-repo#1': 'Unrelated' }
+    expect(
+      queueTitleCell(makeEntry({ repo_name: 'coord-web', issue_number: 7 }), titleByKey, serverTitles),
+    ).toBe('Grid + dropdown')
+  })
+
+  it('dashes out a row absent from both the server titles map and the pipeline roster', () => {
+    const titleByKey = buildQueueTitleLookup([])
+    const serverTitles = { 'other-repo#1': 'Unrelated' }
+    expect(
+      queueTitleCell(makeEntry({ repo_name: 'coord-web', issue_number: 999 }), titleByKey, serverTitles),
+    ).toBe(QUEUE_EMPTY_CELL)
+  })
+
+  it('renders a title containing angle brackets as literal text, not markup (quadraui#812)', () => {
+    const titleByKey = buildQueueTitleLookup([])
+    const serverTitles = {
+      'quadraui#812': 'NativeSurface Phase 3: impl<S: NativeSurface> Backend for Raster<S>',
+    }
+    expect(
+      queueTitleCell(makeEntry({ repo_name: 'quadraui', issue_number: 812 }), titleByKey, serverTitles),
+    ).toBe('NativeSurface Phase 3: impl<S: NativeSurface> Backend for Raster<S>')
+  })
 })
 
 // ── row actions (#8 QW-4) ────────────────────────────────────────────────────

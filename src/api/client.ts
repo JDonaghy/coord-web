@@ -198,6 +198,20 @@ export interface PipelineActionResult {
 export interface DriveQueueData {
   entries: BoardDriveQueueEntry[]
   summary: DriveQueueSummary
+  /**
+   * `repo#issue -> issue_title` (#98, claude-coordinator#3160), resolved
+   * server-side from the coordinator's `issues` table -- covers every row
+   * regardless of dispatch state, unlike the `/api/pipeline` roster join
+   * (`buildQueueTitleLookup` in `src/lib/driveQueue.ts`), which only ever
+   * carries assignment-derived rows and therefore never has a `waiting` one.
+   * Hand-maintained here rather than in `./generated`: deliberately *not* a
+   * field on `BoardDriveQueueEntry` (#3160's own design), so this is the
+   * envelope-level type to extend. Optional -- absent entirely against an
+   * older daemon that predates #3160, not just possibly empty; callers must
+   * fall back to the pipeline-roster lookup in either case (see
+   * `queueTitleCell`).
+   */
+  titles?: Record<string, string>
 }
 
 // ── POST /api/drive-queue/action (forthcoming — DQW-2) ──────────────────────
