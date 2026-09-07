@@ -27,6 +27,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import Home from '@/components/Home'
 import SessionsList from '@/components/SessionsList'
+import BoardPanel from '@/components/BoardPanel'
 import DriveQueuePanel from '@/components/DriveQueuePanel'
 import ReportsPanel from '@/components/ReportsPanel'
 import AnswersPanel from '@/components/AnswersPanel'
@@ -74,6 +75,11 @@ const VIEWS_WITH_DETAIL_ROUTE: ReadonlySet<ShellView> = new Set<ShellView>([
   // Gate-A sign-off — so Milestones joins the list/detail split rather than
   // the list-only posture Queue/Reports/Answers take.
   'milestones',
+  // #101: `/board/:repo/:issue` (`BoardDetail`) is real content shipped in
+  // this same story — the rendered issue body — so Board gets the
+  // list/detail split too, not the list-only posture Queue/Reports/Answers
+  // take.
+  'board',
 ])
 
 export function ShellLayout() {
@@ -99,12 +105,14 @@ export function ShellLayout() {
   const sessionItemMatch = useMatch('/sessions/:id')
   const machineItemMatch = useMatch('/machines/:name')
   const milestoneItemMatch = useMatch('/milestones/:repo/:number')
+  const boardItemMatch = useMatch('/board/:repo/:issue')
   const detailActive = !!(
     pipelineItemMatch ||
     pipelineItemTabMatch ||
     sessionItemMatch ||
     machineItemMatch ||
-    milestoneItemMatch
+    milestoneItemMatch ||
+    boardItemMatch
   )
 
   // Whether the current view's detail route is real content at all (see
@@ -171,6 +179,12 @@ export function ShellLayout() {
     // `/milestones/:repo/:number` renders `MilestoneDetailPanel` in the
     // detail slot (see `VIEWS_WITH_DETAIL_ROUTE`).
     list = <MilestonesPanel />
+  } else if (currentView === 'board') {
+    // #101: same list/detail split as Machines/Milestones above —
+    // `boardItemMatch` drives `detailActive` when a specific issue is
+    // selected, and `/board/:repo/:issue` renders `BoardDetail` in the
+    // detail slot (see `VIEWS_WITH_DETAIL_ROUTE`).
+    list = <BoardPanel />
   } else if (currentView === 'queue') {
     // QW-2 was the rail entry + route; QW-3 is this line — the summary
     // block + repo-scope dropdown + nine-column grid itself. There is still

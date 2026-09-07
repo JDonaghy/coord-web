@@ -43,6 +43,14 @@ export const paths = {
   session: (id: string) => `/sessions/${encodeURIComponent(id)}`,
   terminal: (sessionId: string) => `/terminal/${encodeURIComponent(sessionId)}`,
   board: () => '/board',
+  /** #101 — one issue's Board entry: title, state and the rendered body.
+   * Keyed on `repo` + issue number, same list -> detail addressing
+   * convention `pipelineItem`/`milestoneItem` use, and for the same reason
+   * — a Board row has no other stable, bookmarkable identity worth betting
+   * a link on. This is also the link target #100's per-issue pipeline view
+   * points at ("what was it asked to do" from "how did this run"). */
+  boardItem: (repo: string, issue: number | string): string =>
+    `/board/${encodeURIComponent(repo)}/${encodeURIComponent(String(issue))}`,
   machines: () => '/machines',
   /** #61 — a single machine's detail view, same list -> detail addressing
    * convention `session()` uses: every screen reachable and restorable from
