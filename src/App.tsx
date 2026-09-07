@@ -22,6 +22,10 @@ const Terminal = lazy(() => import('@/components/Terminal'))
 // not on the app's main bundle every visitor loads.
 const GateAPanel = lazy(() => import('@/components/GateAPanel'))
 
+// #101: same react-markdown + remark-gfm dependency as GateAPanel above, same
+// reason to split it out -- most visits never open a Board item.
+const BoardDetail = lazy(() => import('@/components/BoardDetail'))
+
 // Dev-only component gallery (#1546) — renders every ui/* primitive in both
 // themes, so a human (or a Playwright acceptance slice) can see the whole
 // system at once without hunting through the app for each one. Route-guarded
@@ -70,7 +74,16 @@ const Gallery = lazy(() => import('@/components/Gallery'))
  *                                        explanatory empty state on a coord
  *                                        server predating
  *                                        claude-coordinator#3072
- *   /board /merge-queue
+ *   /board                           -> EmptyDetail in the detail slot,
+ *                                        `BoardPanel` (#101) in the list
+ *                                        slot (wired in `ShellLayout`) --
+ *                                        same list/detail split as
+ *                                        /pipeline, /machines and
+ *                                        /milestones above
+ *   /board/:repo/:issue              -> BoardDetail (#101) -- the tracked
+ *                                        issue's title/state/body, rendered
+ *                                        as markdown
+ *   /merge-queue
  *   /audit /spend
  *   /settings                        -> ComingSoon(view) -- placeholders for
  *                                        the M-W2+ panels, addressable today
@@ -172,12 +185,26 @@ export default function App() {
               <Route path="/milestones" element={<EmptyDetail />} />
               <Route path="/milestones/:repo/:number" element={<MilestoneDetailPanel />} />
 
+              {/* #101 -- Board gets the same list/detail split, for the same
+                  reason: the rendered issue body is real detail content this
+                  story ships, not a later addition. `BoardPanel` fills the
+                  list slot (wired in `ShellLayout`); this route pair fills
+                  the detail slot. */}
+              <Route path="/board" element={<EmptyDetail />} />
+              <Route
+                path="/board/:repo/:issue"
+                element={
+                  <Suspense fallback={null}>
+                    <BoardDetail />
+                  </Suspense>
+                }
+              />
+
               {/* Placeholders for the M-W2+ panels (#1548) -- addressable now,
                   not a 404, so a bookmark or a pasted link survives the panel
                   shipping later. The rail marks each of these 'soon' and won't
                   navigate here on a click (railItems.ts); this is what a typed
                   or pasted link to one lands on in the meantime. */}
-              <Route path="/board" element={null} />
               <Route path="/merge-queue" element={null} />
               <Route path="/audit" element={null} />
               <Route path="/spend" element={null} />

@@ -51,7 +51,19 @@ export interface RailItem {
 
 export const RAIL_ITEMS: readonly RailItem[] = [
   { id: 'pipeline', label: 'Pipeline', icon: Workflow, status: 'ready' },
-  { id: 'board', label: 'Board', icon: LayoutDashboard, status: 'soon', hint: 'Board panel — M-W2' },
+  {
+    // #101: browse the tracked issue backlog by repo and read an issue's
+    // full brief in-app. `'ready'` despite the interim data source
+    // (`src/lib/board.ts`'s header) -- the panel renders real, live data
+    // today, the same bar Queue/Reports/Milestones cleared before they
+    // flipped, not "every field this issue asked for has a real source
+    // yet" (the body is real only for a dispatched issue; see `BoardDetail`).
+    id: 'board',
+    label: 'Board',
+    icon: LayoutDashboard,
+    status: 'ready',
+    hint: 'Browse issues by repo, read the brief in-app — #101',
+  },
   { id: 'sessions', label: 'Sessions', icon: SquareTerminal, status: 'ready' },
   {
     // #59 — record an out-of-band client answer (in person, on a call, by

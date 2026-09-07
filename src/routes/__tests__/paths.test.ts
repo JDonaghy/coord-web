@@ -48,6 +48,20 @@ describe('paths.machineItem', () => {
   })
 })
 
+describe('paths.boardItem', () => {
+  it('builds the two-segment board item path', () => {
+    expect(paths.boardItem('format-converter', 3)).toBe('/board/format-converter/3')
+  })
+
+  it('encodes a repo name that needs escaping (an owner/name slug)', () => {
+    expect(paths.boardItem('JDonaghy/coord-web', 4)).toBe('/board/JDonaghy%2Fcoord-web/4')
+  })
+
+  it('accepts a string issue number unchanged', () => {
+    expect(paths.boardItem('format-converter', '3')).toBe('/board/format-converter/3')
+  })
+})
+
 describe('isDetailTab', () => {
   it('accepts every member of the detail tab set', () => {
     for (const tab of ['overview', 'issue', 'log', 'findings', 'summary']) {
@@ -81,6 +95,7 @@ describe('shellViewFromPath', () => {
     expect(shellViewFromPath(paths.session('sess-1'))).toBe('sessions')
     expect(shellViewFromPath(paths.machineItem('laptop'))).toBe('machines')
     expect(shellViewFromPath(paths.milestoneItem('coord-web', 4))).toBe('milestones')
+    expect(shellViewFromPath(paths.boardItem('format-converter', 3))).toBe('board')
   })
 
   it('encodes a milestone item route’s repo slug (#91)', () => {

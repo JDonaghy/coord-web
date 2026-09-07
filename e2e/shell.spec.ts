@@ -139,9 +139,10 @@ test.describe('shell — wide viewport', () => {
     await mockApi(page)
     await page.goto('/')
 
-    // Board, not Milestones: #91 flipped Milestones to 'ready' once
-    // claude-coordinator#3072 shipped the API behind it.
-    await expect(rail(page).getByRole('button', { name: /Board/ })).toHaveAttribute(
+    // Merge queue, not Milestones or Board: #91 flipped Milestones to 'ready'
+    // once claude-coordinator#3072 shipped the API behind it, and #101 did
+    // the same for Board (see `railItems.ts`).
+    await expect(rail(page).getByRole('button', { name: /Merge queue/ })).toHaveAttribute(
       'aria-disabled',
       'true',
     )
@@ -323,7 +324,9 @@ test.describe('shell — narrow viewport', () => {
     expect(railBox!.width).toBeGreaterThan(300)
 
     await expect(rail(page).getByRole('button', { name: /Pipeline/ })).toBeVisible()
-    await expect(rail(page).getByRole('button', { name: /Board/ })).toHaveCount(0)
+    // #101 flipped Board to 'ready' (railItems.ts), so `Merge queue` is this
+    // test's still-'soon' example now.
+    await expect(rail(page).getByRole('button', { name: /Merge queue/ })).toHaveCount(0)
   })
 
   test('switches views from the bottom row', async ({ page }) => {
