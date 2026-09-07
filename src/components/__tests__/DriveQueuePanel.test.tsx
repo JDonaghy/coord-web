@@ -186,6 +186,51 @@ describe('DriveQueuePanel — summary block', () => {
     expect(statValue('Waiting')).toBe('3 (2 eligible)')
     expect(statValue('Blocked')).toBe('0')
     expect(statValue('Held')).toBe('1')
+
+    // "All repos" is selected by default -- fleet-wide already means the
+    // same thing as "in view", so no scope caption is needed (#103).
+    expect(screen.queryByText(/Fleet-wide across all repos/)).not.toBeInTheDocument()
+  })
+
+  it('labels the tiles as fleet-wide once a repo filter narrows the grid below them (#103)', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({
+        entries: [
+          makeEntry({ id: 1, repo_name: 'repo-a', issue_number: 1 }),
+          makeEntry({ id: 2, repo_name: 'repo-b', issue_number: 2 }),
+        ],
+        summary: {
+          level: 'normal',
+          pending: 15,
+          running: 3,
+          waiting: 9,
+          blocked: 1,
+          eligible: 4,
+          held: 0,
+          fleet_held: 0,
+        },
+      }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([])
+
+    renderPanel()
+
+    await screen.findByText('RA#1')
+    await userEvent.selectOptions(screen.getByLabelText('Repo'), 'repo-a')
+
+    // The caption names which repo the grid is narrowed to, so the reader
+    // isn't left to guess why the tiles still read "15 pending" next to a
+    // header that says "1 in view".
+    const caption = await screen.findByText(/Fleet-wide across all repos/)
+    expect(caption.textContent).toContain('repo-a')
+
+    // The tiles' own numbers are untouched -- still the raw server
+    // aggregate, per `driveQueueSummaryStats`'s "never recomputed" contract.
+    const summary = screen.getByLabelText('Queue summary')
+    expect(within(summary).getByText('15')).toBeInTheDocument()
+    // A sighted screen-reader user tabbing onto the tiles gets the same
+    // caption read out via `aria-describedby`, not just a visual note.
+    expect(summary).toHaveAttribute('aria-describedby', caption.id)
   })
 })
 
@@ -261,7 +306,7 @@ describe('DriveQueuePanel — collapsed row (#82)', () => {
     expect(headers).toEqual(['Expand', 'Issue', 'Title', 'State'])
   })
 
-  it('renders only Issue, Title and State cells at rest -- no Machine, Tries, After, Hold, Reason or Actions', async () => {
+  it('renders only Issue, Title and State cells at rest -- no Machine, Tries, Hold, Reason or Actions -- plus an inline "after" hint (#103)', async () => {
     vi.mocked(fetchDriveQueue).mockResolvedValue(
       makeData({
         entries: [
@@ -290,10 +335,14 @@ describe('DriveQueuePanel — collapsed row (#82)', () => {
     const row = (await screen.findByText('RA#1')).closest('tr')
     expect(row).not.toBeNull()
     const cells = within(row as HTMLTableRowElement).getAllByRole('cell')
+    // The Title cell now carries a short "after RA#0" caption inline (#103)
+    // -- the dependency edge is meant to be legible without expanding the
+    // row, unlike the full detail fields below (Machine, Hold, Reason,
+    // Actions), which stay collapsed-only.
     expect(cells.map((c) => c.textContent)).toEqual([
       '▸', // disclosure cell's collapsed glyph -- aria-hidden, the a11y name lives on the button
       'RA#1',
-      'Fix the grid',
+      'Fix the gridafter RA#0',
       'blocked',
     ])
 
@@ -409,6 +458,101 @@ describe('DriveQueuePanel — collapsed row (#82)', () => {
 
     expect(screen.getByRole('button', { name: 'Collapse details for RA#1' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Collapse details for RA#2' })).toBeInTheDocument()
+  })
+})
+
+// ── dependency-ordered rows (#103) ──────────────────────────────────────────
+
+describe('DriveQueuePanel — dependency-ordered rows (#103)', () => {
+  it('orders a filtered chain by after_json rather than raw insertion order, and shows the edge inline', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({
+        entries: [
+          // Insertion order deliberately scrambled -- #2, #6, #3, #4, #5 --
+          // same shape as the issue's own repro: a chain #2 -> #3 -> #4 ->
+          // #5, with #6 depending on all three.
+          makeEntry({ id: 2, repo_name: 'format-converter', issue_number: 2, position: 0 }),
+          makeEntry({
+            id: 6,
+            repo_name: 'format-converter',
+            issue_number: 6,
+            position: 1,
+            after_json: ['format-converter#2', 'format-converter#3', 'format-converter#5'],
+          }),
+          makeEntry({
+            id: 3,
+            repo_name: 'format-converter',
+            issue_number: 3,
+            position: 2,
+            after_json: ['format-converter#2'],
+          }),
+          makeEntry({
+            id: 4,
+            repo_name: 'format-converter',
+            issue_number: 4,
+            position: 3,
+            after_json: ['format-converter#3'],
+          }),
+          makeEntry({
+            id: 5,
+            repo_name: 'format-converter',
+            issue_number: 5,
+            position: 4,
+            after_json: ['format-converter#4'],
+          }),
+        ],
+      }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([])
+
+    renderPanel()
+
+    // `findByText` would also match the hidden expanded `After` field's own
+    // `RA#N`-shaped text on an unrelated row -- the Issue cell's `<Link>`
+    // (#9 QW-5) is the one unambiguous handle onto a given row here.
+    await screen.findByRole('link', { name: 'FC#2' })
+    const table = screen.getByRole('table')
+    const dataRows = within(table).getAllByRole('row').slice(1) // drop the header row
+    const issueRefs = dataRows.map((r) => within(r).getAllByRole('cell')[1].textContent)
+    // #2 has no prerequisite so it leads; #3/#4/#5 fall in behind the thing
+    // each one is after; #6 (after all three) trails everything it depends on.
+    expect(issueRefs).toEqual(['FC#2', 'FC#3', 'FC#4', 'FC#5', 'FC#6'])
+
+    // The edge is legible without expanding the row -- an explicit "after"
+    // caption inline in the Title cell, not just the full `After` field
+    // buried in the per-row detail region.
+    const fc5Row = screen.getByRole('link', { name: 'FC#5' }).closest('tr') as HTMLTableRowElement
+    expect(within(fc5Row).getByText('after FC#4')).toBeInTheDocument()
+    const fc6Row = screen.getByRole('link', { name: 'FC#6' }).closest('tr') as HTMLTableRowElement
+    expect(within(fc6Row).getByText('after FC#2, FC#3, FC#5')).toBeInTheDocument()
+
+    // A root of the chain (no prerequisites at all) gets neither the
+    // connector glyph nor an "after" caption.
+    const fc2Row = screen.getByRole('link', { name: 'FC#2' }).closest('tr') as HTMLTableRowElement
+    expect(within(fc2Row).queryByText(/^after /)).not.toBeInTheDocument()
+  })
+
+  it('still shows the "after" caption when the prerequisite is outside the current repo scope', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({
+        entries: [
+          makeEntry({ id: 1, repo_name: 'repo-a', issue_number: 1, after_json: ['repo-b#9'] }),
+          makeEntry({ id: 2, repo_name: 'repo-b', issue_number: 9 }),
+        ],
+      }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([])
+
+    renderPanel()
+
+    await screen.findByRole('link', { name: 'RA#1' })
+    await userEvent.selectOptions(screen.getByLabelText('Repo'), 'repo-a')
+
+    // repo-b#9 isn't in view to indent against, but RA#1 is still, in fact,
+    // waiting on it -- that has to stay legible rather than silently
+    // dropped once the dependency itself scrolls out of scope.
+    const row = screen.getByRole('link', { name: 'RA#1' }).closest('tr') as HTMLTableRowElement
+    expect(within(row).getByText('after RB#9')).toBeInTheDocument()
   })
 })
 

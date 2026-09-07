@@ -13,7 +13,12 @@
  *     `src/lib/driveQueue.ts`'s doc comment for why that matters. Computed
  *     over the *raw* entry list, deliberately -- the aggregate is a
  *     server-side count over the whole table, not something the active-entry
- *     filter below should touch.
+ *     filter below should touch. Because it's fleet-wide and the grid below
+ *     it isn't once a repo is selected, `summaryIsFleetWide` (#103) renders an
+ *     explicit "not filtered to X" caption above the tiles whenever
+ *     `repoScope` narrows the grid -- the bug this fixes was exactly the
+ *     silent version of that mismatch (`PENDING 15` next to a `"5 in view"`
+ *     header, with nothing distinguishing the two counts' scope).
  *  2. A **repo-scope dropdown** ("All repos" | one repo at a time), filtering
  *     the grid client-side over a single unscoped fetch (again, see
  *     `src/lib/driveQueue.ts`).
@@ -33,7 +38,12 @@
  *     `#work`/`#smoke`/`#reviews` leg counts are gated on
  *     JDonaghy/code-coordinator#3060 landing a coordinator-side field and are
  *     NOT shipped here as a guess -- see `src/lib/driveQueue.ts`'s doc
- *     comment.
+ *     comment. Rows render in **dependency order**, not raw insertion order
+ *     (#103, `queueDependencyOrder`): a row that names another visible row in
+ *     its own `after_json` always renders after it, indented one step per
+ *     chain level with a `↳` connector, plus an explicit "after RA#3" caption
+ *     under the title so the edge reads even when the prerequisite itself
+ *     isn't in the current repo scope to indent against.
  *
  * Expansion state (`expandedKeys`) is keyed by `queueEntryKey(entry)`
  * (`repo#issue`), never by row index or `position` -- it must survive both a
@@ -91,6 +101,8 @@ import {
   filterQueueEntriesByRepo,
   QUEUE_EMPTY_CELL,
   queueAfterCell,
+  queueDependencyDepths,
+  queueDependencyOrder,
   queueEnqueuedCell,
   queueEntryKey,
   queueHoldCell,
@@ -242,9 +254,25 @@ export default function DriveQueuePanel() {
     () => filterQueueEntriesByRepo(activeEntries, repoScope || null),
     [activeEntries, repoScope],
   )
+  // Dependency-ordered for display (#103): a row never renders before
+  // something its own `after_json` names, so a filtered chain (FC#2 -> #3 ->
+  // #4 -> #5, with #6 after the others) reads top-to-bottom instead of in
+  // arbitrary insertion order. Same length/membership as `scopedEntries`,
+  // just re-sorted -- every other reference to "the displayed rows" below
+  // (the row count, move-up/down neighbours, the grid map) uses this, not
+  // `scopedEntries` directly, so they all agree on the same order.
+  const orderedEntries = useMemo(() => queueDependencyOrder(scopedEntries), [scopedEntries])
+  const dependencyDepths = useMemo(() => queueDependencyDepths(orderedEntries), [orderedEntries])
   const titleByKey = useMemo(() => buildQueueTitleLookup(pipeline ?? []), [pipeline])
   const machineByKey = useMemo(() => buildQueueMachineLookup(pipeline ?? []), [pipeline])
   const summaryStats = data ? driveQueueSummaryStats(data.summary) : []
+  // The summary tiles are always the server's fleet-wide aggregate (see
+  // `driveQueueSummaryStats`'s doc comment) -- once a repo filter narrows the
+  // grid below it, that needs to be said out loud rather than silently
+  // implied to match (#103's "PENDING 15 fleet-wide next to '5 in view'"
+  // bug). `ALL_REPOS` needs no caption: with no filter applied, "fleet-wide"
+  // and "in view" already mean the same thing.
+  const summaryIsFleetWide = repoScope !== ALL_REPOS
 
   // ── per-row expand/collapse (#82) ─────────────────────────────────────────
   // Keyed by `queueEntryKey(entry)` (`repo#issue`), never row index or
@@ -336,7 +364,7 @@ export default function DriveQueuePanel() {
     void runQueueAction(entry, 'resume', 'resume', undefined, 'Gate released')
 
   const handleMove = (entry: BoardDriveQueueEntry, direction: 'up' | 'down') => {
-    const neighbor = queueMoveNeighbor(scopedEntries, entry, direction)
+    const neighbor = queueMoveNeighbor(orderedEntries, entry, direction)
     if (!neighbor) return
     // Optimistic reorder (issue's explicit allowance for `move`, not required
     // for the other actions): swap the two positions in the query cache's
@@ -356,7 +384,7 @@ export default function DriveQueuePanel() {
 
   return (
     <div className="mx-auto w-full px-4 py-4">
-      <PanelHeader title="Queue" count={data ? scopedEntries.length : undefined} countLabel="in view">
+      <PanelHeader title="Queue" count={data ? orderedEntries.length : undefined} countLabel="in view">
         {isFetching && !isLoading && (
           <span className="h-2 w-2 animate-pulse rounded-full bg-primary" aria-label="Refreshing" />
         )}
@@ -381,17 +409,36 @@ export default function DriveQueuePanel() {
 
       {data && (
         <>
-          {/* Summary block */}
-          <dl className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-5" aria-label="Queue summary">
-            {summaryStats.map((stat) => (
-              <div key={stat.key} className="rounded-lg border border-border bg-card px-3 py-2">
-                <dt className="text-[.65rem] uppercase tracking-wide text-muted-foreground">
-                  {stat.label}
-                </dt>
-                <dd className="mt-0.5 font-mono text-sm text-card-foreground">{stat.value}</dd>
-              </div>
-            ))}
-          </dl>
+          {/* Summary block. The five tiles are always the server's
+              fleet-wide aggregate (`driveQueueSummaryStats`'s doc comment) --
+              #103's bug was rendering that next to a repo-filtered "N in
+              view" header with nothing telling the two apart. Once a repo is
+              selected, say so explicitly instead of silently letting the
+              tiles read as if they'd narrowed too. */}
+          <div className="mb-4">
+            {summaryIsFleetWide && (
+              <p
+                id="drive-queue-summary-scope-note"
+                className="mb-1 text-[.65rem] text-muted-foreground"
+              >
+                Fleet-wide across all repos — not filtered to {repoScope}
+              </p>
+            )}
+            <dl
+              className="grid grid-cols-2 gap-2 sm:grid-cols-5"
+              aria-label="Queue summary"
+              aria-describedby={summaryIsFleetWide ? 'drive-queue-summary-scope-note' : undefined}
+            >
+              {summaryStats.map((stat) => (
+                <div key={stat.key} className="rounded-lg border border-border bg-card px-3 py-2">
+                  <dt className="text-[.65rem] uppercase tracking-wide text-muted-foreground">
+                    {stat.label}
+                  </dt>
+                  <dd className="mt-0.5 font-mono text-sm text-card-foreground">{stat.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
 
           {/* Repo-scope dropdown */}
           <div className="mb-4 flex items-center gap-2">
@@ -418,7 +465,7 @@ export default function DriveQueuePanel() {
               three shell breakpoints (src/shell/breakpoints.ts). The wrapper
               stays `overflow-x-auto` only as a defensive fallback, not
               because the grid is expected to overflow in normal use. */}
-          {scopedEntries.length > 0 ? (
+          {orderedEntries.length > 0 ? (
             <div className="overflow-x-auto rounded-lg border border-border">
               <table className="w-full border-collapse text-left text-xs">
                 <thead>
@@ -431,15 +478,24 @@ export default function DriveQueuePanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {scopedEntries.map((entry) => {
+                  {orderedEntries.map((entry) => {
                     const key = queueEntryKey(entry)
                     const expanded = expandedKeys.has(key)
                     const detailId = queueRowDetailId(entry)
-                    const canMoveUp = queueMoveNeighbor(scopedEntries, entry, 'up') !== null
-                    const canMoveDown = queueMoveNeighbor(scopedEntries, entry, 'down') !== null
+                    const canMoveUp = queueMoveNeighbor(orderedEntries, entry, 'up') !== null
+                    const canMoveDown = queueMoveNeighbor(orderedEntries, entry, 'down') !== null
                     const canUnblock = canUnblockQueueEntry(entry)
                     const canRelease = canReleaseQueueGate(entry)
                     const pinnedMachine = queuePinnedMachine(entry)
+                    // Dependency edge (#103): depth > 0 means this row waits
+                    // on something else visible in the current chain, so it
+                    // renders indented with a connector glyph rather than
+                    // flush-left like an unrelated row. The explicit "after
+                    // X" caption underneath fires independently of depth --
+                    // a cross-repo or filtered-out prerequisite still isn't
+                    // in this list to indent against, but it's still true
+                    // that this row is waiting on it.
+                    const depth = Math.min(dependencyDepths[key] ?? 0, 4)
                     return (
                       <Fragment key={key}>
                         <tr className="border-b border-border/60 last:border-0">
@@ -476,7 +532,23 @@ export default function DriveQueuePanel() {
                             </div>
                           </td>
                           <td className="px-3 py-2">
-                            {queueTitleCell(entry, titleByKey, data?.titles)}
+                            <div
+                              style={depth > 0 ? { marginLeft: `${depth * 0.9}rem` } : undefined}
+                            >
+                              <div className="flex items-center gap-1">
+                                {depth > 0 && (
+                                  <span aria-hidden="true" className="text-muted-foreground">
+                                    ↳
+                                  </span>
+                                )}
+                                <span>{queueTitleCell(entry, titleByKey, data?.titles)}</span>
+                              </div>
+                              {entry.after_json.length > 0 && (
+                                <div className="text-[.65rem] text-muted-foreground">
+                                  after {queueAfterCell(entry)}
+                                </div>
+                              )}
+                            </div>
                           </td>
                           <td className="px-3 py-2">
                             <Badge variant={stateBadgeVariant(entry.state)}>{queueStateCell(entry)}</Badge>

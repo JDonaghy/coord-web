@@ -27,6 +27,8 @@ import {
   formatQueueAge,
   QUEUE_EMPTY_CELL,
   queueAfterCell,
+  queueDependencyDepths,
+  queueDependencyOrder,
   queueEnqueuedCell,
   queueEntryKey,
   queueHoldCell,
@@ -188,6 +190,106 @@ describe('filterQueueEntriesByRepo', () => {
 
   it('returns an empty array for a repo with no entries', () => {
     expect(filterQueueEntriesByRepo(entries, 'repo-nonexistent')).toEqual([])
+  })
+})
+
+// ── dependency ordering (#103) ──────────────────────────────────────────────
+
+describe('queueDependencyOrder', () => {
+  it('reorders a scrambled chain so a row never precedes what it names in after_json', () => {
+    // Same shape as the issue's own repro: insertion order #2, #6, #3, #4,
+    // #5 -- a chain #2 -> #3 -> #4 -> #5, with #6 after all three.
+    const entries = [
+      makeEntry({ id: 2, repo_name: 'fc', issue_number: 2 }),
+      makeEntry({ id: 6, repo_name: 'fc', issue_number: 6, after_json: ['fc#2', 'fc#3', 'fc#5'] }),
+      makeEntry({ id: 3, repo_name: 'fc', issue_number: 3, after_json: ['fc#2'] }),
+      makeEntry({ id: 4, repo_name: 'fc', issue_number: 4, after_json: ['fc#3'] }),
+      makeEntry({ id: 5, repo_name: 'fc', issue_number: 5, after_json: ['fc#4'] }),
+    ]
+
+    expect(queueDependencyOrder(entries).map((e) => e.id)).toEqual([2, 3, 4, 5, 6])
+  })
+
+  it('leaves unrelated entries in their original relative order', () => {
+    const entries = [
+      makeEntry({ id: 1, repo_name: 'fc', issue_number: 1 }),
+      makeEntry({ id: 2, repo_name: 'fc', issue_number: 2 }),
+      makeEntry({ id: 3, repo_name: 'fc', issue_number: 3 }),
+    ]
+
+    expect(queueDependencyOrder(entries).map((e) => e.id)).toEqual([1, 2, 3])
+  })
+
+  it('ignores a prerequisite that is not present in the given entry list', () => {
+    // repo-b#9 never appears in `entries` (different repo scope, or already
+    // dropped by filterActiveQueueEntries) -- it can't hold this row back
+    // since there's no row here to be "after".
+    const entries = [makeEntry({ id: 1, repo_name: 'repo-a', issue_number: 1, after_json: ['repo-b#9'] })]
+
+    expect(queueDependencyOrder(entries).map((e) => e.id)).toEqual([1])
+  })
+
+  it('terminates and preserves relative order on a dependency cycle rather than looping forever', () => {
+    const entries = [
+      makeEntry({ id: 1, repo_name: 'fc', issue_number: 1, after_json: ['fc#2'] }),
+      makeEntry({ id: 2, repo_name: 'fc', issue_number: 2, after_json: ['fc#1'] }),
+    ]
+
+    expect(queueDependencyOrder(entries).map((e) => e.id)).toEqual([1, 2])
+  })
+
+  it('is a no-op for an empty list', () => {
+    expect(queueDependencyOrder([])).toEqual([])
+  })
+})
+
+describe('queueDependencyDepths', () => {
+  it('gives each link of a chain one more depth than the thing it is after', () => {
+    const entries = [
+      makeEntry({ id: 2, repo_name: 'fc', issue_number: 2 }),
+      makeEntry({ id: 3, repo_name: 'fc', issue_number: 3, after_json: ['fc#2'] }),
+      makeEntry({ id: 4, repo_name: 'fc', issue_number: 4, after_json: ['fc#3'] }),
+      makeEntry({ id: 5, repo_name: 'fc', issue_number: 5, after_json: ['fc#4'] }),
+    ]
+
+    expect(queueDependencyDepths(entries)).toEqual({
+      'fc#2': 0,
+      'fc#3': 1,
+      'fc#4': 2,
+      'fc#5': 3,
+    })
+  })
+
+  it('takes the deepest of several prerequisites', () => {
+    const entries = [
+      makeEntry({ id: 2, repo_name: 'fc', issue_number: 2 }),
+      makeEntry({ id: 3, repo_name: 'fc', issue_number: 3, after_json: ['fc#2'] }),
+      makeEntry({
+        id: 6,
+        repo_name: 'fc',
+        issue_number: 6,
+        after_json: ['fc#2', 'fc#3'],
+      }),
+    ]
+
+    expect(queueDependencyDepths(entries)['fc#6']).toBe(2)
+  })
+
+  it('gives a prerequisite outside the list no contribution to depth', () => {
+    const entries = [makeEntry({ id: 1, repo_name: 'repo-a', issue_number: 1, after_json: ['repo-b#9'] })]
+
+    expect(queueDependencyDepths(entries)['repo-a#1']).toBe(0)
+  })
+
+  it('does not recurse forever on a dependency cycle', () => {
+    const entries = [
+      makeEntry({ id: 1, repo_name: 'fc', issue_number: 1, after_json: ['fc#2'] }),
+      makeEntry({ id: 2, repo_name: 'fc', issue_number: 2, after_json: ['fc#1'] }),
+    ]
+
+    const depths = queueDependencyDepths(entries)
+    expect(depths['fc#1']).toBeGreaterThanOrEqual(0)
+    expect(depths['fc#2']).toBeGreaterThanOrEqual(0)
   })
 })
 

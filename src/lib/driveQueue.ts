@@ -36,6 +36,13 @@
  * `applyQueueMoveOptimistic`) `DriveQueuePanel` uses for its optimistic
  * reorder. Mutating the queue itself -- the actual `driveQueueAction` POST --
  * stays in the component; everything here is pure.
+ *
+ * Dependency ordering (#103) lives here too: `queueDependencyOrder` re-sorts
+ * a scoped entry list so a row appears after everything its own `after_json`
+ * names, and `queueDependencyDepths` gives each row a chain depth for the
+ * grid's indent/connector. Both operate purely over whatever entry list the
+ * caller passes (typically the repo-scoped, active-filtered grid rows) and
+ * never re-fetch or consult anything outside that list.
  */
 import type { BoardDriveQueueEntry, DriveQueueSummary, PipelineView } from '@/api/client'
 import { aliasIssueRef } from '@/lib/repoRef'
@@ -106,6 +113,100 @@ export function filterQueueEntriesByRepo(
   return entries.filter((e) => e.repo_name === repo)
 }
 
+// ── dependency ordering (#103) ──────────────────────────────────────────────
+
+/**
+ * Re-sort `entries` so a row never appears before something its own
+ * `after_json` names -- a filtered format-converter view of FC#2, FC#6, FC#3,
+ * FC#4, FC#5 (insertion order) becomes FC#2, FC#3, FC#4, FC#5, FC#6 when #3
+ * is after #2, #4 is after #3, #5 is after #4 and #6 is after the others.
+ *
+ * A stable Kahn's-algorithm pass: an entry is emitted once every prerequisite
+ * *that is itself present in `entries`* has already been emitted; a
+ * prerequisite this list doesn't contain (a different repo scope, or a
+ * completed dependency the active-entry filter already dropped) can't block
+ * anything, since there is no row here to wait behind. Ties resolve in the
+ * original relative order, so an unrelated pair of entries (neither depends
+ * on the other) keeps whatever order the server/caller handed in.
+ *
+ * A dependency cycle can never fully resolve -- rather than looping forever,
+ * a pass that makes zero progress flushes everything still waiting in its
+ * current relative order. This is a data problem (the daemon itself would
+ * refuse to make progress on a cyclic `after_json`), not something the grid
+ * should hide by truncating rows.
+ */
+export function queueDependencyOrder(
+  entries: readonly BoardDriveQueueEntry[],
+): BoardDriveQueueEntry[] {
+  const keys = new Set(entries.map(queueEntryKey))
+  const placed = new Set<string>()
+  const result: BoardDriveQueueEntry[] = []
+  let remaining = [...entries]
+
+  while (remaining.length > 0) {
+    const deferred: BoardDriveQueueEntry[] = []
+    let progressed = false
+    for (const entry of remaining) {
+      const deps = entry.after_json.filter((k) => keys.has(k))
+      if (deps.every((k) => placed.has(k))) {
+        result.push(entry)
+        placed.add(queueEntryKey(entry))
+        progressed = true
+      } else {
+        deferred.push(entry)
+      }
+    }
+    if (!progressed) {
+      result.push(...deferred)
+      break
+    }
+    remaining = deferred
+  }
+
+  return result
+}
+
+/**
+ * Each entry's dependency chain depth within `entries` -- 0 for a row with no
+ * in-set prerequisite, otherwise one more than the deepest of its own
+ * in-set prerequisites' depths. `DriveQueuePanel` uses this for the grid's
+ * indent: FC#2 (depth 0), FC#3 (depth 1, after #2), FC#4 (depth 2, after #3),
+ * FC#5 (depth 3, after #4).
+ *
+ * Keyed by `queueEntryKey`, same as `queueMoveNeighbor`/`expandedKeys` --
+ * position and array index both change under a reorder or refetch. A
+ * prerequisite outside `entries` contributes nothing to depth, for the same
+ * reason `queueDependencyOrder` can't order against it: there is no row here
+ * to be "after". A cycle bottoms out at depth 0 for whichever member is
+ * revisited while still being computed, rather than recursing forever.
+ */
+export function queueDependencyDepths(
+  entries: readonly BoardDriveQueueEntry[],
+): Record<string, number> {
+  const byKey = new Map(entries.map((e) => [queueEntryKey(e), e]))
+  const memo = new Map<string, number>()
+
+  function depthOf(key: string, visiting: Set<string>): number {
+    const cached = memo.get(key)
+    if (cached !== undefined) return cached
+    if (visiting.has(key)) return 0
+    const entry = byKey.get(key)
+    if (!entry) return 0
+    visiting.add(key)
+    const depKeys = entry.after_json.filter((k) => byKey.has(k))
+    const depth = depKeys.length === 0 ? 0 : 1 + Math.max(...depKeys.map((k) => depthOf(k, visiting)))
+    visiting.delete(key)
+    memo.set(key, depth)
+    return depth
+  }
+
+  const result: Record<string, number> = {}
+  for (const entry of entries) {
+    result[queueEntryKey(entry)] = depthOf(queueEntryKey(entry), new Set())
+  }
+  return result
+}
+
 // ── summary block ────────────────────────────────────────────────────────────
 
 export interface DriveQueueSummaryStat {
@@ -120,7 +221,16 @@ export interface DriveQueueSummaryStat {
  * `"{waiting} waiting ({eligible} eligible)"` sidebar line), blocked, held.
  *
  * Reads `summary`'s fields verbatim -- see this module's doc comment for why
- * that's load-bearing, not a style choice.
+ * that's load-bearing, not a style choice. This stays true even once a repo
+ * scope is selected (#103): `summary` is a server-side aggregate over the
+ * *whole* `drive_queue` table (`coord.drive_queue.summarize_drive_queue`),
+ * with no per-repo breakdown on the wire to recompute it from -- `eligible`
+ * in particular depends on cross-entry scheduling state (fleet concurrency,
+ * dependency resolution against rows a repo filter would hide) this module
+ * has no way to re-derive honestly from a filtered entry list. `DriveQueuePanel`
+ * is responsible for making that fleet-wide scope legible once a repo filter
+ * narrows the grid below it, rather than this function inventing a filtered
+ * substitute.
  */
 export function driveQueueSummaryStats(summary: DriveQueueSummary): DriveQueueSummaryStat[] {
   return [
