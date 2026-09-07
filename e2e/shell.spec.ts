@@ -234,6 +234,20 @@ test.describe('shell — wide viewport', () => {
     await rail(page).getByRole('button', { name: 'Show list panel' }).click()
     await expect(list(page)).toBeVisible()
   })
+
+  test('the bigger type scale does not push a horizontal scrollbar onto the page (#102)', async ({
+    page,
+  }) => {
+    await mockApi(page)
+    await page.goto('/')
+    await list(page).getByText('Fix the dashboard rendering').click()
+    await expect(detail(page).getByText('Fix the dashboard rendering')).toBeVisible()
+
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    )
+    expect(overflow).toBeLessThanOrEqual(1)
+  })
 })
 
 // ── mid ───────────────────────────────────────────────────────────────────────
@@ -260,6 +274,20 @@ test.describe('shell — mid viewport', () => {
       detail(page).boundingBox(),
     ])
     expect(Math.abs(listBox!.x - detailBox!.x)).toBeLessThan(2)
+  })
+
+  test('the bigger type scale does not push a horizontal scrollbar onto the page (#102)', async ({
+    page,
+  }) => {
+    await mockApi(page)
+    await page.goto('/')
+    await list(page).getByText('Fix the dashboard rendering').click()
+    await expect(detail(page).getByText('Fix the dashboard rendering')).toBeVisible()
+
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    )
+    expect(overflow).toBeLessThanOrEqual(1)
   })
 })
 
@@ -307,5 +335,26 @@ test.describe('shell — narrow viewport', () => {
 
     await rail(page).getByRole('button', { name: /Pipeline/ }).click()
     await expect(list(page).getByRole('heading', { name: 'Pipeline' })).toBeVisible()
+  })
+
+  test('the bigger type scale does not push a horizontal scrollbar onto a 390px phone (#102)', async ({
+    page,
+  }) => {
+    await mockApi(page)
+    await page.goto('/')
+    await expect(list(page).getByText('Fix the dashboard rendering')).toBeVisible()
+
+    const overflowOnList = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    )
+    expect(overflowOnList).toBeLessThanOrEqual(1)
+
+    await list(page).getByText('Fix the dashboard rendering').click()
+    await expect(detail(page)).toBeVisible()
+
+    const overflowOnDetail = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    )
+    expect(overflowOnDetail).toBeLessThanOrEqual(1)
   })
 })

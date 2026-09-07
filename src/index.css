@@ -35,11 +35,22 @@
     --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
       'Liberation Mono', monospace;
 
-    --step--1: 0.75rem;
-    --step-0: 0.875rem;
-    --step-1: 1rem;
-    --step-2: 1.25rem;
-    --step-3: 1.5rem;
+    /* #102: bumped ~1.25x — the operator was already running the browser at
+       125% zoom to read this comfortably, so that becomes the 100% default.
+       Values are rounded to the nearest pixel at the default 16px root
+       (12->15, 14->18, 16->20, 20->25, 24->30) rather than a pure x1.25
+       multiply, so every step still lands on a whole pixel; that rounding
+       nudges step-0's ratio slightly but preserves strict ordering, so
+       nothing in the hierarchy inverts. tailwind.config.js's `fontSize`
+       points its own `xs`/`sm`/`base`/`xl`/`2xl` at these same variables —
+       most of the app's text uses those Tailwind defaults rather than the
+       `text-step-*` utilities, so the ramp has to move both together to
+       actually change what's on screen. */
+    --step--1: 0.9375rem; /* 15px, was 12px */
+    --step-0: 1.125rem; /* 18px, was 14px */
+    --step-1: 1.25rem; /* 20px, was 16px */
+    --step-2: 1.5625rem; /* 25px, was 20px */
+    --step-3: 1.875rem; /* 30px, was 24px */
 
     /* ── raw palette — geometry ──────────────────────────────────────── */
     --r-sm: 5px;
