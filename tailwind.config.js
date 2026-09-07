@@ -111,6 +111,22 @@ export default {
         mono: ['var(--font-mono)'],
       },
       fontSize: {
+        /* #102: the codebase's ~280 `text-sm`/`text-xs`/`text-base` call
+         * sites outnumber the dozen `text-step-*` ones by more than 20:1 —
+         * scaling only the step-* utilities would leave nearly all of the
+         * app's actual body text at its old (too-small) size. Pointing
+         * Tailwind's own defaults at the same --step-* custom properties
+         * (src/index.css) keeps a single source of truth and moves both
+         * vocabularies together. `lg` has no ramp slot (the ramp skips from
+         * step-1/16px to step-2/20px) so it keeps its own value, scaled by
+         * the same ~1.25x and rounded to a whole pixel (18px -> 22px).
+         */
+        xs: 'var(--step--1)',
+        sm: 'var(--step-0)',
+        base: 'var(--step-1)',
+        lg: '1.375rem' /* 22px, was 18px */,
+        xl: 'var(--step-2)',
+        '2xl': 'var(--step-3)',
         'step--1': 'var(--step--1)',
         'step-0': 'var(--step-0)',
         'step-1': 'var(--step-1)',
