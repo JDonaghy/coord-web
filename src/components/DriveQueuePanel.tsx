@@ -65,12 +65,21 @@
  * never hidden, so the action's existence stays discoverable (the standing
  * "rich client, not hotkeys" feedback this codebase has had before).
  *
- * The **Issue** cell (#9 QW-5) is a `<Link>` to `paths.pipelineItem`, for
- * in-app SPA navigation, plus a small secondary `<a target="_blank">`
- * affordance right next to it. Plain `<Link>`/`<a>` semantics already give
- * ctrl/cmd-click-to-new-tab for free, so the second element isn't there to
- * make new-tab *possible* -- it's there to make it *discoverable* without
- * relying on a modifier click nobody's told about.
+ * The **Issue** cell (#9 QW-5) is a `<Link>` for in-app SPA navigation, plus
+ * a small secondary `<a target="_blank">` affordance right next to it. Plain
+ * `<Link>`/`<a>` semantics already give ctrl/cmd-click-to-new-tab for free,
+ * so the second element isn't there to make new-tab *possible* -- it's there
+ * to make it *discoverable* without relying on a modifier click nobody's
+ * told about.
+ *
+ * Its target (#108) is `paths.pipelineItem` only when a real `/api/pipeline`
+ * row exists for that `repo#issue` (`queueIssueLinkTarget`,
+ * `src/lib/driveQueue.ts`) -- otherwise `paths.boardItem`, since
+ * `paths.pipelineItem` dead-ends into `Detail`'s "not found in the
+ * pipeline" for a row that has never run (every `waiting`/`blocked` row,
+ * plus roughly half of aged-out `done` history). Both the in-app `<Link>`
+ * and the new-tab `<a>` always resolve to the same `issueHref` -- they must
+ * never point at different screens.
  */
 import { Fragment, useMemo, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -92,6 +101,7 @@ import { issueRef } from '@/lib/repoRef'
 import {
   applyQueueMoveOptimistic,
   buildQueueMachineLookup,
+  buildQueuePipelineKeySet,
   buildQueueTitleLookup,
   canReleaseQueueGate,
   canUnblockQueueEntry,
@@ -106,6 +116,7 @@ import {
   queueEnqueuedCell,
   queueEntryKey,
   queueHoldCell,
+  queueIssueLinkTarget,
   queueLaunchedCell,
   queueLiveMachineCell,
   queueMoveNeighbor,
@@ -265,6 +276,12 @@ export default function DriveQueuePanel() {
   const dependencyDepths = useMemo(() => queueDependencyDepths(orderedEntries), [orderedEntries])
   const titleByKey = useMemo(() => buildQueueTitleLookup(pipeline ?? []), [pipeline])
   const machineByKey = useMemo(() => buildQueueMachineLookup(pipeline ?? []), [pipeline])
+  // #108: which repo#issue keys actually have a live /api/pipeline row --
+  // the Issue cell's link target reads this, not the queue's own `state`
+  // (see `queueIssueLinkTarget`'s doc comment for why `state` alone is an
+  // unreliable proxy). Same `pipeline` cache read as the two lookups above,
+  // not a third fetch.
+  const pipelineKeys = useMemo(() => buildQueuePipelineKeySet(pipeline ?? []), [pipeline])
   const summaryStats = data ? driveQueueSummaryStats(data.summary) : []
   // The summary tiles are always the server's fleet-wide aggregate (see
   // `driveQueueSummaryStats`'s doc comment) -- once a repo filter narrows the
@@ -496,6 +513,15 @@ export default function DriveQueuePanel() {
                     // in this list to indent against, but it's still true
                     // that this row is waiting on it.
                     const depth = Math.min(dependencyDepths[key] ?? 0, 4)
+                    // #108: pipeline view if this row actually has one,
+                    // otherwise the Board entry -- never a guaranteed dead
+                    // end for a row that hasn't run yet. Both the in-app
+                    // link and the new-tab affordance below read this same
+                    // value, so they can never disagree.
+                    const issueHref =
+                      queueIssueLinkTarget(entry, pipelineKeys) === 'pipeline'
+                        ? paths.pipelineItem(entry.repo_name, entry.issue_number)
+                        : paths.boardItem(entry.repo_name, entry.issue_number)
                     return (
                       <Fragment key={key}>
                         <tr className="border-b border-border/60 last:border-0">
@@ -513,14 +539,11 @@ export default function DriveQueuePanel() {
                           </td>
                           <td className="px-3 py-2 font-mono">
                             <div className="flex items-center gap-1">
-                              <Link
-                                to={paths.pipelineItem(entry.repo_name, entry.issue_number)}
-                                className="hover:underline"
-                              >
+                              <Link to={issueHref} className="hover:underline">
                                 {entryRef(entry)}
                               </Link>
                               <a
-                                href={paths.pipelineItem(entry.repo_name, entry.issue_number)}
+                                href={issueHref}
                                 target="_blank"
                                 rel="noreferrer"
                                 aria-label={`Open ${entryRef(entry)} in a new tab`}

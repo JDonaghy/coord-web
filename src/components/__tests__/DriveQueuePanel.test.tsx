@@ -631,11 +631,13 @@ describe('DriveQueuePanel — Title cell resolves from the server titles map (#9
 })
 
 describe('DriveQueuePanel — Issue cell hyperlink', () => {
-  it('links the Issue cell to the pipeline detail route for in-app navigation', async () => {
+  it('links the Issue cell to the pipeline detail route when a pipeline row exists, for in-app navigation', async () => {
     vi.mocked(fetchDriveQueue).mockResolvedValue(
       makeData({ entries: [makeEntry({ repo_name: 'repo-a', issue_number: 42 })] }),
     )
-    vi.mocked(fetchPipeline).mockResolvedValue([])
+    vi.mocked(fetchPipeline).mockResolvedValue([
+      makeView({ repo_name: 'repo-a', issue_number: 42 }),
+    ])
     renderPanel()
 
     const link = await screen.findByRole('link', { name: 'RA#42' })
@@ -645,11 +647,13 @@ describe('DriveQueuePanel — Issue cell hyperlink', () => {
     expect(link).not.toHaveAttribute('target')
   })
 
-  it('offers a secondary, discoverable open-in-new-tab affordance alongside the link', async () => {
+  it('offers a secondary, discoverable open-in-new-tab affordance alongside the link, resolving to the same target', async () => {
     vi.mocked(fetchDriveQueue).mockResolvedValue(
       makeData({ entries: [makeEntry({ repo_name: 'repo-a', issue_number: 42 })] }),
     )
-    vi.mocked(fetchPipeline).mockResolvedValue([])
+    vi.mocked(fetchPipeline).mockResolvedValue([
+      makeView({ repo_name: 'repo-a', issue_number: 42 }),
+    ])
     renderPanel()
 
     const newTabLink = await screen.findByRole('link', { name: 'Open RA#42 in a new tab' })
@@ -658,6 +662,81 @@ describe('DriveQueuePanel — Issue cell hyperlink', () => {
     // `rel="noreferrer"` on a target="_blank" link -- standard hardening
     // against the opened tab reaching back via `window.opener`.
     expect(newTabLink).toHaveAttribute('rel', expect.stringContaining('noreferrer'))
+  })
+
+  // ── #108: target picked by pipeline-row existence, not queue state ───────
+
+  it('links a waiting row with no pipeline row to its Board entry instead of dead-ending on the pipeline route', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({ entries: [makeEntry({ repo_name: 'format-converter', issue_number: 2, state: 'waiting' })] }),
+    )
+    // No matching pipeline row -- never dispatched, same as the issue's own
+    // measured fleet fact (every waiting/blocked row is a guaranteed pipeline
+    // dead end).
+    vi.mocked(fetchPipeline).mockResolvedValue([])
+    renderPanel()
+
+    const link = await screen.findByRole('link', { name: 'FC#2' })
+    expect(link).toHaveAttribute('href', '/board/format-converter/2')
+
+    const newTabLink = screen.getByRole('link', { name: 'Open FC#2 in a new tab' })
+    expect(newTabLink).toHaveAttribute('href', '/board/format-converter/2')
+  })
+
+  it('links a blocked row with no pipeline row to its Board entry', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({ entries: [makeEntry({ repo_name: 'format-converter', issue_number: 2, state: 'blocked' })] }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([])
+    renderPanel()
+
+    const link = await screen.findByRole('link', { name: 'FC#2' })
+    expect(link).toHaveAttribute('href', '/board/format-converter/2')
+  })
+
+  it('keeps a running row on the pipeline route -- unchanged', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({ entries: [makeEntry({ repo_name: 'repo-a', issue_number: 7, state: 'running' })] }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([
+      makeView({ repo_name: 'repo-a', issue_number: 7 }),
+    ])
+    renderPanel()
+
+    const link = await screen.findByRole('link', { name: 'RA#7' })
+    expect(link).toHaveAttribute('href', '/pipeline/repo-a/7')
+  })
+
+  it('a done row with a live pipeline row keeps the pipeline view', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({
+        entries: [
+          makeEntry({ repo_name: 'repo-a', issue_number: 8, state: 'done', hold_after: 1, hold_state: 'fired' }),
+        ],
+      }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([
+      makeView({ repo_name: 'repo-a', issue_number: 8 }),
+    ])
+    renderPanel()
+
+    const link = await screen.findByRole('link', { name: 'RA#8' })
+    expect(link).toHaveAttribute('href', '/pipeline/repo-a/8')
+  })
+
+  it('a done row with no pipeline row (aged out of the projection) goes to the Board', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(
+      makeData({
+        entries: [
+          makeEntry({ repo_name: 'repo-a', issue_number: 9, state: 'done', hold_after: 1, hold_state: 'fired' }),
+        ],
+      }),
+    )
+    vi.mocked(fetchPipeline).mockResolvedValue([])
+    renderPanel()
+
+    const link = await screen.findByRole('link', { name: 'RA#9' })
+    expect(link).toHaveAttribute('href', '/board/repo-a/9')
   })
 })
 

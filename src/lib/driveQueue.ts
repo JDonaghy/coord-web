@@ -43,6 +43,12 @@
  * grid's indent/connector. Both operate purely over whatever entry list the
  * caller passes (typically the repo-scoped, active-filtered grid rows) and
  * never re-fetch or consult anything outside that list.
+ *
+ * The Issue cell's link **target** (#108) lives here too:
+ * `buildQueuePipelineKeySet` + `queueIssueLinkTarget` decide, per row,
+ * whether `paths.pipelineItem` actually resolves to anything (a real
+ * `/api/pipeline` row exists) or whether `paths.boardItem` is the honest
+ * fallback -- see `queueIssueLinkTarget`'s own doc comment for the rule.
  */
 import type { BoardDriveQueueEntry, DriveQueueSummary, PipelineView } from '@/api/client'
 import { aliasIssueRef } from '@/lib/repoRef'
@@ -400,6 +406,50 @@ export function queueLaunchedCell(entry: BoardDriveQueueEntry, now: number = Dat
  */
 export function queueReasonAtCell(entry: BoardDriveQueueEntry, now: number = Date.now()): string {
   return formatQueueAge(entry.reason_at, now) || QUEUE_EMPTY_CELL
+}
+
+// ── issue-link target (#108) ────────────────────────────────────────────────
+
+/**
+ * `repo#issue` keys of every row `/api/pipeline` currently carries -- the
+ * membership test `queueIssueLinkTarget` needs to decide where a row's Issue
+ * link should point. Reuses the same `PipelineView[]` roster
+ * `buildQueueTitleLookup`/`buildQueueMachineLookup` already read (a
+ * `useQuery(['pipeline'], ...)` cache hit `DriveQueuePanel` already holds for
+ * those two, not a second fetch) -- see this module's header for why that
+ * matters.
+ */
+export function buildQueuePipelineKeySet(views: readonly PipelineView[]): Set<string> {
+  return new Set(views.map((v) => repoIssueKey(v.repo_name, v.issue_number)))
+}
+
+/** Where the Issue cell's link (and its adjacent new-tab affordance, which
+ * must always agree) should point -- `'pipeline'` for `paths.pipelineItem`,
+ * `'board'` for `paths.boardItem`. `DriveQueuePanel` owns turning this into
+ * an actual href; this module stays free of `@/routes/paths` so the target
+ * rule itself is unit-testable without a router. */
+export type QueueIssueLinkTarget = 'pipeline' | 'board'
+
+/**
+ * coord-web#108: `paths.pipelineItem` dead-ends -- `Detail` renders "not
+ * found in the pipeline" -- for any row `/api/pipeline` has no entry for,
+ * which per the issue's live-fleet measurement is every `waiting`/`blocked`
+ * row (guaranteed) and roughly half of `done` history (aged out of the
+ * pipeline projection). Rather than branching on the queue's own `state`
+ * (which the `done` case already proves is an unreliable proxy), this checks
+ * the thing that actually determines whether `paths.pipelineItem` resolves
+ * to anything: does a pipeline row exist for this `repo#issue` right now?
+ * `pipelineKeys` is `buildQueuePipelineKeySet`'s output -- if the entry's key
+ * isn't a member, `paths.boardItem` is the fallback, since the Board is the
+ * one view that can say something about an issue that hasn't run yet
+ * (making `/pipeline/:repo/:issue` itself useful for that case is
+ * coord-web#100's territory, not this one's).
+ */
+export function queueIssueLinkTarget(
+  entry: BoardDriveQueueEntry,
+  pipelineKeys: ReadonlySet<string>,
+): QueueIssueLinkTarget {
+  return pipelineKeys.has(queueEntryKey(entry)) ? 'pipeline' : 'board'
 }
 
 // ── title lookup ─────────────────────────────────────────────────────────────
