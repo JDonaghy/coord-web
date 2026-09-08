@@ -41,6 +41,7 @@ import { issueRef } from '@/lib/repoRef'
 import { cn } from '@/lib/utils'
 import { paths } from '@/routes/paths'
 import { createSseConnection, type ConnectionState } from '@/realtime/connection'
+import { connectionStateLabel } from '@/lib/connectionLabel'
 import {
   buildLogEntries,
   formatCompactDuration,
@@ -95,21 +96,16 @@ function BackHeader({ label }: { label: string }) {
 }
 
 // ── Local connection label (this view's own SSE connection, not the global
-// board one `ConnectionBadge` reads via `RealtimeProvider`) ────────────────
+// board one `ConnectionBadge` reads via `RealtimeProvider`) — the
+// live/reconnecting/disconnected/connecting → {text, dotClass} mapping
+// itself lives in `@/lib/connectionLabel`, shared with `ConnectionBadge`, so
+// the two can't drift apart; "Finished" is the one state specific to this
+// view (an SSE stream that closed because the log itself ended, not because
+// the connection dropped), so it stays local. ──────────────────────────────
 
 function connectionLabel(state: ConnectionState, streamEnded: boolean): { text: string; dotClass: string } {
   if (streamEnded) return { text: 'Finished', dotClass: 'bg-muted-foreground' }
-  switch (state) {
-    case 'live':
-      return { text: 'Live', dotClass: 'bg-green-500' }
-    case 'reconnecting':
-      return { text: 'Reconnecting…', dotClass: 'bg-yellow-500 animate-pulse' }
-    case 'disconnected':
-      return { text: 'Disconnected', dotClass: 'bg-destructive' }
-    case 'connecting':
-    default:
-      return { text: 'Connecting…', dotClass: 'bg-muted-foreground animate-pulse' }
-  }
+  return connectionStateLabel(state)
 }
 
 // ── Turn-stream rows ──────────────────────────────────────────────────────────
@@ -319,6 +315,19 @@ function TurnStream({ entries, streamEnded }: { entries: LogEntry[]; streamEnded
 // ── Main component ────────────────────────────────────────────────────────────
 
 function LogView({ view }: { view: PipelineView }) {
+  // `turnStats` walks the *entire* stream for `view.assignment_id` and
+  // counts every `assistant`-type line as a turn, then `StageRail` reports
+  // that as the live turn count/elapsed time for whichever stage is
+  // currently in flight. That's only correct if each pipeline stage really
+  // does get its own distinct `assignment_id` with its own turn stream (so
+  // a stage change swaps `useAssignmentLogStream` to a fresh log via its
+  // `assignmentId` dependency), rather than one assignment's log spanning
+  // several stages. Plausible given `PipelineView` only carries one
+  // `assignment_id` today, but unverified against the real
+  // claude-coordinator#3195 payload — there's no published release to curl
+  // yet (see this file's header). Re-check this assumption once #3195
+  // ships; a wrong one would silently show a cumulative count instead of
+  // the current stage's own.
   const stream = useAssignmentLogStream(view.assignment_id)
   const entries = useMemo(() => buildLogEntries(stream.events), [stream.events])
   const stats = useMemo(() => turnStats(stream.events), [stream.events])

@@ -270,6 +270,19 @@ const API_BASE = ''
  * Not included: `/ws/terminal/{session_id}` (`terminalWebSocketUrl` below) —
  * a WebSocket upgrade route, not a REST path, and absent from
  * `_openapi_spec()`'s own `paths` for the same reason.
+ *
+ * Also not included: `/api/assignment/{id}/log` (`assignmentLogUrl` below,
+ * used directly as an `EventSource` url by `LogPanel`, #110). Unlike the
+ * WebSocket route above, this one *is* an ordinary REST path claude-
+ * coordinator's `_openapi_spec()` will declare — but not yet: it ships in
+ * claude-coordinator#3195, which as of this writing has no published
+ * release. `e2e/api-routes.spec.ts` installs whatever `code-coordinator`
+ * PyPI release CI's `pip install` resolves to and fails the whole suite if
+ * any `API_ROUTES` entry is missing from that server's real spec — so
+ * putting this path in the map before the route exists anywhere installable
+ * would turn permanently red the moment this ships, on every PR and on
+ * every `main` auto-deploy, until #3195 releases. Add it back to
+ * `API_ROUTES` once a published release serves it.
  */
 export const API_ROUTES = {
   board: '/api/board',
@@ -284,12 +297,6 @@ export const API_ROUTES = {
   reportCatalogue: '/api/report',
   report: '/api/report/{report_id}',
   diff: '/api/diff/{id}',
-  // #110/claude-coordinator#3195: turn-by-turn NDJSON log for one
-  // assignment, streamed as SSE — not fetched with `apiFetch` (see
-  // `assignmentLogUrl` below, used directly as an `EventSource` url by
-  // `LogPanel`), but still declared here so `e2e/api-routes.spec.ts`'s
-  // real-`GET /openapi.json` diff covers this path too.
-  assignmentLog: '/api/assignment/{id}/log',
   pipelineAction: '/api/pipeline/action',
   portalNeedsInput: '/api/portal/needs-input',
   portalAnswer: '/api/portal/answer',
@@ -737,9 +744,15 @@ export async function fetchDiff(assignmentId: string): Promise<DiffResult> {
  * resuming after a drop is the *browser's* `EventSource` doing it natively
  * (it replays the last received frame's `id:` as a `Last-Event-ID` request
  * header on reconnect), not something this client has to implement.
+ *
+ * Deliberately builds the path inline rather than through `API_ROUTES` +
+ * `buildPath` — see `API_ROUTES`'s doc comment ("Also not included") for
+ * why this one route can't live in that map yet without turning
+ * `e2e/api-routes.spec.ts` permanently red ahead of a claude-coordinator
+ * release that doesn't exist yet.
  */
 export function assignmentLogUrl(assignmentId: string): string {
-  return `${API_BASE}${buildPath(API_ROUTES.assignmentLog, { id: assignmentId })}`
+  return `${API_BASE}/api/assignment/${encodeURIComponent(assignmentId)}/log`
 }
 
 /** Advance an assignment through a pipeline gate. */
