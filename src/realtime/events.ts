@@ -66,12 +66,15 @@ export type QueryKey = readonly unknown[]
 const PIPELINE: QueryKey = ['pipeline']
 const SESSIONS: QueryKey = ['sessions']
 const DRIVE_QUEUE: QueryKey = ['drive-queue']
-// #101: `BoardDetail`'s `['board']` query (`fetchBoard`, `GET /api/board`) --
-// an `Assignment.briefing` is what it reads for an issue's body. The same
+// #107: `BoardDetail`'s `['issue-detail', repo, number]` query
+// (`fetchIssueDetail`, `GET /api/issue/{repo}/{number}`) -- invalidating the
+// bare `['issue-detail']` prefix (react-query's default, non-exact match)
+// catches whichever one issue's detail pane happens to be mounted. The same
 // assignment lifecycle events that move a drive-queue row also start/finish
-// the underlying assignment, so this rides the identical event set as
-// `DRIVE_QUEUE` above rather than inventing a narrower one.
-const BOARD: QueryKey = ['board']
+// the underlying assignment (which can flip an issue's GitHub state/labels
+// on completion), so this rides the identical event set as `DRIVE_QUEUE`
+// above rather than inventing a narrower one.
+const ISSUE_DETAIL: QueryKey = ['issue-detail']
 // The Machines panel's roster list (#61) — `MachinesPanel` reads this key via
 // `fetchMachines()`. No per-machine key here, same posture the module doc
 // comment above already documents for `['pipeline']`/`['sessions']`:
@@ -104,18 +107,18 @@ const MACHINES: QueryKey = ['machines']
  *   map at all (see that constant's doc comment).
  */
 export const EVENT_QUERY_KEYS: Readonly<Record<string, readonly QueryKey[]>> = {
-  [ASSIGNMENT_STARTED]: [PIPELINE, SESSIONS, DRIVE_QUEUE, BOARD],
-  [ASSIGNMENT_COMPLETED]: [PIPELINE, SESSIONS, DRIVE_QUEUE, BOARD],
-  [ASSIGNMENT_FAILED]: [PIPELINE, SESSIONS, DRIVE_QUEUE, BOARD],
-  [ASSIGNMENT_CANCELLED]: [PIPELINE, SESSIONS, DRIVE_QUEUE, BOARD],
-  [ASSIGNMENT_ADVISORY]: [PIPELINE, SESSIONS, DRIVE_QUEUE, BOARD],
-  [ASSIGNMENT_REFUSED_POLICY]: [PIPELINE, SESSIONS, DRIVE_QUEUE, BOARD],
+  [ASSIGNMENT_STARTED]: [PIPELINE, SESSIONS, DRIVE_QUEUE, ISSUE_DETAIL],
+  [ASSIGNMENT_COMPLETED]: [PIPELINE, SESSIONS, DRIVE_QUEUE, ISSUE_DETAIL],
+  [ASSIGNMENT_FAILED]: [PIPELINE, SESSIONS, DRIVE_QUEUE, ISSUE_DETAIL],
+  [ASSIGNMENT_CANCELLED]: [PIPELINE, SESSIONS, DRIVE_QUEUE, ISSUE_DETAIL],
+  [ASSIGNMENT_ADVISORY]: [PIPELINE, SESSIONS, DRIVE_QUEUE, ISSUE_DETAIL],
+  [ASSIGNMENT_REFUSED_POLICY]: [PIPELINE, SESSIONS, DRIVE_QUEUE, ISSUE_DETAIL],
   [ASSIGNMENT_NEEDS_ATTENTION]: [PIPELINE],
   // A machine (dis)connecting is exactly what the Machines roster reflects
   // (#61) as well as session reachability -- both invalidated together.
   [MACHINE_CONNECTED]: [SESSIONS, MACHINES],
   [MACHINE_DISCONNECTED]: [SESSIONS, MACHINES],
-  [BOARD_UPDATED]: [PIPELINE, SESSIONS, DRIVE_QUEUE, MACHINES, BOARD],
+  [BOARD_UPDATED]: [PIPELINE, SESSIONS, DRIVE_QUEUE, MACHINES, ISSUE_DETAIL],
 }
 
 /**
@@ -134,5 +137,5 @@ export const RESYNC_QUERY_KEYS: readonly QueryKey[] = [
   SESSIONS,
   DRIVE_QUEUE,
   MACHINES,
-  BOARD,
+  ISSUE_DETAIL,
 ]

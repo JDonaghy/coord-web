@@ -30,6 +30,7 @@ import type {
   GateAApprovalWire,
   GateAMockWire,
   GateAPacket,
+  IssueDetailWire,
   JournalEntryWire,
   JournalLinkWire,
   JournalResponse,
@@ -83,6 +84,7 @@ export type {
   GateAApprovalWire,
   GateAMockWire,
   GateAPacket,
+  IssueDetailWire,
   JournalEntryWire,
   JournalLinkWire,
   JournalResponse,
@@ -289,6 +291,7 @@ export const API_ROUTES = {
   journal: '/api/journal/{submission_id}',
   milestones: '/api/milestones',
   milestoneDetail: '/api/milestones/{repo}/{number}',
+  issueDetail: '/api/issue/{repo}/{number}',
 } as const satisfies Record<string, string>
 
 /**
@@ -931,6 +934,45 @@ export async function fetchGateA(repo: string, trackingIssue: number): Promise<G
     return { ok: false, status: res.status, error: data.error ?? `HTTP ${res.status}` }
   }
   return { ok: true, data: data as GateAPacket }
+}
+
+// ── GET /api/issue/{repo}/{number} (claude-coordinator#3194 / coord-web#107) ──
+
+/**
+ * The result of fetching an issue's detail — a `404` (unknown repo, unknown
+ * issue number, or an issue the store has never synced — this endpoint's own
+ * `description`, see `generated.ts`) is a real, legible outcome to show, not
+ * a thrown error. Same `{ok, status, error}` shape `fetchGateA` uses, for the
+ * same reason: this daemon is required (not a pre-#3194 compatibility
+ * concern the way the Milestones fetchers' `absent` case is), so there's no
+ * "route doesn't exist yet" outcome to distinguish from a handled 404.
+ */
+export type IssueDetailFetchResult =
+  | { ok: true; data: IssueDetailWire }
+  | { ok: false; status: number; error: string }
+
+/**
+ * Fetch one issue's full body + GitHub state/labels/`html_url`, whether or
+ * not it has ever been dispatched (#107) — the one fetch `BoardDetail` needs
+ * for its own content. `html_url` is built server-side from the repo's
+ * configured `github: owner/repo` slug; render it verbatim and never compose
+ * a GitHub URL from `repo`+`number` in this app (the coord repo name is not
+ * always that slug — `claude-coordinator` is `JDonaghy/code-coordinator`).
+ */
+export async function fetchIssueDetail(repo: string, number: number): Promise<IssueDetailFetchResult> {
+  const path = buildPath(API_ROUTES.issueDetail, { repo, number: String(number) })
+  const res = await fetch(`${API_BASE}${path}`)
+  let data: Partial<IssueDetailWire> & { error?: string } = {}
+  try {
+    data = await res.json()
+  } catch {
+    // No/invalid JSON body — fall through, the status code alone still
+    // reports failure below.
+  }
+  if (!res.ok) {
+    return { ok: false, status: res.status, error: data.error ?? `HTTP ${res.status}` }
+  }
+  return { ok: true, data: data as IssueDetailWire }
 }
 
 // ── GET /api/journal/{submission_id} (#93, claude-coordinator#3091) ──────────

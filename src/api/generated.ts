@@ -919,3 +919,35 @@ export interface MilestoneGateAWire {
   approved_contract_sha: string | null
   href: string | null
 }
+
+// ── GET /api/issue/{repo}/{number} (claude-coordinator#3194 / coord-web#107) ──
+//
+// COPIED VERBATIM from the generator's own output, same posture as the
+// Journal block above:
+//
+//     python -m coord.codegen --out src/api/generated.ts
+//
+// run against installed `code-coordinator==0.5.413` (the version this was
+// verified against — its `GET /openapi.json` was also curled directly
+// against a live `coord web --fixture` process and diffed key-for-key
+// against this declaration before anything was written against it). Spliced
+// in rather than replacing the whole file for the same reason as every other
+// hand-spliced block here: a wholesale regeneration rewrites the
+// Machines/Reports/DriveQueue sections this file hand-maintains, which is a
+// separate repo-wide task (coord-web#77 / claude-coordinator#2258), not
+// something to fold into a Board-detail fix. `html_url` is the field this
+// whole issue exists for — built server-side from the repo's configured
+// `github: owner/repo` slug, which is not always the coord repo name (see
+// this interface's own field and `src/api/client.ts`'s `fetchIssueDetail`);
+// no client in this repo may compose this URL itself.
+export interface IssueDetailWire {
+  repo_name: string
+  number: number
+  title: string
+  body: string
+  state: 'open' | 'closed'
+  labels: string[]
+  milestone_number: number | null
+  milestone_title: string | null
+  html_url: string
+}

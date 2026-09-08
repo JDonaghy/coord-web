@@ -1,64 +1,40 @@
 /**
- * Board panel helpers (#101) — group the tracked issue backlog by repo for
- * the tree, parse the number/ref filter, and pull a best-effort issue body
- * out of data coord-web already has.
+ * Board panel helpers (#101, updated for #107) — group the tracked issue
+ * backlog by repo for the tree, and parse the number/ref filter.
  *
- * ## Why this reads drive-queue + board-briefing instead of a dedicated endpoint
+ * ## Why the tree still reads drive-queue, and why the body no longer does
  *
  * #101 asks for a full per-repo issue browser: title, state, labels and the
- * rendered GitHub body. The daemon that already carries exactly that shape
- * is coord-serve's board projection — `GET /board` on "the board daemon"
- * (`dellserver:7435`, coord-serve's own systemd description), verified live
- * while building this panel: its `issues[]` carries `repo_name`/`number`/
- * `title`/`body`/`state`/`labels` for 857 rows across 9 repos, and
- * `GET /issue/{repo_name}/{number}` on that same daemon returns the full,
- * untruncated body. (`format-converter`#2/#3's titles — "Cloudflare Pages
- * scaffold: static, no-Access, strict no-egress CSP" / "YAML <-> JSON
- * conversion engine with positioned error reporting" — match this issue's
- * own mock verbatim, confirming this is the intended source, not a guess.)
+ * rendered GitHub body. **The tree** comes from `GET /api/drive-queue` — no
+ * dedicated "list every tracked issue" endpoint exists, and the queue rows
+ * already carry repo, issue number and title. Rows are scoped to `entries`
+ * that also have a `titles` hit: every entry missing one is a `done`,
+ * long-since-synced-away issue (verified: of 1025 live entries, the ~680
+ * missing a title were *all* `state: 'done'`), so this is "the tracked,
+ * still-relevant backlog", not the full historical table. A real gap versus
+ * the full repo backlog (an epic that never entered the queue, an issue
+ * closed and rolled off entirely) — not hidden here, just the honest
+ * boundary of what this data source knows.
  *
- * `coord-web`'s OWN API (port 7434, same-origin — the only host this browser
- * app is allowed to call, see this repo's CLAUDE.md) has no equivalent route
- * yet: `GET /openapi.json` against the daemon this was built against
- * (code-coordinator==0.5.401) lists no `/api/board/issues` or
- * `/api/issue/{repo}/{number}`, and `e2e/api-routes.spec.ts` (#78) fails the
- * build the instant `API_ROUTES` names a path the *served* spec doesn't
- * have — the exact coord-web#76 mistake that check exists to catch, and
- * confirmed by `MilestonesPanel`'s own history: that panel's `'soon' ->
- * 'ready'` flip in `railItems.ts` landed only the day claude-coordinator#3072
- * actually shipped, never ahead of it. Adding the coord-web-side route is
- * backend work in claude-coordinator's `coord/dashboard/server.py` — out of
- * reach for a coord-web-only change (this repo ships no backend code, see
- * CLAUDE.md) and out of this issue's own file list.
- *
- * So this ships the honest interim version, entirely over data `coord-web`
- * already serves for real, today:
- *
- *  - **The tree** comes from `GET /api/drive-queue` — this issue's own words
- *    ("the queue rows already carry repo, issue number and title"). Rows are
- *    scoped to `entries` that also have a `titles` hit: every entry missing
- *    one is a `done`, long-since-synced-away issue (verified: of 1025 live
- *    entries, the ~680 missing a title were *all* `state: 'done'`), so this
- *    is "the tracked, still-relevant backlog", not the full historical
- *    table. A real gap versus the full repo backlog (an epic that never
- *    entered the queue, an issue closed and rolled off entirely) — not
- *    hidden here, just the honest boundary of what this data source knows.
- *  - **The body** comes from `GET /api/board`'s `active`/`completed`
- *    `Assignment.briefing`, for the — much smaller — set of issues that have
- *    actually been dispatched at least once. `extractBriefingBody` strips
- *    the leading `Issue #N: <title>` line `coord`'s dispatcher synthesizes,
- *    so what's left is exactly the body markdown. Everything else is an
- *    honest "not available from this coord server yet" state
- *    (`BoardDetail`), with a plain `<a>` out to GitHub — never a `fetch` to
- *    GitHub itself, per this issue's own constraint.
- *
- * The day `/api/board/issues` + `/api/issue/{repo}/{number}` land for real
- * on coord-web's own API (mirroring the coord-serve shape verified above),
- * this file's exports are the one place to swap over.
+ * **The body, GitHub state/labels and the GitHub link** used to come from a
+ * best-effort scrape of `GET /api/board`'s `Assignment.briefing` — a real
+ * gap this module's header used to document at length, since a briefing only
+ * exists once an issue has been dispatched at least once, and no client-side
+ * data carried GitHub's own state/labels/URL at all. `GET /api/issue/{repo}/
+ * {number}` (claude-coordinator#3194) closed that gap for real: it answers
+ * for every tracked issue, dispatched or not, with the actual body, GitHub's
+ * own `state`/`labels`, and a server-built `html_url` (the coord repo name is
+ * not always the GitHub `owner/repo` slug, so only the server can build this
+ * correctly). `BoardDetail` (`src/components/BoardDetail.tsx`) reads that
+ * endpoint directly via `fetchIssueDetail` (`src/api/client.ts`) — this
+ * module no longer has a body/state/labels export at all; `queueState` below
+ * is deliberately the only state this module still carries, since it's a
+ * different fact (queue lifecycle, not GitHub open/closed) that only this
+ * module's data source knows.
  */
 import { queueEntryKey } from '@/lib/driveQueue'
 import { repoAlias } from '@/lib/repoRef'
-import type { Assignment, BoardDriveQueueEntry } from '@/api/client'
+import type { BoardDriveQueueEntry } from '@/api/client'
 
 export interface BoardIssueRow {
   repo: string
@@ -179,32 +155,4 @@ export function filterBoardGroups(
   return groups
     .map((g) => ({ repo: g.repo, issues: g.issues.filter(matches) }))
     .filter((g) => g.issues.length > 0)
-}
-
-// ── best-effort body, from an already-dispatched assignment's briefing ─────
-
-/**
- * Find the most recent `Assignment` for this repo+issue in `/api/board`'s
- * `active`+`completed` windows — `active` checked first, since a currently
- * running assignment's briefing is more likely to be what's live than a
- * possibly-stale completed one for the same issue re-queued since.
- */
-export function findBoardAssignment(
-  board: { active: readonly Assignment[]; completed: readonly Assignment[] },
-  repo: string,
-  number: number,
-): Assignment | null {
-  const match = (a: Assignment) => a.repo_name === repo && a.issue_number === number
-  return board.active.find(match) ?? board.completed.find(match) ?? null
-}
-
-/**
- * Strip the leading `Issue #N: <title>` line `coord`'s dispatcher
- * synthesizes onto every briefing, leaving just the body markdown. Falls
- * back to the untouched briefing when the prefix doesn't match the expected
- * shape — never hides data behind a fragile parse.
- */
-export function extractBriefingBody(briefing: string): string {
-  const match = /^Issue #\d+:[^\n]*\n+/.exec(briefing)
-  return match ? briefing.slice(match[0].length) : briefing
 }

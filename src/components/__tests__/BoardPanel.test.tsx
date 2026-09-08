@@ -17,20 +17,18 @@ import BoardDetail from '@/components/BoardDetail'
 import { ThemeProvider } from '@/components/ui/theme-provider'
 import {
   boardIssuesFromDriveQueue,
-  extractBriefingBody,
   filterBoardGroups,
-  findBoardAssignment,
   groupBoardIssuesByRepo,
   parseBoardFilter,
 } from '@/lib/board'
-import type { Assignment, BoardData, BoardDriveQueueEntry, DriveQueueData } from '@/api/client'
+import type { BoardDriveQueueEntry, DriveQueueData, IssueDetailFetchResult, IssueDetailWire } from '@/api/client'
 
 vi.mock('@/api/client', async () => {
   const actual = await vi.importActual<typeof import('@/api/client')>('@/api/client')
-  return { ...actual, fetchDriveQueue: vi.fn(), fetchBoard: vi.fn() }
+  return { ...actual, fetchDriveQueue: vi.fn(), fetchIssueDetail: vi.fn() }
 })
 
-import { fetchBoard, fetchDriveQueue } from '@/api/client'
+import { fetchDriveQueue, fetchIssueDetail } from '@/api/client'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -84,76 +82,27 @@ function driveQueueData(overrides: Partial<DriveQueueData> = {}): DriveQueueData
   }
 }
 
-function assignment(overrides: Partial<Assignment> = {}): Assignment {
+function issueDetail(overrides: Partial<IssueDetailWire> = {}): IssueDetailWire {
   return {
-    machine_name: 'dellserver',
     repo_name: 'format-converter',
-    issue_number: 3,
-    issue_title: 'YAML <-> JSON conversion engine with positioned error reporting',
-    files_allowed: [],
-    files_forbidden: [],
-    briefing:
-      'Issue #3: YAML <-> JSON conversion engine with positioned error reporting\n\n## What\n\nParse YAML and emit positioned errors.',
-    assignment_id: 'abc123',
-    status: 'running',
-    branch: null,
-    pr_url: null,
-    dispatched_at: 1_700_000_000,
-    finished_at: null,
-    smoke_test: null,
-    smoke_test_reason: null,
-    type: 'work',
-    review_target: null,
-    review_of_assignment_id: null,
-    unreachable_count: 0,
-    model: null,
-    plan: null,
-    review_state: null,
-    review_dispatch_reason: null,
-    required_gates: [],
-    review_iteration: 0,
-    review_posted_at: null,
-    test_state: null,
-    test_reason: null,
-    test_head_sha: null,
-    test_patch_id: null,
-    test_base_sha: null,
-    test_toolchain: null,
-    review_verdict: null,
-    review_verdict_original: null,
-    review_verdict_override_reason: null,
-    verdict_source: null,
-    verdict_source_reason: null,
-    review_head_sha: null,
-    review_patch_id: null,
-    review_scoped: false,
-    review_scope_base_sha: null,
-    cost_usd: null,
-    smoke_tests: null,
-    provider_name: null,
-    input_tokens: 0,
-    output_tokens: 0,
-    cache_creation_tokens: 0,
-    cache_read_tokens: 0,
-    failure_reason: null,
-    acceptance_state: null,
-    acceptance_reason: null,
-    acceptance_sha: null,
-    acceptance_total: null,
-    acceptance_passed: null,
-    completion_summary: null,
-    audit_goals_json: null,
-    audit_bottom_line: null,
-    audit_run_number: null,
-    for_issue_number: null,
-    driven_by: null,
-    stop_reason: null,
+    number: 3,
+    title: 'YAML <-> JSON conversion engine with positioned error reporting',
+    body: '## What\n\nParse YAML and emit positioned errors.',
+    state: 'open',
+    labels: [],
+    milestone_number: null,
+    milestone_title: null,
+    html_url: 'https://github.com/JDonaghy/format-converter/issues/3',
     ...overrides,
   }
 }
 
-function boardData(overrides: Partial<BoardData> = {}): BoardData {
-  return { round_number: 1, active: [], completed: [], ...overrides }
+function issueOk(overrides: Partial<IssueDetailWire> = {}): IssueDetailFetchResult {
+  return { ok: true, data: issueDetail(overrides) }
+}
+
+function issueNotFound(error = 'unknown issue'): IssueDetailFetchResult {
+  return { ok: false, status: 404, error }
 }
 
 function renderPanel(initialEntries: string[] = ['/board']) {
@@ -248,21 +197,6 @@ describe('board.ts — pure helpers', () => {
     expect(filtered.map((g) => g.repo)).toEqual(['a', 'b'])
   })
 
-  it('extractBriefingBody strips the synthesized "Issue #N: title" line', () => {
-    const body = extractBriefingBody('Issue #3: A title\n\n## What\n\nDo the thing.')
-    expect(body).toBe('## What\n\nDo the thing.')
-  })
-
-  it('extractBriefingBody returns the briefing untouched when the prefix is missing', () => {
-    expect(extractBriefingBody('No prefix here')).toBe('No prefix here')
-  })
-
-  it('findBoardAssignment prefers an active assignment over a completed one', () => {
-    const active = assignment({ repo_name: 'a', issue_number: 1, briefing: 'active' })
-    const completed = assignment({ repo_name: 'a', issue_number: 1, briefing: 'completed' })
-    const found = findBoardAssignment({ active: [active], completed: [completed] }, 'a', 1)
-    expect(found?.briefing).toBe('active')
-  })
 })
 
 // ── BoardPanel ───────────────────────────────────────────────────────────────
@@ -356,11 +290,9 @@ describe('BoardPanel', () => {
 // ── BoardDetail ──────────────────────────────────────────────────────────────
 
 describe('BoardDetail', () => {
-  it('renders the body extracted from a matching assignment briefing', async () => {
+  it('renders the body from GET /api/issue for a dispatched issue (no regression)', async () => {
     vi.mocked(fetchDriveQueue).mockResolvedValue(driveQueueData())
-    vi.mocked(fetchBoard).mockResolvedValue(
-      boardData({ active: [assignment({ repo_name: 'format-converter', issue_number: 3 })] }),
-    )
+    vi.mocked(fetchIssueDetail).mockResolvedValue(issueOk({ repo_name: 'format-converter', number: 3 }))
     renderDetail('/board/format-converter/3')
 
     expect(await screen.findByTestId('board-detail-title')).toHaveTextContent(
@@ -370,21 +302,62 @@ describe('BoardDetail', () => {
     expect(screen.getByTestId('board-detail-queue-state')).toHaveTextContent('blocked')
   })
 
-  it('renders the "not available" state when no assignment ever carried this issue', async () => {
+  it('renders the full body for a never-dispatched issue (#107)', async () => {
     vi.mocked(fetchDriveQueue).mockResolvedValue(driveQueueData())
-    vi.mocked(fetchBoard).mockResolvedValue(boardData())
+    vi.mocked(fetchIssueDetail).mockResolvedValue(
+      issueOk({
+        repo_name: 'format-converter',
+        number: 2,
+        title: 'Cloudflare Pages scaffold: static, no-Access, strict no-egress CSP',
+        body: '## What\n\nStatic scaffold, no Access, strict no-egress CSP.',
+        html_url: 'https://github.com/JDonaghy/format-converter/issues/2',
+      }),
+    )
     renderDetail('/board/format-converter/2')
 
-    expect(await screen.findByTestId('board-detail-no-body')).toBeInTheDocument()
+    expect(await screen.findByText('Static scaffold, no Access, strict no-egress CSP.')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /github.com\/JDonaghy\/format-converter\/issues\/2/ })).toHaveAttribute(
+      'href',
+      'https://github.com/JDonaghy/format-converter/issues/2',
+    )
   })
 
-  it('renders an honest "untracked" badge for an issue absent from the queue', async () => {
+  it('renders GitHub state and labels straight from the endpoint', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(driveQueueData())
+    vi.mocked(fetchIssueDetail).mockResolvedValue(
+      issueOk({ state: 'closed', labels: ['area:parser', 'good-first-issue'] }),
+    )
+    renderDetail('/board/format-converter/3')
+
+    expect(await screen.findByTestId('board-detail-github-state')).toHaveTextContent('closed')
+    expect(screen.getByTestId('board-detail-label-area:parser')).toBeInTheDocument()
+    expect(screen.getByTestId('board-detail-label-good-first-issue')).toBeInTheDocument()
+  })
+
+  it('links to the owner/repo slug even when it differs from the coord repo name', async () => {
     vi.mocked(fetchDriveQueue).mockResolvedValue(driveQueueData({ entries: [], titles: {} }))
-    vi.mocked(fetchBoard).mockResolvedValue(boardData())
+    vi.mocked(fetchIssueDetail).mockResolvedValue(
+      issueOk({
+        repo_name: 'claude-coordinator',
+        number: 3194,
+        title: '#3194',
+        html_url: 'https://github.com/JDonaghy/code-coordinator/issues/3194',
+      }),
+    )
+    renderDetail('/board/claude-coordinator/3194')
+
+    expect(
+      await screen.findByRole('link', { name: /github.com\/JDonaghy\/code-coordinator\/issues\/3194/ }),
+    ).toHaveAttribute('href', 'https://github.com/JDonaghy/code-coordinator/issues/3194')
+  })
+
+  it('renders an honest empty state, not a crash, for an issue the store has never synced', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(driveQueueData())
+    vi.mocked(fetchIssueDetail).mockResolvedValue(issueNotFound("unknown issue 'format-converter#999'"))
     renderDetail('/board/format-converter/999')
 
-    expect(await screen.findByTestId('board-detail-untracked')).toBeInTheDocument()
-    expect(screen.getByTestId('board-detail-title')).toHaveTextContent('Issue #999')
+    expect(await screen.findByTestId('board-detail-not-found')).toBeInTheDocument()
+    expect(screen.queryByTestId('board-detail-title')).not.toBeInTheDocument()
   })
 
   it('rejects an invalid link without crashing', () => {
