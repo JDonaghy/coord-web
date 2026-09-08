@@ -17,6 +17,7 @@ import type { BoardDriveQueueEntry, DriveQueueSummary, PipelineView } from '@/ap
 import {
   applyQueueMoveOptimistic,
   buildQueueMachineLookup,
+  buildQueuePipelineKeySet,
   buildQueueTitleLookup,
   canReleaseQueueGate,
   canUnblockQueueEntry,
@@ -32,6 +33,7 @@ import {
   queueEnqueuedCell,
   queueEntryKey,
   queueHoldCell,
+  queueIssueLinkTarget,
   queueLaunchedCell,
   queueLiveMachineCell,
   queueMoveNeighbor,
@@ -561,6 +563,57 @@ describe('buildQueueTitleLookup / queueTitleCell', () => {
     expect(
       queueTitleCell(makeEntry({ repo_name: 'quadraui', issue_number: 812 }), titleByKey, serverTitles),
     ).toBe('NativeSurface Phase 3: impl<S: NativeSurface> Backend for Raster<S>')
+  })
+})
+
+// ── issue-link target (#108) ────────────────────────────────────────────────
+
+describe('buildQueuePipelineKeySet / queueIssueLinkTarget', () => {
+  it('targets pipeline for a row with a live /api/pipeline entry, board for one without', () => {
+    const pipelineKeys = buildQueuePipelineKeySet([
+      makeView({ repo_name: 'repo-a', issue_number: 1 }),
+    ])
+    expect(
+      queueIssueLinkTarget(makeEntry({ repo_name: 'repo-a', issue_number: 1 }), pipelineKeys),
+    ).toBe('pipeline')
+    expect(
+      queueIssueLinkTarget(makeEntry({ repo_name: 'repo-a', issue_number: 2 }), pipelineKeys),
+    ).toBe('board')
+  })
+
+  it('targets board for every row when the pipeline roster is empty', () => {
+    const pipelineKeys = buildQueuePipelineKeySet([])
+    for (const state of ['waiting', 'blocked', 'running', 'done']) {
+      expect(queueIssueLinkTarget(makeEntry({ state }), pipelineKeys)).toBe('board')
+    }
+  })
+
+  it('is state-independent -- a waiting/blocked row with a matching pipeline row still targets pipeline', () => {
+    // #108's own measured fact: `state` alone is not a reliable proxy (a
+    // `done` row can lack a pipeline row, and -- less commonly -- a
+    // dispatched-then-requeued row can be `waiting`/`blocked` while still
+    // carrying a live pipeline row). The rule reads pipeline membership
+    // only, never `entry.state`.
+    const pipelineKeys = buildQueuePipelineKeySet([
+      makeView({ repo_name: 'repo-a', issue_number: 1 }),
+    ])
+    for (const state of ['waiting', 'blocked', 'running', 'done']) {
+      expect(
+        queueIssueLinkTarget(makeEntry({ repo_name: 'repo-a', issue_number: 1, state }), pipelineKeys),
+      ).toBe('pipeline')
+    }
+  })
+
+  it('a done row without a matching pipeline row (aged out of the projection) still targets board', () => {
+    const pipelineKeys = buildQueuePipelineKeySet([
+      makeView({ repo_name: 'repo-a', issue_number: 1 }),
+    ])
+    expect(
+      queueIssueLinkTarget(
+        makeEntry({ repo_name: 'repo-a', issue_number: 999, state: 'done', hold_after: 1, hold_state: 'fired' }),
+        pipelineKeys,
+      ),
+    ).toBe('board')
   })
 })
 
