@@ -4,6 +4,7 @@
  * the moment the SSE stream drops, this says so.
  */
 import { useConnectionStatus } from '@/realtime/RealtimeProvider'
+import { connectionStateLabel } from '@/lib/connectionLabel'
 import { cn } from '@/lib/utils'
 
 // Explicit options (not the bare `toLocaleTimeString()` default) so this
@@ -17,27 +18,11 @@ function formatTime(epochMs: number): string {
 export function ConnectionBadge() {
   const { state, lastLiveAt } = useConnectionStatus()
 
-  let label: string
-  let dotClass: string
-  switch (state) {
-    case 'live':
-      label = 'Live'
-      dotClass = 'bg-green-500'
-      break
-    case 'reconnecting':
-      label = 'Reconnecting…'
-      dotClass = 'bg-yellow-500 animate-pulse'
-      break
-    case 'disconnected':
-      label = lastLiveAt ? `Stale since ${formatTime(lastLiveAt)}` : 'Disconnected'
-      dotClass = 'bg-destructive'
-      break
-    case 'connecting':
-    default:
-      label = 'Connecting…'
-      dotClass = 'bg-muted-foreground animate-pulse'
-      break
-  }
+  const { text, dotClass } = connectionStateLabel(state)
+  // "Stale since <time>" is specific to this badge's `lastLiveAt` tracking
+  // (`RealtimeProvider`) — `connectionStateLabel`'s plain "Disconnected"
+  // covers every other consumer, so this one override stays local.
+  const label = state === 'disconnected' && lastLiveAt ? `Stale since ${formatTime(lastLiveAt)}` : text
 
   return (
     <span
