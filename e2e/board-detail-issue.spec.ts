@@ -119,6 +119,11 @@ test.describe('BoardDetail — GET /api/issue/{repo}/{number} (#107)', () => {
 
     await expect(page.getByTestId('board-detail-not-found')).toBeVisible()
     await expect(page.getByTestId('board-detail-title')).toHaveCount(0)
+    // The identity chrome comes from the route, so the empty state can still
+    // say which repo it's about — this is also what a real `coord web
+    // --fixture` server shows, since it 404s /api/issue for every repo
+    // (e2e/queue-issue-link-target.spec.ts leans on exactly this).
+    await expect(page.getByTestId('board-detail-repo')).toHaveText('format-converter')
     await expectShellAlive(page)
   })
 })
