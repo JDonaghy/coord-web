@@ -98,6 +98,19 @@ export const paths = {
    * `ShellLayout`. */
   gateA: (repo: string, trackingIssue: number | string) =>
     `/gate-a/${encodeURIComponent(repo)}/${encodeURIComponent(String(trackingIssue))}`,
+  /** #110 — the stage rail + turn stream for one issue's most recent leg.
+   * Deliberately its own top-level path rather than reusing
+   * `pipelineItem(repo, issue, 'log')`'s `/pipeline/repo/issue/log` shape:
+   * that `log` DETAIL_TAB is reserved for a *future* tab strip inside
+   * `Detail` itself (`Overview | Issue | Log | Findings | Summary`, still
+   * unbuilt — `Detail.tsx`'s own route comment), and this view is a
+   * standalone full-viewport screen today, same posture as `gateA`/
+   * `terminal` above (opened directly from a queue row or Board detail, not
+   * browsed to via the shell's rail+list+detail chrome) — reusing the same
+   * URL for two different components once the tab strip lands would be a
+   * collision, not a convenience. */
+  log: (repo: string, issue: number | string): string =>
+    `/log/${encodeURIComponent(repo)}/${encodeURIComponent(String(issue))}`,
 } as const
 
 /**

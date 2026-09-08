@@ -284,6 +284,12 @@ export const API_ROUTES = {
   reportCatalogue: '/api/report',
   report: '/api/report/{report_id}',
   diff: '/api/diff/{id}',
+  // #110/claude-coordinator#3195: turn-by-turn NDJSON log for one
+  // assignment, streamed as SSE — not fetched with `apiFetch` (see
+  // `assignmentLogUrl` below, used directly as an `EventSource` url by
+  // `LogPanel`), but still declared here so `e2e/api-routes.spec.ts`'s
+  // real-`GET /openapi.json` diff covers this path too.
+  assignmentLog: '/api/assignment/{id}/log',
   pipelineAction: '/api/pipeline/action',
   portalNeedsInput: '/api/portal/needs-input',
   portalAnswer: '/api/portal/answer',
@@ -720,6 +726,20 @@ export async function fetchDiff(assignmentId: string): Promise<DiffResult> {
     kind: 'object',
     key: 'diff',
   })
+}
+
+/**
+ * `GET /api/assignment/{id}/log` (#110/claude-coordinator#3195) as a URL for
+ * a browser `EventSource` — not a plain `fetch`, so this returns the URL
+ * rather than a parsed body the way `fetchDiff` above does. `LogPanel` opens
+ * it via `@/realtime/connection`'s `createSseConnection`, the same
+ * reconnect-with-backoff machinery `RealtimeProvider` uses for `/events`;
+ * resuming after a drop is the *browser's* `EventSource` doing it natively
+ * (it replays the last received frame's `id:` as a `Last-Event-ID` request
+ * header on reconnect), not something this client has to implement.
+ */
+export function assignmentLogUrl(assignmentId: string): string {
+  return `${API_BASE}${buildPath(API_ROUTES.assignmentLog, { id: assignmentId })}`
 }
 
 /** Advance an assignment through a pipeline gate. */

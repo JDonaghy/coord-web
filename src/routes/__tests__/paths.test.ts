@@ -62,6 +62,24 @@ describe('paths.boardItem', () => {
   })
 })
 
+describe('paths.log', () => {
+  it('builds the standalone Log view path (#110)', () => {
+    expect(paths.log('format-converter', 3)).toBe('/log/format-converter/3')
+  })
+
+  it('encodes a repo name that needs escaping (an owner/name slug)', () => {
+    expect(paths.log('JDonaghy/coord-web', 4)).toBe('/log/JDonaghy%2Fcoord-web/4')
+  })
+
+  it('accepts a string issue number unchanged', () => {
+    expect(paths.log('format-converter', '3')).toBe('/log/format-converter/3')
+  })
+
+  it('is distinct from pipelineItem(repo, issue, "log") -- reserved for a future Detail tab strip', () => {
+    expect(paths.log('format-converter', 3)).not.toBe(paths.pipelineItem('format-converter', 3, 'log'))
+  })
+})
+
 describe('isDetailTab', () => {
   it('accepts every member of the detail tab set', () => {
     for (const tab of ['overview', 'issue', 'log', 'findings', 'summary']) {

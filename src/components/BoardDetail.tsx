@@ -44,7 +44,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, FileText } from 'lucide-react'
 
 import { fetchDriveQueue, fetchIssueDetail } from '@/api/client'
 import { Badge } from '@/components/ui/badge'
@@ -198,6 +198,20 @@ export default function BoardDetail() {
                 {label}
               </Badge>
             ))}
+          {/* #110: the stage rail + turn stream for this issue's most recent
+              leg. Always offered here (unlike the Queue panel's own Log
+              link, which is gated on a known pipeline row) -- `LogPanel`
+              itself already renders an honest "no run to show a log for"
+              empty state when this issue has never been dispatched, so
+              there's no dead end to guard against by pre-checking here. */}
+          <Link
+            to={paths.log(repo, number)}
+            className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-secondary/50 hover:text-foreground"
+            data-testid="board-detail-log-link"
+          >
+            <FileText className="h-3 w-3" aria-hidden="true" />
+            Log
+          </Link>
         </div>
         {issue?.ok && (
           <p className="mt-2 text-xs text-faint">

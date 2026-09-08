@@ -26,6 +26,10 @@ const GateAPanel = lazy(() => import('@/components/GateAPanel'))
 // reason to split it out -- most visits never open a Board item.
 const BoardDetail = lazy(() => import('@/components/BoardDetail'))
 
+// #110: the stage rail + turn stream view -- most visits never open a Log
+// link either, same "split it out" reasoning as GateAPanel/BoardDetail above.
+const LogPanel = lazy(() => import('@/components/LogPanel'))
+
 // Dev-only component gallery (#1546) — renders every ui/* primitive in both
 // themes, so a human (or a Playwright acceptance slice) can see the whole
 // system at once without hunting through the app for each one. Route-guarded
@@ -117,6 +121,19 @@ const Gallery = lazy(() => import('@/components/Gallery'))
  *                                        anyone, and the width control it
  *                                        ships needs the full viewport, not
  *                                        rail+list+detail chrome eating into it.
+ *   /log/:repo/:issue                -> LogPanel (#110) -- the stage rail +
+ *                                        turn stream for an issue's most
+ *                                        recent leg. Outside the shell, same
+ *                                        reasoning as /gate-a above: opened
+ *                                        directly from a queue row
+ *                                        (DriveQueuePanel) or Board detail,
+ *                                        not browsed to via the rail --
+ *                                        deliberately a distinct path from
+ *                                        `/pipeline/:repo/:issue/log`
+ *                                        (paths.ts's `log()` doc comment
+ *                                        explains why that shape stays
+ *                                        reserved for a future Detail tab
+ *                                        strip instead).
  *
  * Every route below `/pipeline` is a child of `ShellLayout`, the react-router
  * *layout route*: the child fills the detail slot (rail + list + detail on
@@ -266,6 +283,16 @@ export default function App() {
                 <div className="min-h-screen bg-background text-foreground">
                   <Suspense fallback={null}>
                     <GateAPanel />
+                  </Suspense>
+                </div>
+              }
+            />
+            <Route
+              path="/log/:repo/:issue"
+              element={
+                <div className="min-h-screen bg-background text-foreground">
+                  <Suspense fallback={null}>
+                    <LogPanel />
                   </Suspense>
                 </div>
               }

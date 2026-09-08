@@ -67,10 +67,29 @@ export interface SseConnectionOptions {
   url: string
   /** SSE `event:` names to subscribe to; anything else on the stream is ignored. */
   eventTypes: readonly string[]
-  /** Called for each received event, already JSON-parsed (raw string if parsing fails). */
+  /** Called for each received event, already JSON-parsed (raw string if parsing fails) —
+   * unless `parseJson: false`, see below. */
   onEvent: (type: string, data: unknown) => void
   /** Called whenever the connection state machine transitions. */
   onStatusChange: (status: ConnectionStatus) => void
+  /**
+   * `false` hands `onEvent` the frame's raw `data:` string verbatim, never
+   * attempting `JSON.parse` on it. Default `true` (every existing caller's
+   * behavior, unchanged).
+   *
+   * Exists for `GET /api/assignment/{id}/log` (#110): its `event: log`
+   * frames deliberately carry raw, possibly-multi-line NDJSON text, not one
+   * JSON value — but `JSON.parse` tolerates trailing whitespace after a
+   * complete value, so a chunk containing exactly one JSON-object line plus
+   * its trailing `\n` (the common case for that endpoint's incremental
+   * appends) parses "successfully" as an *object*, silently handing the
+   * caller a parsed value instead of the text it asked for. The default
+   * "try parse, fall back to the raw string on failure" heuristic is right
+   * for every other stream this app has (`/events`'s frames are always
+   * exactly one JSON value), just not for a stream whose payload is text
+   * that only sometimes happens to parse.
+   */
+  parseJson?: boolean
   /** Defaults to the browser's native `EventSource`; overridable for tests. */
   createEventSource?: EventSourceFactory
   /** Backoff delays in ms, one per consecutive failed attempt; the last entry repeats. */
@@ -115,6 +134,7 @@ export function createSseConnection(options: SseConnectionOptions): SseConnectio
     onEvent,
     onStatusChange,
     createEventSource = defaultEventSourceFactory,
+    parseJson = true,
     backoffScheduleMs = DEFAULT_BACKOFF_MS,
     jitterFraction = DEFAULT_JITTER_FRACTION,
     now = () => Date.now(),
@@ -195,7 +215,7 @@ export function createSseConnection(options: SseConnectionOptions): SseConnectio
     for (const type of eventTypes) {
       handle.addEventListener(type, (ev) => {
         if (myToken !== token) return
-        onEvent(type, parsePayload(ev.data))
+        onEvent(type, parseJson ? parsePayload(ev.data) : ev.data)
       })
     }
   }
