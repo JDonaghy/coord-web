@@ -1,28 +1,29 @@
 /**
  * BoardDetail — one tracked issue's Board entry at `/board/:repo/:issue`
- * (#101): title, repo, number, queue state, and the rendered body when one
- * is available.
+ * (#101, swapped onto a real endpoint by #107): title, GitHub's own
+ * open/closed state and labels, the queue-lifecycle badge, and the rendered
+ * body — for every tracked issue, dispatched or not.
  *
- * Two already-real, already-registered `coord-web` endpoints feed this,
- * both cache reads off queries other panels already keep warm (`['drive-
- * queue']` from `BoardPanel`, `['board']` — otherwise unused in the app
- * today, but a real route, see `src/api/client.ts`'s `fetchBoard`):
+ * `GET /api/issue/{repo}/{number}` (claude-coordinator#3194,
+ * `fetchIssueDetail` in `src/api/client.ts`) is the one fetch this pane
+ * needs for its own content: body, GitHub `state`, `labels`, and `html_url`
+ * all come from that single response — rendered as markdown with
+ * `react-markdown` + `remark-gfm`, same library `GateAPanel` already ships
+ * for contract.md. `GET /api/drive-queue` is still read alongside it
+ * (`['drive-queue']`, the same cache `BoardPanel`'s tree keeps warm), for the
+ * queue-lifecycle badge only — see `src/lib/board.ts`'s header for why that
+ * stays a distinct fact from GitHub's own state rather than being folded
+ * into it.
  *
- *  - **Title + queue state** come from the same `GET /api/drive-queue` row
- *    `BoardPanel`'s tree is built from (`src/lib/board.ts`).
- *  - **The body** comes from `GET /api/board`'s `active`/`completed`
- *    `Assignment.briefing`, when this issue has been dispatched at least
- *    once (`findBoardAssignment` + `extractBriefingBody`,
- *    `src/lib/board.ts`) — rendered as markdown with `react-markdown` +
- *    `remark-gfm`, same library `GateAPanel` already ships for contract.md.
+ * `html_url` is used verbatim for every link out to GitHub — never composed
+ * from `repo` + `number` here. The coord repo name is not always the GitHub
+ * `owner/repo` slug (`claude-coordinator` is `JDonaghy/code-coordinator`),
+ * so a client-built URL would be wrong for exactly the repos it looks right
+ * for.
  *
- * Neither GitHub's own open/closed state nor its labels are available from
- * this view — see `src/lib/board.ts`'s header for exactly why a dedicated
- * endpoint would be needed and isn't in reach of a coord-web-only change.
- * Rendering a fabricated state/labels pair would be worse than naming the
- * gap outright, so this shows what's real (the queue's own lifecycle state)
- * under a label that can't be mistaken for GitHub's, plus a plain link out
- * to GitHub for the rest — never a `fetch` to GitHub itself.
+ * A 404 (the store has never synced this issue at all) renders an honest
+ * empty state — no crash, no blank pane, and no invented GitHub link, since
+ * there's no `html_url` on a 404 to build one from.
  *
  * Long bodies scroll with the detail pane itself; only `pre`/`table` ever
  * get their own horizontal scrollbar (mirroring `GateAPanel`'s
@@ -33,15 +34,11 @@ import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { AlertTriangle, ArrowLeft, ExternalLink } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 
-import { fetchBoard, fetchDriveQueue } from '@/api/client'
+import { fetchDriveQueue, fetchIssueDetail } from '@/api/client'
 import { Badge } from '@/components/ui/badge'
-import {
-  boardIssuesFromDriveQueue,
-  extractBriefingBody,
-  findBoardAssignment,
-} from '@/lib/board'
+import { boardIssuesFromDriveQueue } from '@/lib/board'
 import { issueRef } from '@/lib/repoRef'
 import { paths } from '@/routes/paths'
 
@@ -118,19 +115,19 @@ export default function BoardDetail() {
   const number = Number.isInteger(parsedNumber) ? parsedNumber : Number.NaN
   const validParams = repo !== '' && Number.isInteger(number) && number > 0
 
-  const {
-    data: queue,
-    isLoading,
-    isError,
-    refetch,
-  } = useQuery({
+  const { data: queue } = useQuery({
     queryKey: ['drive-queue'],
     queryFn: () => fetchDriveQueue(),
     enabled: validParams,
   })
-  const { data: board } = useQuery({
-    queryKey: ['board'],
-    queryFn: () => fetchBoard(),
+  const {
+    data: issue,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
+    queryKey: ['issue-detail', repo, number],
+    queryFn: () => fetchIssueDetail(repo, number),
     enabled: validParams,
   })
 
@@ -142,8 +139,6 @@ export default function BoardDetail() {
     () => rows.find((r) => r.repo === repo && r.number === number) ?? null,
     [rows, repo, number],
   )
-  const assignment = board ? findBoardAssignment(board, repo, number) : null
-  const body = assignment ? extractBriefingBody(assignment.briefing) : null
 
   if (!validParams) {
     return (
@@ -155,8 +150,6 @@ export default function BoardDetail() {
     )
   }
 
-  const githubHref = `https://github.com/${repo}/issues/${String(number)}`
-
   return (
     <div className={detailShellClass}>
       <BackHeader label={issueRef(repo, number)} />
@@ -167,7 +160,7 @@ export default function BoardDetail() {
 
       {isError && (
         <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-6 text-center">
-          <p className="text-sm text-destructive">Failed to load the board</p>
+          <p className="text-sm text-destructive">Failed to load the issue</p>
           <button
             type="button"
             onClick={() => void refetch()}
@@ -178,15 +171,21 @@ export default function BoardDetail() {
         </div>
       )}
 
-      {!isLoading && !isError && (
+      {!isLoading && !isError && issue?.ok && (
         <>
           <section className="mb-4">
             <h1 className="mb-2 text-step-1 font-semibold text-foreground" data-testid="board-detail-title">
-              {row?.title ?? `Issue #${String(number)}`}
+              {issue.data.title}
             </h1>
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline" data-testid="board-detail-repo">
                 {repo}
+              </Badge>
+              <Badge
+                variant={issue.data.state === 'open' ? 'success' : 'outline'}
+                data-testid="board-detail-github-state"
+              >
+                {issue.data.state}
               </Badge>
               {row && (
                 <Badge variant="secondary" data-testid="board-detail-queue-state">
@@ -198,43 +197,41 @@ export default function BoardDetail() {
                   not in the tracked backlog
                 </Badge>
               )}
+              {issue.data.labels.map((label) => (
+                <Badge key={label} variant="outline" data-testid={`board-detail-label-${label}`}>
+                  {label}
+                </Badge>
+              ))}
             </div>
-            <p className="mt-2 flex items-start gap-1.5 text-xs text-faint">
-              <AlertTriangle className="mt-px h-3.5 w-3.5 flex-none" aria-hidden="true" />
-              GitHub's own open/closed state and labels aren't available from this view yet — see{' '}
-              <a href={githubHref} target="_blank" rel="noreferrer" className="underline underline-offset-2">
-                the issue on GitHub
+            <p className="mt-2 text-xs text-faint">
+              <a
+                href={issue.data.html_url}
+                target="_blank"
+                rel="noreferrer"
+                className="underline underline-offset-2"
+              >
+                {issue.data.html_url}
               </a>
-              .
             </p>
           </section>
 
           <section>
-            {body !== null ? (
-              <IssueBodyMarkdown markdown={body} />
-            ) : (
-              <div
-                data-testid="board-detail-no-body"
-                role="status"
-                className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border px-6 py-10 text-center"
-              >
-                <p className="text-sm font-medium text-foreground">Full body not available here yet</p>
-                <p className="max-w-sm text-xs text-muted-foreground">
-                  This issue hasn't been dispatched, so coord-web has no cached copy of its body.
-                </p>
-                <a
-                  href={githubHref}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-brand hover:underline"
-                >
-                  Open on GitHub
-                  <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-                </a>
-              </div>
-            )}
+            <IssueBodyMarkdown markdown={issue.data.body} />
           </section>
         </>
+      )}
+
+      {!isLoading && !isError && issue && !issue.ok && (
+        <div
+          data-testid="board-detail-not-found"
+          role="status"
+          className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border px-6 py-10 text-center"
+        >
+          <p className="text-sm font-medium text-foreground">Issue not found</p>
+          <p className="max-w-sm text-xs text-muted-foreground">
+            coord hasn't synced {issueRef(repo, number)} yet, so there's nothing to show here.
+          </p>
+        </div>
       )}
     </div>
   )
