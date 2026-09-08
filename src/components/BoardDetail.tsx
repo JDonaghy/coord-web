@@ -25,6 +25,16 @@
  * empty state — no crash, no blank pane, and no invented GitHub link, since
  * there's no `html_url` on a 404 to build one from.
  *
+ * The identity chrome — the back header, the repo badge and the queue-
+ * lifecycle badge — is rendered from the ROUTE, not from the fetch, so it
+ * survives loading, an error and a 404 alike. Those three facts are known
+ * the moment `/board/:repo/:issue` resolves; hiding them behind the issue
+ * fetch left the empty state unable to say which repo it was even about, and
+ * broke the one signal `e2e/queue-issue-link-target.spec.ts` (#108) uses to
+ * prove a Queue Issue link actually landed on the Board entry rather than
+ * dead-ending — a real `coord web --fixture` server 404s `/api/issue/...`,
+ * having no issues store to answer from.
+ *
  * Long bodies scroll with the detail pane itself; only `pre`/`table` ever
  * get their own horizontal scrollbar (mirroring `GateAPanel`'s
  * `ContractMarkdown`), so the page body never scrolls sideways.
@@ -115,7 +125,7 @@ export default function BoardDetail() {
   const number = Number.isInteger(parsedNumber) ? parsedNumber : Number.NaN
   const validParams = repo !== '' && Number.isInteger(number) && number > 0
 
-  const { data: queue } = useQuery({
+  const { data: queue, isPending: queuePending } = useQuery({
     queryKey: ['drive-queue'],
     queryFn: () => fetchDriveQueue(),
     enabled: validParams,
@@ -154,6 +164,55 @@ export default function BoardDetail() {
     <div className={detailShellClass}>
       <BackHeader label={issueRef(repo, number)} />
 
+      <section className="mb-4">
+        {issue?.ok && (
+          <h1 className="mb-2 text-step-1 font-semibold text-foreground" data-testid="board-detail-title">
+            {issue.data.title}
+          </h1>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="outline" data-testid="board-detail-repo">
+            {repo}
+          </Badge>
+          {issue?.ok && (
+            <Badge
+              variant={issue.data.state === 'open' ? 'success' : 'outline'}
+              data-testid="board-detail-github-state"
+            >
+              {issue.data.state}
+            </Badge>
+          )}
+          {row && (
+            <Badge variant="secondary" data-testid="board-detail-queue-state">
+              queue: {row.queueState}
+            </Badge>
+          )}
+          {!row && !queuePending && (
+            <Badge variant="outline" data-testid="board-detail-untracked">
+              not in the tracked backlog
+            </Badge>
+          )}
+          {issue?.ok &&
+            issue.data.labels.map((label) => (
+              <Badge key={label} variant="outline" data-testid={`board-detail-label-${label}`}>
+                {label}
+              </Badge>
+            ))}
+        </div>
+        {issue?.ok && (
+          <p className="mt-2 text-xs text-faint">
+            <a
+              href={issue.data.html_url}
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-2"
+            >
+              {issue.data.html_url}
+            </a>
+          </p>
+        )}
+      </section>
+
       {isLoading && (
         <p className="py-12 text-center text-sm text-muted-foreground">Loading issue…</p>
       )}
@@ -172,53 +231,9 @@ export default function BoardDetail() {
       )}
 
       {!isLoading && !isError && issue?.ok && (
-        <>
-          <section className="mb-4">
-            <h1 className="mb-2 text-step-1 font-semibold text-foreground" data-testid="board-detail-title">
-              {issue.data.title}
-            </h1>
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline" data-testid="board-detail-repo">
-                {repo}
-              </Badge>
-              <Badge
-                variant={issue.data.state === 'open' ? 'success' : 'outline'}
-                data-testid="board-detail-github-state"
-              >
-                {issue.data.state}
-              </Badge>
-              {row && (
-                <Badge variant="secondary" data-testid="board-detail-queue-state">
-                  queue: {row.queueState}
-                </Badge>
-              )}
-              {!row && (
-                <Badge variant="outline" data-testid="board-detail-untracked">
-                  not in the tracked backlog
-                </Badge>
-              )}
-              {issue.data.labels.map((label) => (
-                <Badge key={label} variant="outline" data-testid={`board-detail-label-${label}`}>
-                  {label}
-                </Badge>
-              ))}
-            </div>
-            <p className="mt-2 text-xs text-faint">
-              <a
-                href={issue.data.html_url}
-                target="_blank"
-                rel="noreferrer"
-                className="underline underline-offset-2"
-              >
-                {issue.data.html_url}
-              </a>
-            </p>
-          </section>
-
-          <section>
-            <IssueBodyMarkdown markdown={issue.data.body} />
-          </section>
-        </>
+        <section>
+          <IssueBodyMarkdown markdown={issue.data.body} />
+        </section>
       )}
 
       {!isLoading && !isError && issue && !issue.ok && (

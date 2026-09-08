@@ -360,6 +360,27 @@ describe('BoardDetail', () => {
     expect(screen.queryByTestId('board-detail-title')).not.toBeInTheDocument()
   })
 
+  it('still names its repo when the issue endpoint 404s — the route knows it, the fetch need not', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(driveQueueData())
+    vi.mocked(fetchIssueDetail).mockResolvedValue(issueNotFound("unknown repo 'format-converter'"))
+    renderDetail('/board/format-converter/2')
+
+    expect(await screen.findByTestId('board-detail-not-found')).toBeInTheDocument()
+    expect(screen.getByTestId('board-detail-repo')).toHaveTextContent('format-converter')
+    // The queue-lifecycle badge is drive-queue's fact, not the endpoint's, so
+    // it survives the 404 too.
+    expect(screen.getByTestId('board-detail-queue-state')).toHaveTextContent('blocked')
+  })
+
+  it('still names its repo when the issue fetch errors outright', async () => {
+    vi.mocked(fetchDriveQueue).mockResolvedValue(driveQueueData())
+    vi.mocked(fetchIssueDetail).mockRejectedValue(new Error('boom'))
+    renderDetail('/board/format-converter/2')
+
+    expect(await screen.findByText('Failed to load the issue')).toBeInTheDocument()
+    expect(screen.getByTestId('board-detail-repo')).toHaveTextContent('format-converter')
+  })
+
   it('rejects an invalid link without crashing', () => {
     renderDetail('/board/format-converter/not-a-number')
     expect(screen.getByRole('alert')).toHaveTextContent('Invalid Board link')
