@@ -83,7 +83,7 @@
  */
 import { Fragment, useMemo, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ExternalLink } from 'lucide-react'
+import { ExternalLink, FileText } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import {
   driveQueueAction,
@@ -518,10 +518,10 @@ export default function DriveQueuePanel() {
                     // end for a row that hasn't run yet. Both the in-app
                     // link and the new-tab affordance below read this same
                     // value, so they can never disagree.
-                    const issueHref =
-                      queueIssueLinkTarget(entry, pipelineKeys) === 'pipeline'
-                        ? paths.pipelineItem(entry.repo_name, entry.issue_number)
-                        : paths.boardItem(entry.repo_name, entry.issue_number)
+                    const hasPipelineRow = queueIssueLinkTarget(entry, pipelineKeys) === 'pipeline'
+                    const issueHref = hasPipelineRow
+                      ? paths.pipelineItem(entry.repo_name, entry.issue_number)
+                      : paths.boardItem(entry.repo_name, entry.issue_number)
                     return (
                       <Fragment key={key}>
                         <tr className="border-b border-border/60 last:border-0">
@@ -552,6 +552,21 @@ export default function DriveQueuePanel() {
                               >
                                 <ExternalLink className="h-3 w-3" aria-hidden="true" />
                               </a>
+                              {/* #110: a leg's stage rail + turn stream --
+                                  only offered once there's a real assignment
+                                  to stream a log for (same `hasPipelineRow`
+                                  gate `issueHref` above uses), never a dead
+                                  end on a queue row that hasn't run yet. */}
+                              {hasPipelineRow && (
+                                <Link
+                                  to={paths.log(entry.repo_name, entry.issue_number)}
+                                  aria-label={`View log for ${entryRef(entry)}`}
+                                  title="View log"
+                                  className="text-muted-foreground hover:text-foreground"
+                                >
+                                  <FileText className="h-3 w-3" aria-hidden="true" />
+                                </Link>
+                              )}
                             </div>
                           </td>
                           <td className="px-3 py-2">

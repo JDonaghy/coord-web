@@ -51,6 +51,17 @@ class FakeEventSource implements SseHandle {
       listener({ data: JSON.stringify(data) })
     }
   }
+
+  /** Delivers *raw* already-serialized text as the frame's `data` — unlike
+   * `emitMessage` above, this never runs it through `JSON.stringify` first.
+   * Needed for `parseJson: false` coverage: the whole point of that option
+   * is that the caller's own text is handed through byte-for-byte, so the
+   * test has to control exactly what bytes `ev.data` carries. */
+  emitRawMessage(type: string, raw: string): void {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener({ data: raw })
+    }
+  }
 }
 
 function lastInstance(): FakeEventSource {
@@ -251,5 +262,40 @@ describe('createSseConnection', () => {
 
     vi.advanceTimersByTime(50)
     expect(calls).toBe(2)
+  })
+
+  // #110: `GET /api/assignment/{id}/log` frames carry raw NDJSON text, not
+  // one JSON value -- `parseJson: false` exists so a caller for that stream
+  // gets the frame's `data:` bytes verbatim instead of the default
+  // try-JSON.parse-else-string heuristic, which silently mis-handles the
+  // common case of a single complete JSON-object line plus its trailing
+  // `\n` (that parses "successfully" as an object, not the text it is).
+  describe('parseJson: false', () => {
+    it('hands onEvent the raw string, even when it looks like valid JSON', () => {
+      const { conn, events } = setup({ parseJson: false })
+      conn.start()
+      lastInstance().emitOpen()
+      lastInstance().emitRawMessage('assignment_started', '{"type":"assistant"}\n')
+
+      expect(events).toEqual([{ type: 'assignment_started', data: '{"type":"assistant"}\n' }])
+    })
+
+    it('still hands onEvent the raw string when it is not JSON at all', () => {
+      const { conn, events } = setup({ parseJson: false })
+      conn.start()
+      lastInstance().emitOpen()
+      lastInstance().emitRawMessage('assignment_started', 'plain text, not JSON')
+
+      expect(events).toEqual([{ type: 'assignment_started', data: 'plain text, not JSON' }])
+    })
+  })
+
+  it('defaults to parseJson: true, JSON-parsing every frame (existing callers unchanged)', () => {
+    const { conn, events } = setup()
+    conn.start()
+    lastInstance().emitOpen()
+    lastInstance().emitMessage('assignment_started', { assignment_id: 'a1' })
+
+    expect(events).toEqual([{ type: 'assignment_started', data: { assignment_id: 'a1' } }])
   })
 })
