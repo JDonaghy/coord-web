@@ -36,18 +36,19 @@
  * having no issues store to answer from.
  *
  * Long bodies scroll with the detail pane itself; only `pre`/`table` ever
- * get their own horizontal scrollbar (mirroring `GateAPanel`'s
- * `ContractMarkdown`), so the page body never scrolls sideways.
+ * get their own horizontal scrollbar — the shared `Markdown` component
+ * (#114, extracted from this file's own former `IssueBodyMarkdown` and
+ * `GateAPanel`'s `ContractMarkdown`) enforces that overflow policy for every
+ * caller, so it doesn't have to be re-stated here.
  */
 import { useMemo } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { ArrowLeft, FileText } from 'lucide-react'
 
 import { fetchDriveQueue, fetchIssueDetail } from '@/api/client'
 import { Badge } from '@/components/ui/badge'
+import { Markdown } from '@/components/Markdown'
 import { boardIssuesFromDriveQueue } from '@/lib/board'
 import { issueRef } from '@/lib/repoRef'
 import { paths } from '@/routes/paths'
@@ -66,55 +67,6 @@ function BackHeader({ label }: { label: string }) {
       </Link>
       <span className="font-mono text-[.72rem] text-faint">{label}</span>
     </header>
-  )
-}
-
-function IssueBodyMarkdown({ markdown }: { markdown: string }) {
-  return (
-    <div className="min-w-0 text-sm leading-relaxed text-foreground">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          h1: ({ children }) => <h1 className="mb-3 mt-6 text-lg font-semibold first:mt-0">{children}</h1>,
-          h2: ({ children }) => <h2 className="mb-2.5 mt-6 text-base font-semibold first:mt-0">{children}</h2>,
-          h3: ({ children }) => <h3 className="mb-2 mt-5 text-sm font-semibold">{children}</h3>,
-          p: ({ children }) => <p className="mb-3">{children}</p>,
-          ul: ({ children }) => <ul className="mb-3 list-disc pl-5">{children}</ul>,
-          ol: ({ children }) => <ol className="mb-3 list-decimal pl-5">{children}</ol>,
-          li: ({ children }) => <li className="mb-1">{children}</li>,
-          a: ({ href, children }) => (
-            <a href={href} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2">
-              {children}
-            </a>
-          ),
-          code: ({ children }) => (
-            <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[.85em]">{children}</code>
-          ),
-          pre: ({ children }) => (
-            <pre className="mb-3 overflow-x-auto rounded-md border border-border bg-secondary/40 p-3 font-mono text-xs">
-              {children}
-            </pre>
-          ),
-          blockquote: ({ children }) => (
-            <blockquote className="mb-3 border-l-2 border-line-strong pl-3 text-muted-foreground">
-              {children}
-            </blockquote>
-          ),
-          hr: () => <hr className="my-5 border-border" />,
-          table: ({ children }) => (
-            <div className="mb-3 overflow-x-auto">
-              <table className="w-full border-collapse text-left text-xs">{children}</table>
-            </div>
-          ),
-          th: ({ children }) => (
-            <th className="border-b border-border px-2 py-1.5 font-semibold text-muted-foreground">{children}</th>
-          ),
-          td: ({ children }) => <td className="border-b border-border/60 px-2 py-1.5 align-top">{children}</td>,
-        }}
-      >
-        {markdown}
-      </ReactMarkdown>
-    </div>
   )
 }
 
@@ -246,7 +198,7 @@ export default function BoardDetail() {
 
       {!isLoading && !isError && issue?.ok && (
         <section>
-          <IssueBodyMarkdown markdown={issue.data.body} />
+          <Markdown markdown={issue.data.body} className="min-w-0" />
         </section>
       )}
 

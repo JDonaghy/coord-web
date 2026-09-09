@@ -62,14 +62,13 @@ import {
 } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { AlertTriangle, Copy } from 'lucide-react'
 
 import { fetchGateA, type GateAMockWire, type GateAPacket } from '@/api/client'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Markdown } from '@/components/Markdown'
 import { toast } from '@/components/ui/use-toast'
 import { paths } from '@/routes/paths'
 import { issueRef } from '@/lib/repoRef'
@@ -220,66 +219,34 @@ function AmendmentQuickNav({ headings, contractRef }: { headings: string[]; cont
   )
 }
 
+// The one per-caller override this panel needs from the shared `Markdown`
+// component (#114): flag a `## Amendment` heading inline rather than leaving
+// it indistinguishable from any other `##` — `AmendmentQuickNav` above is the
+// "don't bury it 200 lines down" summary, this is the same signal repeated at
+// the heading itself.
 function ContractMarkdown({ markdown }: { markdown: string }) {
   return (
-    <div className="prose-contract text-sm leading-relaxed text-foreground">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          h1: ({ children }) => <h1 className="mb-3 mt-6 text-lg font-semibold first:mt-0">{children}</h1>,
-          h2: ({ children }) => {
-            const text = headingText(children)
-            const isAmendment = isAmendmentHeadingText(text)
-            return (
-              <h2
-                className={cn(
-                  'mb-2.5 mt-6 text-base font-semibold first:mt-0',
-                  isAmendment && 'rounded-md border border-attn/40 bg-attn-wash px-2 py-1 text-attn',
-                )}
-              >
-                {isAmendment && <AlertTriangle className="mr-1.5 inline-block h-4 w-4" aria-hidden="true" />}
-                {children}
-              </h2>
-            )
-          },
-          h3: ({ children }) => <h3 className="mb-2 mt-5 text-sm font-semibold">{children}</h3>,
-          p: ({ children }) => <p className="mb-3">{children}</p>,
-          ul: ({ children }) => <ul className="mb-3 list-disc pl-5">{children}</ul>,
-          ol: ({ children }) => <ol className="mb-3 list-decimal pl-5">{children}</ol>,
-          li: ({ children }) => <li className="mb-1">{children}</li>,
-          a: ({ href, children }) => (
-            <a href={href} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2">
+    <Markdown
+      markdown={markdown}
+      className="prose-contract"
+      components={{
+        h2: ({ children }) => {
+          const text = headingText(children)
+          const isAmendment = isAmendmentHeadingText(text)
+          return (
+            <h2
+              className={cn(
+                'mb-2.5 mt-6 text-base font-semibold first:mt-0',
+                isAmendment && 'rounded-md border border-attn/40 bg-attn-wash px-2 py-1 text-attn',
+              )}
+            >
+              {isAmendment && <AlertTriangle className="mr-1.5 inline-block h-4 w-4" aria-hidden="true" />}
               {children}
-            </a>
-          ),
-          code: ({ children }) => (
-            <code className="rounded bg-secondary px-1 py-0.5 font-mono text-[.85em]">{children}</code>
-          ),
-          pre: ({ children }) => (
-            <pre className="mb-3 overflow-x-auto rounded-md border border-border bg-secondary/40 p-3 font-mono text-xs">
-              {children}
-            </pre>
-          ),
-          blockquote: ({ children }) => (
-            <blockquote className="mb-3 border-l-2 border-line-strong pl-3 text-muted-foreground">
-              {children}
-            </blockquote>
-          ),
-          hr: () => <hr className="my-5 border-border" />,
-          table: ({ children }) => (
-            <div className="mb-3 overflow-x-auto">
-              <table className="w-full border-collapse text-left text-xs">{children}</table>
-            </div>
-          ),
-          th: ({ children }) => (
-            <th className="border-b border-border px-2 py-1.5 font-semibold text-muted-foreground">{children}</th>
-          ),
-          td: ({ children }) => <td className="border-b border-border/60 px-2 py-1.5 align-top">{children}</td>,
-        }}
-      >
-        {markdown}
-      </ReactMarkdown>
-    </div>
+            </h2>
+          )
+        },
+      }}
+    />
   )
 }
 
