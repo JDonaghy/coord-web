@@ -77,8 +77,19 @@ test.describe('Pipeline detail → Board link (#113)', () => {
 
     await expect(page.getByText('Fix the dashboard rendering').first()).toBeVisible()
 
-    const issueLink = page.getByRole('link', { name: 'A#42' })
+    // `exact: true` -- Playwright's accessible-name matching is a
+    // case-insensitive *substring* by default, so a bare 'A#42' would also
+    // resolve the new-tab affordance's own "Open A#42 in a new tab" label and
+    // trip strict mode. Same guard as `queue-exit-gate.spec.ts`.
+    const issueLink = page.getByRole('link', { name: 'A#42', exact: true })
     await expect(issueLink).toHaveAttribute('href', '/board/api/42')
+    // No explicit target -- in-app SPA nav; ctrl/cmd-click still opens a new
+    // tab for free via plain <Link> semantics.
+    await expect(issueLink).not.toHaveAttribute('target')
+
+    const newTabLink = page.getByRole('link', { name: 'Open A#42 in a new tab' })
+    await expect(newTabLink).toHaveAttribute('href', '/board/api/42')
+    await expect(newTabLink).toHaveAttribute('target', '_blank')
 
     await issueLink.click()
 
@@ -114,8 +125,14 @@ test.describe('Pipeline detail → Board link (#113)', () => {
 
     await expect(page.getByText(/not found in the pipeline/i)).toBeVisible()
 
-    const issueLink = page.getByRole('link', { name: 'A#42' })
+    // `exact: true` for the same reason as above: the new-tab affordance's
+    // "Open A#42 in a new tab" label substring-matches a bare 'A#42'.
+    const issueLink = page.getByRole('link', { name: 'A#42', exact: true })
     await expect(issueLink).toHaveAttribute('href', '/board/api/42')
+
+    const newTabLink = page.getByRole('link', { name: 'Open A#42 in a new tab' })
+    await expect(newTabLink).toHaveAttribute('href', '/board/api/42')
+    await expect(newTabLink).toHaveAttribute('target', '_blank')
 
     await issueLink.click()
 
