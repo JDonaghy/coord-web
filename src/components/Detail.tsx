@@ -24,7 +24,7 @@
  * / Findings / Summary` tab set is M-W2 scope (`docs/WEB_CONTROL_CENTER.md`);
  * this component still renders its one flowing view regardless of `tab`.
  */
-import { useCallback, useState } from 'react'
+import { lazy, Suspense, useCallback, useState } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ExternalLink } from 'lucide-react'
@@ -47,6 +47,15 @@ import {
 } from '@/lib/pipeline'
 import { issueRef } from '@/lib/repoRef'
 import { paths } from '@/routes/paths'
+
+// Lazy for the same reason `App.tsx` keeps `GateAPanel`/`BoardDetail`/
+// `LogPanel` out of the main bundle (#90/#101/#110): `Markdown` pulls in
+// react-markdown + remark-gfm, and `Detail` itself is imported eagerly
+// (`App.tsx:3`) — every other visitor to the pipeline list pays for those
+// two libraries otherwise. Findings are the only markdown this screen
+// renders (the diff viewer below is deliberately plain `<pre>`, not
+// markdown), so only that one section is behind the `Suspense` boundary.
+const Markdown = lazy(() => import('@/components/Markdown'))
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
 
@@ -626,9 +635,22 @@ export default function Detail() {
             {view.review_findings_body && (
               <div className="mb-3">
                 <p className="mb-1 text-xs text-muted-foreground">Findings</p>
-                <pre className="max-h-64 overflow-y-auto rounded border border-border bg-black/30 px-3 py-2 text-xs leading-5 text-foreground whitespace-pre-wrap break-words">
-                  {view.review_findings_body}
-                </pre>
+                {/* Bounded scroll box (#114): a long findings list must not
+                    push the gate buttons below off screen. The box itself
+                    stays fixed regardless of what's inside it; only the
+                    renderer for the content within it changed from raw
+                    `<pre>` text to rendered markdown. */}
+                <div className="max-h-64 overflow-y-auto rounded border border-border bg-black/30 px-3 py-2 text-xs leading-5">
+                  <Suspense
+                    fallback={
+                      <pre className="whitespace-pre-wrap break-words text-foreground">
+                        {view.review_findings_body}
+                      </pre>
+                    }
+                  >
+                    <Markdown markdown={view.review_findings_body} className="text-xs leading-5" />
+                  </Suspense>
+                </div>
               </div>
             )}
 

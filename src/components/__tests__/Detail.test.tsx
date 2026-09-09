@@ -488,6 +488,26 @@ describe('Detail — review section', () => {
     })
   })
 
+  // #114: findings arrive as markdown from the reviewer -- headings, bullets,
+  // inline code -- and used to hit a raw `<pre>` (a wall of literal `##`/`-`/
+  // backticks). The shared `Markdown` component is lazy-loaded here (Detail
+  // itself is eager, see the `lazy()` comment above its import), so this also
+  // proves the Suspense wiring actually resolves in the running screen, not
+  // just in `Markdown.test.tsx`'s isolated unit coverage.
+  it('renders findings markdown as elements, not literal ## / - / backtick syntax', async () => {
+    renderDetail({
+      review_findings_body:
+        '## Blocking\n\n- Missing test for the retry path\n- Calls `unwrap()` on a fallible result\n',
+    })
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Blocking' })).toBeInTheDocument()
+    expect(screen.getByText('Missing test for the retry path').closest('li')).toBeInTheDocument()
+    const inlineCode = screen.getByText('unwrap()')
+    expect(inlineCode.tagName).toBe('CODE')
+    expect(screen.queryByText(/##\s*Blocking/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/`unwrap\(\)`/)).not.toBeInTheDocument()
+  })
+
   it('shows review verdict when present', async () => {
     renderDetail({ review_verdict: 'approve' })
 
