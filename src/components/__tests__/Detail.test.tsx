@@ -165,6 +165,31 @@ describe('Detail — loading states', () => {
       expect(screen.getByText(/not found in the pipeline/i)).toBeInTheDocument()
     })
   })
+
+  it('links the not-found issue ref to its Board page (#113)', async () => {
+    // Pipeline has a different issue entirely, so the not-found branch renders
+    vi.mocked(fetchPipeline).mockResolvedValue([
+      makeView({ repo_name: 'other-repo', issue_number: 999 }),
+    ])
+    vi.mocked(fetchDiff).mockResolvedValue(makeDiff())
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/pipeline/myrepo/42']}>
+          <Routes>
+            <Route path="/pipeline/:repo/:issue" element={<Detail />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText(/not found in the pipeline/i)).toBeInTheDocument()
+    })
+
+    const link = screen.getByRole('link', { name: 'M#42' })
+    expect(link).toHaveAttribute('href', '/board/myrepo/42')
+  })
 })
 
 // ── Header ────────────────────────────────────────────────────────────────────
@@ -189,6 +214,37 @@ describe('Detail — header', () => {
 
     await waitFor(() => screen.getByLabelText('Back'))
     expect(screen.getByLabelText('Back')).toBeInTheDocument()
+  })
+
+  it('links the issue ref to its Board page (#113)', async () => {
+    renderDetail()
+
+    await waitFor(() => screen.getByText('Fix the thing'))
+
+    const link = screen.getByRole('link', { name: 'M#42' })
+    expect(link).toHaveAttribute('href', '/board/myrepo/42')
+  })
+
+  it('links the issue ref to its Board page with an owner/name repo encoded (#113)', async () => {
+    const view = makeView({ repo_name: 'JDonaghy/coord-web' })
+    vi.mocked(fetchPipeline).mockResolvedValue([view])
+    vi.mocked(fetchDiff).mockResolvedValue(makeDiff())
+    vi.mocked(pipelineAction).mockResolvedValue({ ok: true })
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/pipeline/JDonaghy%2Fcoord-web/42']}>
+          <Routes>
+            <Route path="/pipeline/:repo/:issue" element={<Detail />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    )
+
+    await waitFor(() => screen.getByText('Fix the thing'))
+
+    const link = screen.getByRole('link', { name: 'CW#42' })
+    expect(link).toHaveAttribute('href', '/board/JDonaghy%2Fcoord-web/42')
   })
 
   it('shows the overall status badge', async () => {

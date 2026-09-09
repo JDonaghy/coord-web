@@ -25,8 +25,9 @@
  * this component still renders its one flowing view regardless of `tab`.
  */
 import { useCallback, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { ExternalLink } from 'lucide-react'
 import {
   fetchPipeline,
   fetchDiff,
@@ -379,7 +380,25 @@ export default function Detail() {
         </header>
         <p className="text-sm text-muted-foreground">
           Issue{' '}
-          <span className="font-mono">{issueRef(repo ?? '', issue ?? '')}</span>{' '}
+          {repo && issue ? (
+            <span className="inline-flex items-center gap-1 font-mono">
+              <Link to={paths.boardItem(repo, issue)} className="hover:underline">
+                {issueRef(repo, issue)}
+              </Link>
+              <a
+                href={paths.boardItem(repo, issue)}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={`Open ${issueRef(repo, issue)} in a new tab`}
+                title="Open in new tab"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <ExternalLink className="h-3 w-3" aria-hidden="true" />
+              </a>
+            </span>
+          ) : (
+            <span className="font-mono">{issueRef(repo ?? '', issue ?? '')}</span>
+          )}{' '}
           not found in the pipeline.
         </p>
       </div>
@@ -434,7 +453,24 @@ export default function Detail() {
           </button>
           <div className="min-w-0 flex-1">
             <p className="text-xs text-muted-foreground">
-              <span className="font-mono">{issueRef(view.repo_name, view.issue_number)}</span>
+              <span className="inline-flex items-center gap-1 font-mono">
+                <Link
+                  to={paths.boardItem(view.repo_name, view.issue_number)}
+                  className="hover:underline"
+                >
+                  {issueRef(view.repo_name, view.issue_number)}
+                </Link>
+                <a
+                  href={paths.boardItem(view.repo_name, view.issue_number)}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={`Open ${issueRef(view.repo_name, view.issue_number)} in a new tab`}
+                  title="Open in new tab"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                </a>
+              </span>
               {' · '}
               <span className="font-mono">{view.machine_name}</span>
             </p>
