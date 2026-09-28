@@ -305,6 +305,7 @@ export const API_ROUTES = {
   milestones: '/api/milestones',
   milestoneDetail: '/api/milestones/{repo}/{number}',
   issueDetail: '/api/issue/{repo}/{number}',
+  pipelineLegs: '/api/pipeline/{repo}/{issue}/legs',
 } as const satisfies Record<string, string>
 
 /**
@@ -1449,6 +1450,90 @@ export async function fetchMilestoneDetail(
 ): Promise<MilestoneQueryResult<MilestoneDetail>> {
   const path = buildPath(API_ROUTES.milestoneDetail, { repo, number: String(number) })
   return fetchMilestoneJson(path, parseMilestoneDetail)
+}
+
+// ── GET /api/pipeline/{repo}/{issue}/legs (claude-coordinator#3184 / #100) ──
+
+/**
+ * One dispatched assignment "leg" for an issue — what `GET /api/pipeline`
+ * collapses onto a single row's `machine_name`/`stages[]` per issue, this
+ * endpoint exposes uncollapsed: every attempt, its own machine, its own
+ * dispatch/finish time. This is the whole point of #100 — the reviewer is a
+ * fresh session on a *different* machine with no shared context with the
+ * worker, and that independence is invisible unless the machine is named per
+ * leg rather than once per issue.
+ *
+ * `stage` is the dispatched assignment's own `type` (`AssignmentType` —
+ * `'work'`, `'smoke'`, `'review'`, ...), NOT a `PipelineStage.name` (`stages[]`
+ * on `PipelineView` uses `'coding'` where a leg's `stage` says `'work'`) —
+ * see `legStageBox` (`@/lib/pipeline`) for the mapping between the two. An
+ * in-flight leg carries `dispatched_at` with `finished_at: null`, never an
+ * omitted row, so a client can run an elapsed timer on it.
+ */
+export interface PipelineLegWire {
+  assignment_id: string | null
+  stage: string
+  status: AssignmentStatus | null
+  machine_name: string | null
+  dispatched_at: number | null
+  finished_at: number | null
+}
+
+/** `GET /api/pipeline/{repo}/{issue}/legs`'s response — every leg for one
+ * (repo, issue), newest-dispatch-first (the server's own promise, so no
+ * client here needs to re-sort). `legs` is `[]`, never a 404, for an issue
+ * the board has no rows for yet. */
+export interface PipelineLegsResponse {
+  repo_name: string
+  issue_number: number
+  legs: PipelineLegWire[]
+}
+
+/** Validate one `PipelineLegWire` off the wire — same field-by-field posture
+ * as `parseMilestoneDetail`'s helpers (#85), not a cast. */
+function parsePipelineLeg(raw: unknown, path: string): PipelineLegWire {
+  const o = obj(raw, path)
+  return {
+    assignment_id: nullableStr(o.assignment_id, `${path}.assignment_id`),
+    stage: str(o.stage, `${path}.stage`),
+    status: oneOf(o.status, `${path}.status`, ASSIGNMENT_STATUSES),
+    machine_name: nullableStr(o.machine_name, `${path}.machine_name`),
+    dispatched_at: nullableNum(o.dispatched_at, `${path}.dispatched_at`),
+    finished_at: nullableNum(o.finished_at, `${path}.finished_at`),
+  }
+}
+
+/** Validate `GET /api/pipeline/{repo}/{issue}/legs`. Exported for its own
+ * unit tests, same rationale as `parseMilestoneList`/`parseMilestoneDetail`
+ * above. */
+export function parsePipelineLegs(raw: unknown): PipelineLegsResponse {
+  const o = obj(raw, 'response')
+  return {
+    repo_name: str(o.repo_name, 'response.repo_name'),
+    issue_number: num(o.issue_number, 'response.issue_number'),
+    legs: arr(o.legs, 'response.legs').map((leg, i) =>
+      parsePipelineLeg(leg, `response.legs[${String(i)}]`),
+    ),
+  }
+}
+
+/**
+ * Fetch every dispatched leg for one (repo, issue) — the per-leg
+ * machine/timing history `PipelineStageFlow.tsx` renders (#100).
+ *
+ * Reuses `fetchMilestoneJson`'s 404-discrimination (route absent on an older
+ * coord server vs. a handled "unknown repo") — that helper is generic
+ * despite its name (built for, but not specific to, the Milestones panel);
+ * this endpoint returns the exact same two shapes of 404 body, verified
+ * against a live `coord web --fixture` process (see this function's own
+ * `curl` verification in the #100 PR description).
+ */
+export async function fetchPipelineLegs(
+  repo: string,
+  issue: number,
+): Promise<MilestoneQueryResult<PipelineLegsResponse>> {
+  const path = buildPath(API_ROUTES.pipelineLegs, { repo, issue: String(issue) })
+  return fetchMilestoneJson(path, parsePipelineLegs)
 }
 
 // ── WS /ws/terminal/{session_id} ────────────────────────────────────────────
