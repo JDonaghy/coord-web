@@ -23,7 +23,7 @@
  * `GET /api/pipeline/{repo}/{issue}/legs` (`fetchPipelineLegs`,
  * claude-coordinator#3184).
  */
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   fetchPipelineLegs,
@@ -173,7 +173,7 @@ export function PipelineStageFlow({ view }: PipelineStageFlowProps) {
 
       <div role="list" aria-label="Stage boxes" className="flex items-stretch gap-1 overflow-x-auto">
         {view.stages.map((stage, i) => (
-          <div key={stage.name} className="flex items-stretch gap-1">
+          <Fragment key={stage.name}>
             {i > 0 && (
               <span className="flex items-center text-muted-foreground" aria-hidden="true">
                 →
@@ -185,7 +185,7 @@ export function PipelineStageFlow({ view }: PipelineStageFlowProps) {
               legs={groups.get(stage.name) ?? []}
               nowMs={nowMs}
             />
-          </div>
+          </Fragment>
         ))}
       </div>
 
@@ -239,5 +239,3 @@ export function PipelineStageFlow({ view }: PipelineStageFlowProps) {
     </section>
   )
 }
-
-export default PipelineStageFlow

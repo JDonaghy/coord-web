@@ -14,18 +14,30 @@ import { type PipelineView, type PipelineActionResult, type DiffResult } from '@
 
 // ── Mock API client ───────────────────────────────────────────────────────────
 
-vi.mock('@/api/client', () => ({
-  fetchPipeline: vi.fn(),
-  fetchDiff: vi.fn(),
-  pipelineAction: vi.fn(),
-}))
+vi.mock('@/api/client', async () => {
+  const actual = await vi.importActual<typeof import('@/api/client')>('@/api/client')
+  return {
+    ...actual,
+    fetchPipeline: vi.fn(),
+    fetchDiff: vi.fn(),
+    pipelineAction: vi.fn(),
+    fetchPipelineLegs: vi.fn(),
+  }
+})
 
 // Import after vi.mock so we get the mocked versions
-import { fetchPipeline, fetchDiff, pipelineAction } from '@/api/client'
+import { fetchPipeline, fetchDiff, pipelineAction, fetchPipelineLegs } from '@/api/client'
 
-// Clear mock call history between every test so counts don't bleed across tests
+// Clear mock call history between every test so counts don't bleed across tests,
+// and give every test a default (empty, resolved) legs response so `Detail`'s
+// unconditional `<PipelineStageFlow>` render exercises its real fetch path
+// instead of an undefined mock rejecting silently (#100 fix iteration 1).
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(fetchPipelineLegs).mockResolvedValue({
+    ok: true,
+    data: { repo_name: 'myrepo', issue_number: 42, legs: [] },
+  })
 })
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
@@ -263,6 +275,62 @@ describe('Detail — header', () => {
     expect(screen.getByText('review')).toBeInTheDocument()
     expect(screen.getByText('test')).toBeInTheDocument()
     expect(screen.getByText('merge')).toBeInTheDocument()
+  })
+})
+
+// ── Stage-flow section (#100) ───────────────────────────────────────────────────
+//
+// `Detail` renders `<PipelineStageFlow view={view} />` unconditionally once the
+// pipeline view has loaded. These exercise the *combined* render path -- the
+// real `PipelineStageFlow` component fetching real `fetchPipelineLegs` data
+// inside the page that hosts it -- rather than `PipelineStageFlow.test.tsx`'s
+// own isolated-with-its-own-fixture coverage.
+
+describe('Detail — stage-flow section (#100)', () => {
+  it('renders the stage-flow boxes and fetches per-leg data for the loaded issue', async () => {
+    renderDetail()
+
+    await waitFor(() => screen.getByText('Fix the thing'))
+
+    expect(await screen.findByRole('list', { name: 'Stage boxes' })).toBeInTheDocument()
+    expect(vi.mocked(fetchPipelineLegs)).toHaveBeenCalledWith('myrepo', 42)
+  })
+
+  it('names the machine each leg ran on, in the leg list under the boxes', async () => {
+    vi.mocked(fetchPipelineLegs).mockResolvedValue({
+      ok: true,
+      data: {
+        repo_name: 'myrepo',
+        issue_number: 42,
+        legs: [
+          {
+            assignment_id: 'rev-1',
+            stage: 'review',
+            status: 'done',
+            machine_name: 'precision',
+            dispatched_at: 1749971100,
+            finished_at: 1749971600,
+          },
+        ],
+      },
+    })
+    renderDetail()
+
+    await waitFor(() => screen.getByText('Fix the thing'))
+
+    const row = await screen.findByTestId('leg-row')
+    expect(row).toHaveTextContent('precision')
+  })
+
+  it('degrades to an explanatory note when the legs route is unavailable, without breaking the rest of the page', async () => {
+    vi.mocked(fetchPipelineLegs).mockResolvedValue({ ok: false, kind: 'absent' })
+    renderDetail()
+
+    await waitFor(() => screen.getByText('Fix the thing'))
+
+    expect(
+      await screen.findByText(/isn't available from this coord server yet/),
+    ).toBeInTheDocument()
   })
 })
 
