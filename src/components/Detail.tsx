@@ -47,6 +47,7 @@ import {
 } from '@/lib/pipeline'
 import { issueRef } from '@/lib/repoRef'
 import { paths } from '@/routes/paths'
+import { PipelineStageFlow } from '@/components/PipelineStageFlow'
 
 // Lazy for the same reason `App.tsx` keeps `GateAPanel`/`BoardDetail`/
 // `LogPanel` out of the main bundle (#90/#101/#110): `Markdown` pulls in
@@ -526,6 +527,9 @@ export default function Detail() {
           })}
         </div>
       </header>
+
+      {/* ── Stage flow (#100) ────────────────────────────────────────────── */}
+      <PipelineStageFlow view={view} />
 
       {/* ── Test gate ─────────────────────────────────────────────────────── */}
       {(hasGate('test-verdict') || view.test_verdict != null) && (

@@ -11,8 +11,24 @@ import {
   latestPerIssue,
   findLatestForIssue,
   stageChipVisual,
+  legStageBox,
+  isLegInFlight,
+  groupLegsByStage,
+  legDurationMs,
 } from '@/lib/pipeline'
-import { type PipelineStage, type PipelineView } from '@/api/client'
+import { type PipelineLegWire, type PipelineStage, type PipelineView } from '@/api/client'
+
+function makeLeg(overrides: Partial<PipelineLegWire> = {}): PipelineLegWire {
+  return {
+    assignment_id: 'leg-1',
+    stage: 'work',
+    status: 'done',
+    machine_name: 'dellserver',
+    dispatched_at: 1_700_000_000,
+    finished_at: 1_700_000_600,
+    ...overrides,
+  }
+}
 
 function makeView(overrides: Partial<PipelineView> = {}): PipelineView {
   return {
@@ -394,5 +410,70 @@ describe('findLatestForIssue', () => {
     const view = makeView({ issue_number: 1, repo_name: 'r' })
     expect(findLatestForIssue([view], 'other-repo', 1)).toBeNull()
     expect(findLatestForIssue([view], 'r', 999)).toBeNull()
+  })
+})
+
+// ── #100: GET /api/pipeline/{repo}/{issue}/legs helpers ────────────────────
+
+describe('legStageBox', () => {
+  it('maps a work leg onto the coding stage box', () => {
+    expect(legStageBox('work')).toBe('coding')
+  })
+
+  it('leaves smoke and review as-is -- same spelling on both sides', () => {
+    expect(legStageBox('smoke')).toBe('smoke')
+    expect(legStageBox('review')).toBe('review')
+  })
+
+  it('passes an unrecognised leg stage through unchanged rather than dropping it', () => {
+    expect(legStageBox('chat')).toBe('chat')
+  })
+})
+
+describe('isLegInFlight', () => {
+  it('is true for a dispatched leg with no finished_at', () => {
+    expect(isLegInFlight(makeLeg({ dispatched_at: 1_700_000_000, finished_at: null }))).toBe(true)
+  })
+
+  it('is false once finished_at is set', () => {
+    expect(isLegInFlight(makeLeg({ dispatched_at: 1_700_000_000, finished_at: 1_700_000_600 }))).toBe(
+      false,
+    )
+  })
+
+  it('is false for a leg that never dispatched at all', () => {
+    expect(isLegInFlight(makeLeg({ dispatched_at: null, finished_at: null }))).toBe(false)
+  })
+})
+
+describe('legDurationMs', () => {
+  it('is the finished_at - dispatched_at gap in milliseconds', () => {
+    const leg = makeLeg({ dispatched_at: 1_700_000_000, finished_at: 1_700_000_600 })
+    expect(legDurationMs(leg)).toBe(600_000)
+  })
+
+  it('is null while still in flight', () => {
+    expect(legDurationMs(makeLeg({ dispatched_at: 1_700_000_000, finished_at: null }))).toBeNull()
+  })
+
+  it('is null for a leg that never dispatched', () => {
+    expect(legDurationMs(makeLeg({ dispatched_at: null, finished_at: null }))).toBeNull()
+  })
+})
+
+describe('groupLegsByStage', () => {
+  it('groups legs by their mapped stage box, preserving per-group order', () => {
+    const workNewer = makeLeg({ assignment_id: 'w2', stage: 'work' })
+    const workOlder = makeLeg({ assignment_id: 'w1', stage: 'work' })
+    const review = makeLeg({ assignment_id: 'r1', stage: 'review' })
+    const groups = groupLegsByStage([workNewer, workOlder, review])
+
+    expect(groups.get('coding')?.map((l) => l.assignment_id)).toEqual(['w2', 'w1'])
+    expect(groups.get('review')?.map((l) => l.assignment_id)).toEqual(['r1'])
+    expect(groups.get('merge')).toBeUndefined()
+  })
+
+  it('returns an empty map for an empty leg list', () => {
+    expect(groupLegsByStage([]).size).toBe(0)
   })
 })

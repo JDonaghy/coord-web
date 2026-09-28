@@ -7,7 +7,7 @@
  * "what counts as active" in the rail would be a lie the moment either
  * definition changed.
  */
-import type { PipelineStage, PipelineView } from '@/api/client'
+import type { PipelineLegWire, PipelineStage, PipelineView } from '@/api/client'
 
 /**
  * `current_stage` values that are terminal failures. Exported (rather than
@@ -303,4 +303,73 @@ export function findLatestForIssue(
     }
   }
   return latest
+}
+
+// ── Per-leg data (#100: GET /api/pipeline/{repo}/{issue}/legs) ─────────────
+
+/**
+ * `PipelineLegWire.stage` -> the box it belongs to in the stage-flow view.
+ *
+ * A leg's `stage` is the dispatched assignment's own `type`
+ * (`AssignmentType` — `'work'`, `'smoke'`, `'review'`, ...), which is NOT
+ * the same vocabulary as `PipelineStage.name` on `PipelineView.stages`
+ * (`'coding'`, `'smoke'`, `'review'`, `'uat'`, `'merge'`) — the one place the
+ * two disagree is work/coding. `'merge'` and `'uat'` never appear as a leg's
+ * `stage` today (merging is a synchronous API action, not a dispatched
+ * subprocess, and no `uat` assignment type exists yet), so those two boxes
+ * always show a zero leg count — an honest fact about the pipeline, not a
+ * gap in this mapping. Any `stage` this map doesn't recognise (e.g. a
+ * `plan`/`chat`/`audit` leg booked against the same issue) passes through
+ * unchanged rather than being dropped, so `groupLegsByStage` below never
+ * silently loses a row.
+ */
+const LEG_STAGE_TO_PIPELINE_STAGE: Record<string, string> = {
+  work: 'coding',
+  smoke: 'smoke',
+  review: 'review',
+}
+
+export function legStageBox(legStage: string): string {
+  return LEG_STAGE_TO_PIPELINE_STAGE[legStage] ?? legStage
+}
+
+/**
+ * Is `leg` currently in flight — dispatched, not yet finished? Per
+ * `PipelineLegWire`'s doc comment, the server always sends `dispatched_at`
+ * with `finished_at: null` for a running leg rather than omitting the row,
+ * so this is the one condition that means "in flight" (a leg that never
+ * dispatched at all — `dispatched_at: null` — is not running, just booked).
+ */
+export function isLegInFlight(leg: PipelineLegWire): boolean {
+  return leg.dispatched_at != null && leg.finished_at == null
+}
+
+/**
+ * Group `legs` (assumed newest-dispatch-first, the server's own order — see
+ * `fetchPipelineLegs`) by the stage-flow box they belong to
+ * (`legStageBox`), preserving that newest-first order within each group so
+ * `group[0]` is always a stage's most recent attempt.
+ */
+export function groupLegsByStage(legs: readonly PipelineLegWire[]): Map<string, PipelineLegWire[]> {
+  const groups = new Map<string, PipelineLegWire[]>()
+  for (const leg of legs) {
+    const box = legStageBox(leg.stage)
+    const group = groups.get(box)
+    if (group) group.push(leg)
+    else groups.set(box, [leg])
+  }
+  return groups
+}
+
+/**
+ * A finished leg's run time in milliseconds, or `null` when either endpoint
+ * is missing (still running, or never dispatched). Callers wanting an
+ * in-flight leg's *live* elapsed time compute that themselves against a
+ * ticking clock (see `StageRail`/`LogPanel`'s own `nowMs` pattern) rather
+ * than through this function, which is deliberately a pure function of the
+ * wire data alone.
+ */
+export function legDurationMs(leg: PipelineLegWire): number | null {
+  if (leg.dispatched_at == null || leg.finished_at == null) return null
+  return (leg.finished_at - leg.dispatched_at) * 1000
 }
